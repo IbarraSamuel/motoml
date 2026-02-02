@@ -1,0 +1,29 @@
+[workspace]
+authors = ["Samuel Ibarra <ing.samuelibarra@gmail.com>"]
+channels = ["https://prefix.dev/max-nightly", "https://prefix.dev/conda-forge"]
+name = "motoml"
+platforms = ["linux-64", "osx-arm64"]
+version = "0.1.0"
+preview = ["pixi-build"]
+
+[package]
+name = "motoml"
+version = "0.0.1"
+description = "TOML Reader for Mojo."
+
+[package.build]
+backend = { name = "pixi-build-mojo", version = "0.1.*" }
+
+[package.host-dependencies]
+mojo-compiler = "<=1.0.0"
+
+[package.build-dependencies]
+mojo-compiler = "<=1.0.0"
+
+[package.run-dependencies]
+mojo-compiler = "<=1.0.0"
+
+[dependencies]
+
+[tasks]
+# TODO: RUN TESTS, CHECK DOCS
