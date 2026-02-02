@@ -58,7 +58,6 @@ fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
 
         @parameter
         if _type_is_eq[tt, T]():
-            print("found type!")
             return rebind_var[T](toml.inner.take[T]())
 
     @parameter
@@ -70,7 +69,6 @@ fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
         or _type_is_eq[T, toml.OpaqueArray]()
         or _type_is_eq[T, toml.OpaqueTable]()
     ):
-        print("First check is not working somehow!")
         return toml.inner.take[T]()
 
     @parameter
@@ -129,5 +127,95 @@ fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
             TYPE
         ]()
         ptr[] = parse_toml_type[TYPE](tml_v.take_pointee())
+
+    return obj^
+
+fn toml_to_struct[T: Movable](var toml: TomlType, out obj: Optional[T]):
+    comptime o = toml.o
+
+    # Would be great if this could be checked with Where clauses.
+    @parameter
+    for ti in range(Variadic.size(AnyTomlType[toml.o].Ts)):
+        comptime tt = AnyTomlType[toml.o].Ts[ti]
+
+        @parameter
+        if _type_is_eq[tt, T]():
+            return toml.inner.take[T]()
+        # elif _type_is_eq[tt, Optional[T]]():
+        #     return toml.inner.take[Optional[T]]()
+
+    @parameter
+    if (
+        _type_is_eq[T, toml.Integer]()
+        or _type_is_eq[T, toml.Float]()
+        or _type_is_eq[T, toml.Boolean]()
+        or _type_is_eq[T, toml.String]()
+        or _type_is_eq[T, toml.OpaqueArray]()
+        or _type_is_eq[T, toml.OpaqueTable]()
+    ):
+        import os
+        os.abort("This should not happen since should be covered by first loop")
+
+    @parameter
+    if get_base_type_name[T]() == "List":
+        if toml.isa[TomlType[o].Array]():
+            comptime Iterator = downcast[T, Iterable].IteratorType[
+                origin_of(toml)
+            ]
+
+            # This is the element typed on the Type provided (T)
+            comptime Elem = downcast[Iterator.Element, Copyable]
+
+            var lst = List[Elem]()
+            ref toml_arr = toml.as_opaque_array()
+            while len(toml_arr) > 0:
+                var vb = toml_arr.pop().bitcast[TomlType[o]]()
+                var e = toml_to_struct[Elem](vb.take_pointee())
+                if not e:
+                    return None
+                lst.append(e.unsafe_take())
+
+            obj = rebind_var[T](lst^)
+            return
+        return None
+
+    __comptime_assert is_struct_type[T](), "T must be a struct"
+    __comptime_assert conforms_to(
+        T, ImplicitlyDestructible
+    ), "We cannot handle Linear Types yet."
+
+    __mlir_op.`lit.ownership.mark_initialized`(__get_mvalue_as_litref(obj))
+    var obj = trait_downcast_var[ImplicitlyDestructible & Movable](obj^)
+
+    comptime field_names = struct_field_names[T]()
+    comptime field_types = struct_field_types[T]()
+
+    @parameter
+    for fi in range(struct_field_count[T]()):
+        comptime NAME = field_names[fi]
+        comptime TYPE = field_types[fi]
+        comptime OFFSET = offset_of[T, index=fi]()
+
+        var kk: StringSlice[o]
+        for k in toml.inner[toml.OpaqueTable].keys():
+            if k == NAME:
+                kk = k
+                break
+        else:
+            return None
+
+        # TODO: try to avoid the default opaque pointer here.
+        var tml_v = toml.inner[toml.OpaqueTable].pop(kk, {}).bitcast[TomlType[o]]()
+
+        if not conforms_to(TYPE, Movable):
+            return None
+
+        var ptr = (UnsafePointer(to=obj).bitcast[Byte]() + OFFSET).bitcast[
+            TYPE
+        ]()
+        var some_toml = toml_to_struct[TYPE](tml_v.take_pointee())
+        if not some_toml:
+            return None
+        ptr[] = some_toml.unsafe_take()
 
     return obj^
