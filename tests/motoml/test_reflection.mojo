@@ -45,7 +45,7 @@ struct TestBuild[o: ImmutOrigin](Movable, Writable):
         self.language = {}
 
 
-fn test_toml_to_struct() raises:
+fn test_parse_toml_type() raises:
     from testing import assert_true
 
     var toml = read.parse_toml(TOML_CONTENT)
@@ -54,6 +54,16 @@ fn test_toml_to_struct() raises:
     assert_true(test_build.name == "samuel")
     assert_true(test_build.age == 30)
 
+fn test_toml_to_struct() raises:
+    from testing import assert_true
+
+    var toml = read.parse_toml(TOML_CONTENT)
+    var test_build = reflection.toml_to_struct[TestBuild[toml.o]](toml^)
+
+    assert_true(test_build)
+    assert_true(test_build.value().name == "samuel")
+    assert_true(test_build.value().age == 30)
+    assert_true(test_build.value().language.info.name == "mojo")
 
 fn main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
