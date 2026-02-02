@@ -491,7 +491,7 @@ fn string_to_type[
         idx += 5
         return TomlType[data.origin](False)
 
-    var num = Float64.MIN_FINITE
+    var num = 0.0
     var flt = False
 
     while (
@@ -505,7 +505,7 @@ fn string_to_type[
         if c < lower or c > upper:
             if c == Period and not flt:
                 flt = True
-                init = 0
+                init = idx
                 idx += 1
                 continue
 
@@ -624,6 +624,7 @@ fn parse_and_update_kv_pairs[
     separator: Byte, end_char: Byte
 ](data: Span[Byte], mut idx: Int, mut base: TomlType[data.origin]):
     """This function ends at end_char always."""
+    skip[Space, NewLine](data, idx)
     while idx < len(data) and data[idx] != end_char:
         find_kv_and_update_base[end_char=end_char](data, idx, base)
         skip[Space](data, idx)
