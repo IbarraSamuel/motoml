@@ -56,10 +56,13 @@ comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
 fn test_toml_to_type_raises() raises:
     var toml_obj = materialize[TOML_OBJ]()
-    var test_build = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
+    var value = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
 
-    assert_equal(test_build.name, "samuel")
-    assert_equal(test_build.age, 30)
+    assert_equal(value.name, "samuel")
+    assert_equal(value.age, 30)
+    assert_equal(value.language.info.name, "mojo")
+    assert_equal(value.language.current_version.value(), 0.26)
+    assert_equal(Bool(value.language.stable_version), False)
 
 
 fn test_toml_to_type() raises:

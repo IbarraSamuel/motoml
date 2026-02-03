@@ -1,3 +1,8 @@
+"""
+TODO: Add Variant Support
+TODO: Make it a single implementation.
+"""
+
 from motoml.read import TomlType, AnyTomlType, parse_toml
 from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from builtin.rebind import downcast
@@ -13,54 +18,57 @@ from reflection import (
 )
 
 
-# from utils import Variant
-# from os import abort
+from utils import Variant
+from os import abort
 
-# struct Result[T: Movable]:
-#     var inner: Variant[Self.T, Error]
+struct Result[T: Movable](Boolable):
+    var inner: Variant[Self.T, Error]
 
-#     @implicit
-#     fn __init__(out self, var value: Self.T):
-#         self.inner = value^
+    @implicit
+    fn __init__(out self, var value: Self.T):
+        self.inner = value^
 
-#     @implicit
-#     fn __init__(out self, var error: Error):
-#         self.inner = error^
+    @implicit
+    fn __init__(out self, var error: Error):
+        self.inner = error^
 
-#     @always_inline
-#     fn is_ok(self) -> Bool:
-#         return self.inner.isa[Self.T]()
+    fn __bool__(self) -> Bool:
+        return self.is_ok()
 
-#     @always_inline
-#     fn is_error(self) -> Bool:
-#         return not self.is_ok()
+    @always_inline
+    fn is_ok(self) -> Bool:
+        return self.inner.isa[Self.T]()
 
-#     fn as_optional(var self) -> Optional[Self.T]:
-#         if self.is_ok():
-#             return self.inner.take[Self.T]()
-#         else:
-#             return None
+    @always_inline
+    fn is_error(self) -> Bool:
+        return not self.is_ok()
 
-#     fn unwrap(self) -> ref[self.inner] Self.T:
-#         if not self.is_ok():
-#             abort("Cannot take ok value from Result.")
-#         return self.inner[Self.T]
+    fn as_optional(var self) -> Optional[Self.T]:
+        if self.is_ok():
+            return self.inner.take[Self.T]()
+        else:
+            return None
 
-#     fn unwrap_error(self) -> ref[self.inner] Error:
-#         if self.is_ok():
-#             abort("Cannot take ok value from Result.")
-#         return self.inner[Error]
+    fn value(self) -> ref[self.inner] Self.T:
+        if not self.is_ok():
+            abort("Cannot take ok value from Result.")
+        return self.inner[Self.T]
 
-#     fn unsafe_take(var self) -> Self.T:
-#         return self.inner.take[Self.T]()
+    fn unwrap_error(self) -> ref[self.inner] Error:
+        if self.is_ok():
+            abort("Cannot take ok value from Result.")
+        return self.inner[Error]
 
-#     fn unsafe_take_error(var self) -> Error:
-#         return self.inner.take[Error]()
+    fn unsafe_take(var self) -> Self.T:
+        return self.inner.unsafe_take[Self.T]()
+
+    fn unsafe_take_error(var self) -> Error:
+        return self.inner.take[Error]()
         
 
 
 # Try to make the optional workflow to work
-fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
+fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     # Calculate all types that matches the type T within the AnyType type
     comptime TomlTypes = type_of(toml.inner).Ts
     comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[toml_type, T]()
@@ -78,8 +86,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
     @parameter
     if get_base_type_name[T]() == "List":
         if not toml.inner.isa[toml.OpaqueArray]():
-            print("Type is a list but toml value is not a list.")
-            return None
+            return Error("Type is a list but toml value is not a list.")
 
         # Use the fact that List is iterable, to get the inner element using the trait.
         comptime Elem = downcast[downcast[T, Iterable].IteratorType[
@@ -95,10 +102,9 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
             var e = toml_to_type[Elem](toml_elem.take_pointee())
 
             if not e:
-                print("Not able to parse value from list.")
-                return None
+                return Error("Not able to parse value from list.")
 
-            lst.append(e.unsafe_take())
+            lst.append(e^.unsafe_take())
 
         lst.reverse()
         return rebind_var[T](lst^)
@@ -130,8 +136,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
         else:
             @parameter
             if get_base_type_name[TYPE]() != "Optional":
-                print("A field needed on the struct is not available on the toml table, and such field is not optional.")
-                return None
+                return Error("A field needed on the struct is not available on the toml table, and such field is not optional.")
 
             key_list.append(None)
 
@@ -160,22 +165,20 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
             var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
             var value_or_none = toml_to_type[Inner](toml_value.take_pointee())
             if not value_or_none:
-                print("Not able to parse toml value into a struct field.")
                 _destroy_obj(inner_obj^)
-                return None
+                return Error("Not able to parse toml value into a struct field.")
 
-            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none.take()
+            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take()
             continue
 
         var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
         var value_or_none = toml_to_type[TYPE](toml_value.take_pointee())
 
         if not value_or_none:
-            print("Not able to parse toml value into a struct field.")
             _destroy_obj(inner_obj^)
-            return None
+            return Error("Not able to parse toml value into a struct field.")
 
-        field_ptr.bitcast[TYPE]()[] = value_or_none.take()
+        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take()
 
     return inner_obj^
 
@@ -218,7 +221,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
             if not e:
                 raise "Not able to parse value from list."
 
-            lst.append(e.unsafe_take())
+            lst.append(e^.unsafe_take())
 
         lst.reverse()
         return rebind_var[T](lst^)
@@ -282,7 +285,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
                 _destroy_obj(inner_obj^)
                 raise "Not able to parse toml value into a struct field."
 
-            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none.take()
+            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take()
             continue
 
         var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
@@ -292,7 +295,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
             _destroy_obj(inner_obj^)
             raise "Not able to parse toml value into a struct field."
 
-        field_ptr.bitcast[TYPE]()[] = value_or_none.take()
+        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take()
 
     return inner_obj^
 
