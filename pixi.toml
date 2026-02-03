@@ -24,6 +24,9 @@ mojo-compiler = "<=1.0.0"
 mojo-compiler = "<=1.0.0"
 
 [dependencies]
+mojo = ">=0.26.2.0.dev2026020205,<0.27"
+motoml = { path = "." }
 
 [tasks]
-# TODO: RUN TESTS, CHECK DOCS
+test_reflection = { cmd = "mojo tests/motoml/test_reflection.mojo" }
+# TODO: CHECK DOCS

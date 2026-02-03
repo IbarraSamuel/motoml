@@ -404,7 +404,8 @@ fn parse_multiline_string(
         ):
             idx += 1
 
-    value = data[value_init:idx]
+    # When it stopped, the value already have two quotes, remove them from value
+    value = data[value_init : idx - 2]
 
 
 fn parse_quoted_string(
@@ -479,7 +480,7 @@ fn string_to_type[
     """Returns end of value + 1."""
     comptime lower, upper = ord("0"), ord("9")
     comptime INT_AGG, DEC_AGG = 10.0, 0.1
-    var init = idx
+    comptime neg, pos = ord("-"), ord("+")
     # var all_is_digit = True
     # var has_period = False
 
@@ -491,8 +492,18 @@ fn string_to_type[
         idx += 5
         return TomlType[data.origin](False)
 
-    var num = 0.0
+    var sign = 1
+    if data[idx] == neg:
+        sign = -1
+        idx += 1
+    elif data[idx] == pos:
+        idx += 1
+
+    var num = 0.0 * sign
     var flt = False
+
+    # to agg later on the decimals
+    var init = idx
 
     while (
         idx < len(data)
@@ -512,7 +523,11 @@ fn string_to_type[
             os.abort("value is not a numeric value.")
 
         var cc = Float64(c - lower)
-        num = num * 10 + cc if not flt else num + cc * 0.1 ** (idx - init)
+        num = (
+            num * 10
+            + sign * cc if not flt else num
+            + sign * cc * 0.1 ** (idx - init)
+        )
         idx += 1
 
     return TomlType[data.origin](Int(num)) if not flt else TomlType[
