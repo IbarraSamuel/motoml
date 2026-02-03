@@ -3,13 +3,48 @@ from motoml.reflection import toml_to_type_raises, toml_to_type
 from testing import TestSuite, assert_equal
 from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 
+
+@fieldwise_init
+struct Info[o: ImmutOrigin](Movable, Writable, Representable):
+    var name: StringSlice[Self.o]
+    var version: StringSlice[Self.o]
+
+    fn __repr__(self) -> String:
+        var s = String()
+        self.write_to(s)
+        return s
+
+@fieldwise_init
+struct Language[o: ImmutOrigin](Movable, Writable, Representable):
+    var info: Info[Self.o]
+    var current_version: Optional[Float64]
+    var stable_version: Optional[Float64]
+
+    fn __repr__(self) -> String:
+        var s = String()
+        self.write_to(s)
+        return s
+
+
+@fieldwise_init
+struct TestBuild[o: ImmutOrigin](Movable, Writable, Representable):
+    var name: StringSlice[Self.o]
+    var age: Int
+    var other_types: List[Float64]
+    var language: Language[Self.o]
+
+    fn __repr__(self) -> String:
+        var s = String()
+        self.write_to(s)
+        return s
+
 comptime TOML_CONTENT = """
 name = "samuel"
 age = 30
 other_types = [1.0, 2.0, 3.0]
 
 [language]
-stable_version = 1.0
+current_version = 0.26
 
 [language.info]
 name = "mojo"
@@ -18,37 +53,20 @@ version = "0.26.2.0"
 
 comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
-@fieldwise_init
-struct Info[o: ImmutOrigin](Movable):
-    var name: StringSlice[Self.o]
-    var version: StringSlice[Self.o]
 
-@fieldwise_init
-struct Language[o: ImmutOrigin](Movable):
-    var info: Info[Self.o]
-    var current_version: Optional[Float64]
-    var stable_version: Optional[Float64]
+fn test_toml_to_type_raises() raises:
+    var toml_obj = materialize[TOML_OBJ]()
+    var test_build = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
 
-@fieldwise_init
-struct TestBuild[o: ImmutOrigin](Movable):
-    var name: StringSlice[Self.o]
-    var age: Int
-    var other_types: List[Float64]
-    var language: Language[Self.o]
-
-# fn test_toml_to_type_raises() raises:
-#     var toml_obj = materialize[TOML_OBJ]()
-#     var test_build = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
-
-#     assert_equal(test_build.name, "samuel")
-#     assert_equal(test_build.age, 30)
+    assert_equal(test_build.name, "samuel")
+    assert_equal(test_build.age, 30)
 
 
 fn test_toml_to_type() raises:
     var toml_obj = materialize[TOML_OBJ]()
     var value_or_none = toml_to_type[TestBuild[StaticConstantOrigin]](toml_obj^)
-
     assert_equal(Bool(value_or_none), True)
+
     ref value = value_or_none.value()
     assert_equal(value.name, "samuel")
     assert_equal(value.age, 30)
