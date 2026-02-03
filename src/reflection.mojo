@@ -1,5 +1,5 @@
 from motoml.read import TomlType, AnyTomlType, parse_toml
-from sys.intrinsics import _type_is_eq
+from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from builtin.rebind import downcast
 from reflection import (
     is_struct_type,
@@ -8,46 +8,13 @@ from reflection import (
     struct_field_types,
     offset_of,
     get_base_type_name,
+    get_type_name,
     struct_field_type_by_name,
 )
 
-from sys import size_of
 
 
-@fieldwise_init
-struct Info[o: ImmutOrigin](Movable, Writable):
-    var name: StringSlice[Self.o]
-    var version: StringSlice[Self.o]
-
-    fn __init__(out self):
-        self.name = {}
-        self.version = {}
-
-
-@fieldwise_init
-struct Language[o: ImmutOrigin](Movable, Writable):
-    var info: Info[Self.o]
-
-    fn __init__(out self):
-        self.info = {}
-
-
-# @fieldwise_init
-# @explicit_destroy
-struct TestBuild[o: ImmutOrigin](Movable, Writable):
-    var name: StringSlice[Self.o]
-    var age: Int
-    var other_types: List[Float64]
-    var language: Language[Self.o]
-
-    fn __init__(out self):
-        self.name = {}
-        self.age = {}
-        self.other_types = {}
-        self.language = {}
-
-
-fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
+fn toml_to_type_raises[T: Movable](var toml: TomlType, out obj: T) raises:
     comptime o = toml.o
 
     # Would be great if this could be checked with Where clauses.
@@ -83,7 +50,7 @@ fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
             ref toml_arr = toml.as_opaque_array()
             while len(toml_arr) > 0:
                 var vb = toml_arr.pop().bitcast[TomlType[o]]()
-                var e = parse_toml_type[Elem](vb.take_pointee())
+                var e = toml_to_type_raises[Elem](vb.take_pointee())
                 lst.append(e^)
 
             obj = rebind_var[T](lst^)
@@ -125,146 +92,155 @@ fn parse_toml_type[T: Movable](var toml: TomlType, out obj: T) raises:
         var ptr = (UnsafePointer(to=obj).bitcast[Byte]() + OFFSET).bitcast[
             TYPE
         ]()
-        ptr[] = parse_toml_type[TYPE](tml_v.take_pointee())
+        ptr[] = toml_to_type_raises[TYPE](tml_v.take_pointee())
 
     return obj^
 
-fn toml_to_struct[T: Movable](var toml: TomlType) -> Optional[T]:
+# Try to make the optional workflow to work
+fn toml_to_type[T: Movable](var toml: TomlType) -> Optional[T]:
+    # Calculate all types that matches the type T within the AnyType type
+    comptime TomlTypes = type_of(toml.inner).Ts
+    comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[toml_type, T]()
+    comptime TypeMatch = Variadic.filter_types[*TomlTypes, predicate=FilterType]
+    comptime MATCH_LEN = Variadic.size(TypeMatch)
 
-    # Would be great if this could be checked with Where clauses.
+    __comptime_assert MATCH_LEN <= 1, "1 or 0 types within AnyTomlType matches type T"
+
     @parameter
-    for ti in range(Variadic.size(AnyTomlType[toml.o].Ts)):
-        @parameter
-        if _type_is_eq[AnyTomlType[toml.o].Ts[ti], T]():
-            print("direct type...")
-            return toml.inner.take[T]()
+    if MATCH_LEN == 1:  # One type matches with T
+        return toml.inner.take[T]()
 
-    # @parameter
-    # if (
-    #     _type_is_eq[T, toml.Integer]()
-    #     or _type_is_eq[T, toml.Float]()
-    #     or _type_is_eq[T, toml.Boolean]()
-    #     or _type_is_eq[T, toml.String]()
-    #     or _type_is_eq[T, toml.OpaqueArray]()
-    #     or _type_is_eq[T, toml.OpaqueTable]()
-    # ):
-    #     return toml.inner.take[T]()
-        # import os
-        # os.abort("This should not happen since should be covered by first loop")
+    # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
     @parameter
     if get_base_type_name[T]() == "List":
-        if not toml.isa[toml.Array]():
+        if not toml.inner.isa[toml.OpaqueArray]():
+            print("Type is a list but toml value is not a list.")
             return None
 
-        comptime Iterator = downcast[T, Iterable].IteratorType[
+        # Use the fact that List is iterable, to get the inner element using the trait.
+        comptime Elem = downcast[downcast[T, Iterable].IteratorType[
             origin_of(toml)
-        ]
-
-        # This is the element typed on the Type provided (T)
-        comptime Elem = downcast[Iterator.Element, Copyable]
+        ].Element, Copyable]
 
         var lst = List[Elem]()
         ref toml_arr = toml.as_opaque_array()
         while len(toml_arr) > 0:
-            var vb = toml_arr.pop().bitcast[TomlType[toml.o]]()
-            var e = toml_to_struct[Elem](vb.take_pointee())
+            var toml_elem = toml_arr.pop().bitcast[TomlType[toml.o]]()
+
+            # parse the toml_elem to the type of the list typed on T
+            var e = toml_to_type[Elem](toml_elem.take_pointee())
+
             if not e:
+                print("Not able to parse value from list.")
                 return None
+
             lst.append(e.unsafe_take())
 
+        lst.reverse()
         return rebind_var[T](lst^)
 
-    # Work directly on T type, but not on obj type. Because Obj is Optional[T].
-    @parameter
-    if not is_struct_type[T]() or not conforms_to(T, ImplicitlyDestructible):
-        return None
+    # ========= Working with Structs here ===============
 
-    comptime DT = downcast[T, ImplicitlyDestructible & Movable]
-    comptime field_names = struct_field_names[DT]()
+    __comptime_assert is_struct_type[T](), "T should be a struct because is not a List and is not part of AnyTomlType Variant."
+    comptime DT = T
+
     comptime field_types = struct_field_types[DT]()
     comptime field_count = struct_field_count[DT]()
-    # Check that the toml value is a struct
-    if not toml.inner.isa[toml.OpaqueTable]():
-        return None
+    comptime field_names = struct_field_names[DT]()
 
-    # print(toml)
     ref toml_tb = toml.inner[toml.OpaqueTable]
-    # print(toml)
-    # for kv in toml_tb.items():
-    #     print("key:", kv.key, ", value:", kv.value.bitcast[TomlType[toml.o]]()[])
 
+    # ========= Check if the object is initializable before initializing it ===========
 
-
-    # Check and compile a mapping of values that you require to add into the struct.
     var key_list = List[Optional[StringSlice[toml.o]]](capacity=field_count)
     @parameter
     for fi in range(field_count):
+        __comptime_assert conforms_to(field_types[fi], Movable), "Each type Ti of the struct T should be Movable."
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
 
-        for k in toml_tb:
+        for k in toml_tb.keys():
             if NAME == k:
                 key_list.append(k)
                 break
         else:
             @parameter
-            if get_base_type_name[TYPE]() == "Optional":
-                # If it's an optional value in the struct, just leave a None there.
-                key_list.append(None)
-            else:
-                # in case the field is not optional and it's not in the dict
+            if get_base_type_name[TYPE]() != "Optional":
+                print("A field needed on the struct is not available on the toml table, and such field is not optional.")
                 return None
 
-    # Only if we still didn't return anything from past loop then do this.
-    # Why? Because you already know you will be able to initialize the object completely.
-    # Still parsing the value could be wrong, but this could be handled in next fixes.
+            key_list.append(None)
 
-    # print(key_list)
+    # ==== Initialize object =====
+
     var inner_obj: DT
     __mlir_op.`lit.ownership.mark_initialized`(__get_mvalue_as_litref(inner_obj))
+    var struct_ptr = UnsafePointer(to=inner_obj).bitcast[Byte]()
 
     @parameter
     for fi in range(field_count):
         comptime NAME = field_names[fi]
-        comptime FTYPE= field_types[fi]
-        comptime OFFSET = offset_of[T, index=fi]()
+        comptime TYPE = field_types[fi] # this is already checked on previous iteration.
+        comptime OFFSET = offset_of[DT, index=fi]()
 
-        var ptr = (UnsafePointer(to=inner_obj).bitcast[Byte]() + OFFSET).bitcast[FTYPE]()
-
-        # TODO: try to avoid the default opaque pointer here.
+        var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]
 
-        # print("on idx:", fi)
-        # print(key)
-        # print(toml_tb)
-        var tml_v = toml_tb.pop(key.value(), {}).bitcast[TomlType[toml.o]]()
-        # print(tml_v.take_pointee())
-
-        # continue
-        # Need to do parameter so compiler doesn't use this path when the type is not optional
         @parameter
-        if get_base_type_name[FTYPE]() == "Optional":
-            comptime Inner = downcast[FTYPE, Iterator].Element
-            if not key:
-                # Optional is defaultable, so let's use that.
-                ptr.bitcast[Optional[Inner]]()[] = None
+        if get_base_type_name[TYPE]() == "Optional":
+            comptime Inner = downcast[TYPE, Iterator].Element
+            if not key: # we identify this value is not in the toml table
+                field_ptr.bitcast[Optional[Inner]]()[] = None
                 continue
 
-            # if it's optional and there is some value when parsed, then try to parse the inner value, and then
-            # just try to fill the optional with the value
+            var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
+            var value_or_none = toml_to_type[Inner](toml_value.take_pointee())
+            if not value_or_none:
+                print("Not able to parse toml value into a struct field.")
+                _destroy_obj(inner_obj^)
+                return None
 
-            # Take advantage of Optional beign an Iterator, to take T.Element, which is the inner T itself.
-            var result = toml_to_struct[Inner](tml_v.take_pointee())
-            ptr.bitcast[Optional[Inner]]()[] = result^
+            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none.take()
             continue
 
-        var field_obj = toml_to_struct[FTYPE](tml_v.take_pointee())
+        var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
+        var value_or_none = toml_to_type[TYPE](toml_value.take_pointee())
 
-        if not field_obj:
+        if not value_or_none:
+            print("Not able to parse toml value into a struct field.")
+            _destroy_obj(inner_obj^)
             return None
 
-        var field: FTYPE = rebind[Optional[FTYPE]](field_obj).take()
-        ptr[] = field
-        
+        field_ptr.bitcast[TYPE]()[] = value_or_none.take()
+
     return inner_obj^
+
+fn _destroy_obj[T: Movable, //, initialized_fields: Int = struct_field_count[T]()](var obj: T):
+    __comptime_assert is_struct_type[T](), "we can only destroy structs."
+    comptime field_types = struct_field_types[T]()
+
+    @parameter
+    for fi in range(initialized_fields):
+        comptime FT = field_types[fi]
+        comptime FO = offset_of[T, index=fi]()
+
+        var field_ptr = (UnsafePointer(to=obj).bitcast[Byte]() + FO)
+
+        @parameter
+        if conforms_to(FT, ImplicitlyDestructible):
+            field_ptr.bitcast[downcast[FT, ImplicitlyDestructible]]().destroy_pointee()
+        elif conforms_to(FT, Movable):
+            var field_obj = field_ptr.bitcast[downcast[FT, Movable]]().take_pointee()
+
+            # NOTE: This can cause infinite loop? check if there are movable types with not Implicit Destruction.
+            _destroy_obj(field_obj)           
+        else:
+            from os import abort
+            __mlir_op.`lit.ownership.mark_destroyed`(__get_mvalue_as_litref(obj))
+            abort(String("Unable to destroy struct:", get_type_name[T]()))
+    
+    __mlir_op.`lit.ownership.mark_destroyed`(__get_mvalue_as_litref(obj))
+
+        
+        
