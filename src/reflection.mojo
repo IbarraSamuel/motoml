@@ -21,6 +21,7 @@ from reflection import (
 from utils import Variant
 from os import abort
 
+@explicit_destroy("The Result must be consumed.")
 struct Result[T: Movable](Boolable):
     var inner: Variant[Self.T, Error]
 
@@ -33,37 +34,55 @@ struct Result[T: Movable](Boolable):
         self.inner = error^
 
     fn __bool__(self) -> Bool:
-        return self.is_ok()
-
-    @always_inline
-    fn is_ok(self) -> Bool:
         return self.inner.isa[Self.T]()
 
-    @always_inline
-    fn is_error(self) -> Bool:
-        return not self.is_ok()
-
-    fn as_optional(var self) -> Optional[Self.T]:
-        if self.is_ok():
-            return self.inner.take[Self.T]()
-        else:
-            return None
-
-    fn value(self) -> ref[self.inner] Self.T:
-        if not self.is_ok():
-            abort("Cannot take ok value from Result.")
+    fn ref_value(self) -> ref[self.inner] Self.T:
         return self.inner[Self.T]
 
-    fn unwrap_error(self) -> ref[self.inner] Error:
-        if self.is_ok():
-            abort("Cannot take ok value from Result.")
+    fn ref_error(self) -> ref[self.inner] Error:
         return self.inner[Error]
 
-    fn unsafe_take(var self) -> Self.T:
+
+    # -- Destroy methods --
+
+    fn destroy(deinit self):
+        """Destroy the result, and not use the value inside."""
+        pass
+
+    @always_inline
+    fn unsafe_take_value(deinit self) -> Self.T:
+        """Take the value. You must check that there is a value. If not, you will get UB."""
         return self.inner.unsafe_take[Self.T]()
 
-    fn unsafe_take_error(var self) -> Error:
-        return self.inner.take[Error]()
+    @always_inline
+    fn unsafe_take_error(deinit self) -> Error:
+        """Take the error. You must check that there is an error. If not, you will get UB."""
+        return self.inner.unsafe_take[Error]()
+
+    fn error(deinit self) raises -> Error:
+        """Take the error or raises otherwise."""
+        if self:
+            raise "Result has a value T, not an error."
+        return self^.unsafe_take_error()
+
+    fn value(deinit self) raises -> Self.T:
+        """Take the value or raises otherwise."""
+        if not self:
+            raise "Result type has an error, not a value T."
+        return self^.unsafe_take_value()
+    
+    fn as_optional(deinit self) -> Optional[Self.T]:
+        """Convert to an Optional type."""
+        if not self:
+            return None
+        return self^.unsafe_take_value()
+
+    fn or_else(deinit self, var default: downcast[Self.T, ImplicitlyDestructible & Movable]) -> Self.T where conforms_to(Self.T, ImplicitlyDestructible):
+        """Take the value or return a default value."""
+        if not self:
+            return default^
+        return self^.unsafe_take_value()
+
         
 
 
@@ -102,9 +121,9 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
             var e = toml_to_type[Elem](toml_elem.take_pointee())
 
             if not e:
-                return Error("Not able to parse value from list.")
+                return e^.unsafe_take_error()
 
-            lst.append(e^.unsafe_take())
+            lst.append(e^.unsafe_take_value())
 
         lst.reverse()
         return rebind_var[T](lst^)
@@ -166,9 +185,9 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
             var value_or_none = toml_to_type[Inner](toml_value.take_pointee())
             if not value_or_none:
                 _destroy_obj(inner_obj^)
-                return Error("Not able to parse toml value into a struct field.")
+                return value_or_none^.unsafe_take_error()
 
-            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take()
+            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take_value()
             continue
 
         var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
@@ -176,9 +195,9 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
         if not value_or_none:
             _destroy_obj(inner_obj^)
-            return Error("Not able to parse toml value into a struct field.")
+            return value_or_none^.unsafe_take_error()
 
-        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take()
+        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take_value()
 
     return inner_obj^
 
@@ -218,10 +237,10 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
             # parse the toml_elem to the type of the list typed on T
             var e = toml_to_type[Elem](toml_elem.take_pointee())
 
-            if not e:
-                raise "Not able to parse value from list."
+            # if not e:
+            #     raise "Not able to parse value from list."
 
-            lst.append(e^.unsafe_take())
+            lst.append(e^.value())
 
         lst.reverse()
         return rebind_var[T](lst^)
@@ -283,9 +302,9 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
             var value_or_none = toml_to_type[Inner](toml_value.take_pointee())
             if not value_or_none:
                 _destroy_obj(inner_obj^)
-                raise "Not able to parse toml value into a struct field."
+                raise value_or_none^.unsafe_take_error()
 
-            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take()
+            field_ptr.bitcast[Optional[Inner]]()[] = value_or_none^.unsafe_take_value()
             continue
 
         var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[TomlType[toml.o]]() # we know k exists.
@@ -293,9 +312,9 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
         if not value_or_none:
             _destroy_obj(inner_obj^)
-            raise "Not able to parse toml value into a struct field."
+            raise value_or_none^.unsafe_take_error()
 
-        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take()
+        field_ptr.bitcast[TYPE]()[] = value_or_none^.unsafe_take_value()
 
     return inner_obj^
 

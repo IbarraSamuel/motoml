@@ -68,58 +68,24 @@ fn test_toml_to_type_raises() raises:
 fn test_toml_to_type() raises:
     var toml_obj = materialize[TOML_OBJ]()
     var value_or_none = toml_to_type[TestBuild[StaticConstantOrigin]](toml_obj^)
-    assert_equal(Bool(value_or_none), True)
 
-    ref value = value_or_none.value()
+    # in case there is no value, the error will pop up into the test error.
+    var is_some = Bool(value_or_none)
+    try:
+        assert_equal(is_some, True)
+    except e:
+        value_or_none^.destroy()
+        raise e^
+
+    # Cannot fail
+    var value = value_or_none^.value()
+
     assert_equal(value.name, "samuel")
     assert_equal(value.age, 30)
     assert_equal(value.language.info.name, "mojo")
     assert_equal(value.language.current_version.value(), 0.26)
     assert_equal(Bool(value.language.stable_version), False)
 
-# TODO: Test nested keys..
-comptime TOML_TYPES = '''
-string = "abcd"
-string_with_scape = "ab\\"cd"
-multiline_string = """
-select * from something
-"""
-positive_integer = 30
-negative_integer = -30
-positive_float = 3.45
-negative_float = -3.45
-boolean_true = true 
-boolean_false = false
-list = [1, -3.4, "some", true, [1,2], {a=1, b=2}]
-table = {first=1, second=2}
-
-nested.table = {val=2}
-
-[multiline]
-first = 1
-second = 2
-
-[[multiline_list]]
-some_v = 1
-
-[nested.multiline]
-first = 1
-second = 2
-
-[[nested.multiline_list]]
-some_v = 1
-'''
-
-comptime desired_multiline_string = """
-select * from something
-"""
-
-
-fn test_all_toml_types() raises:
-    var res = parse_toml(TOML_TYPES)
-    assert_equal(res["string"].string(), "abcd")
-    assert_equal(res["string_with_scape"].string(), 'ab\\"cd')
-    assert_equal(res["multiline_string"].string(), desired_multiline_string)
 
 
 fn main() raises:

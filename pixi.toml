@@ -24,9 +24,18 @@ mojo-compiler = "<=1.0.0"
 mojo-compiler = "<=1.0.0"
 
 [dependencies]
-mojo = ">=0.26.2.0.dev2026020205,<0.27"
+mojo = "*"
 motoml = { path = "." }
 
+
+# [tasks]
+# test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
+# test-parser = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_parser.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
+# tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
+
 [tasks]
-test_reflection = { cmd = "mojo tests/motoml/test_reflection.mojo" }
+test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
+test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
+tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
+
 # TODO: CHECK DOCS
