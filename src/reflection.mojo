@@ -94,7 +94,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     comptime TypeMatch = Variadic.filter_types[*TomlTypes, predicate=FilterType]
     comptime MATCH_LEN = Variadic.size(TypeMatch)
 
-    __comptime_assert MATCH_LEN <= 1, "1 or 0 types within AnyTomlType matches type T"
+    comptime assert MATCH_LEN <= 1, "1 or 0 types within AnyTomlType matches type T"
 
     @parameter
     if MATCH_LEN == 1:  # One type matches with T
@@ -130,7 +130,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
     # ========= Working with Structs here ===============
 
-    __comptime_assert is_struct_type[T](), "T should be a struct because is not a List and is not part of AnyTomlType Variant."
+    comptime assert is_struct_type[T](), "T should be a struct because is not a List and is not part of AnyTomlType Variant."
     comptime DT = T
 
     comptime field_types = struct_field_types[DT]()
@@ -144,7 +144,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     var key_list = List[Optional[StringSlice[toml.o]]](capacity=field_count)
     @parameter
     for fi in range(field_count):
-        __comptime_assert conforms_to(field_types[fi], Movable), "Each type Ti of the struct T should be Movable."
+        comptime assert conforms_to(field_types[fi], Movable), "Each type Ti of the struct T should be Movable."
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
 
@@ -211,7 +211,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     comptime TypeMatch = Variadic.filter_types[*TomlTypes, predicate=FilterType]
     comptime MATCH_LEN = Variadic.size(TypeMatch)
 
-    __comptime_assert MATCH_LEN <= 1, "1 or 0 types within AnyTomlType matches type T"
+    comptime assert MATCH_LEN <= 1, "1 or 0 types within AnyTomlType matches type T"
 
     @parameter
     if MATCH_LEN == 1:  # One type matches with T
@@ -247,7 +247,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Working with Structs here ===============
 
-    __comptime_assert is_struct_type[T](), "T should be a struct because is not a List and is not part of AnyTomlType Variant."
+    comptime assert is_struct_type[T](), "T should be a struct because is not a List and is not part of AnyTomlType Variant."
     comptime DT = T
 
     comptime field_types = struct_field_types[DT]()
@@ -261,7 +261,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     var key_list = List[Optional[StringSlice[toml.o]]](capacity=field_count)
     @parameter
     for fi in range(field_count):
-        __comptime_assert conforms_to(field_types[fi], Movable), "Each type Ti of the struct T should be Movable."
+        comptime assert conforms_to(field_types[fi], Movable), "Each type Ti of the struct T should be Movable."
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
 
@@ -319,7 +319,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     return inner_obj^
 
 fn _destroy_obj[T: Movable, //, initialized_fields: Int = struct_field_count[T]()](var obj: T):
-    __comptime_assert is_struct_type[T](), "we can only destroy structs."
+    comptime assert is_struct_type[T](), "we can only destroy structs."
     comptime field_types = struct_field_types[T]()
 
     @parameter
