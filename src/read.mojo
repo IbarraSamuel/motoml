@@ -134,25 +134,22 @@ struct TomlTableIter[
 
 
 # TYPES
-comptime Unknown[o: Origin] = Span[Byte, o]
 comptime String[o: Origin] = StringSlice[o]
 comptime Integer = Int
 comptime Float = Float64
 comptime Boolean = Bool
 
-# comptime Array[o: Origin] = List[TomlType[o]]
-# comptime Table[o: Origin] = Dict[String[o], TomlType[o]]
-
 comptime Opaque[o: Origin] = OpaquePointer[o]
 comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
 comptime OpaqueTable[o: Origin] = Dict[String[o], Opaque[MutExternalOrigin]]
 
-# comptime RefArray[o: Origin] = List[TomlRef[o, o]]
-# comptime RefTable[o: Origin] = Dict[String[o], TomlRef[o, o]]
+
+trait ToTaggedJson:
+    fn write_tagged_json_to(self, mut w: Some[Writer]):
+        ...
 
 
-struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
-    comptime Unknown = Unknown[Self.o]
+struct TomlType[o: ImmutOrigin](Copyable, Iterable, ToTaggedJson):
     comptime String = String[Self.o]
     comptime Integer = Integer
     comptime Float = Float
@@ -305,9 +302,6 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
     fn items(ref self) -> TomlTableIter[Self.o, origin_of(self.inner)]:
         return TomlTableIter(self.inner[Self.OpaqueTable])
 
-    fn __init__(out self, *, unknown: Self.Unknown):
-        self.inner = unknown
-
     fn __init__(out self, var v: Self.String):
         self.inner = v
 
@@ -338,17 +332,20 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
             for v in table.values():
                 v.free()
 
-    fn write_to(self, mut w: Some[Writer]):
+    fn write_tagged_json_to(self, mut w: Some[Writer]):
         ref inner = self.inner
 
         if inner.isa[self.String]():
-            w.write('"', inner[self.String], '"')
+            w.write('{"type": "string", "value": "', inner[self.String], '"}')
         elif inner.isa[self.Integer]():
-            w.write(inner[self.Integer])
+            w.write(
+                '{"type": "integer", "value":, "', inner[self.Integer], '"}'
+            )
         elif inner.isa[self.Float]():
-            w.write(inner[self.Float])
+            w.write('{"type": "float", "value", "', inner[self.Float], '"}')
         elif inner.isa[self.Boolean]():
-            w.write("true" if inner[self.Boolean] else "false")
+            var value = "true" if inner[self.Boolean] else "false"
+            w.write('{"type": "bool", "value": "', value, '"}')
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
             w.write("[")
@@ -356,7 +353,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
                 if i != 0:
                     w.write(", ")
                 ref value = Self.from_addr(v)
-                w.write(value)
+                value.write_tagged_json_to(w)
             w.write("]")
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
@@ -365,14 +362,11 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
                 if i != 0:
                     w.write(", ")
                 ref value = Self.from_addr(kv.value)
-                w.write('"', kv.key, '": ', value)
+                w.write('"', kv.key, '": ')
+                value.write_tagged_json_to(w)
             w.write("}")
-        elif inner.isa[self.Unknown]():
-            w.write(
-                "Unknown(",
-                StringSlice(unsafe_from_utf8=inner[self.Unknown]),
-                ")",
-            )
+        else:
+            os.abort("type to repr not identified")
 
 
 comptime AnyTomlType[o: ImmutOrigin] = Variant[
@@ -382,7 +376,6 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     Boolean,
     OpaqueArray,
     OpaqueTable[o],
-    Unknown[o],
 ]
 
 
@@ -530,9 +523,21 @@ fn string_to_type[
         )
         idx += 1
 
-    return TomlType[data.origin](Int(num)) if not flt else TomlType[
-        data.origin
-    ](num)
+    # TODO: Change this. For now let's use this one:
+    var v = data[init:idx]
+    if flt:
+        try:
+            var vi = atol(StringSlice(unsafe_from_utf8=v))
+            return TomlType[data.origin](vi)
+        except:
+            os.abort("identified as float but it's not a float")
+
+    else:
+        try:
+            var vi = Int(StringSlice(unsafe_from_utf8=v))
+            return TomlType[data.origin](vi)
+        except:
+            os.abort("should be an int but it's not an integer")
 
 
 fn parse_value[
@@ -736,7 +741,11 @@ fn parse_toml(content: StringSlice) -> TomlType[content.origin]:
     return base^
 
 
-fn stringify_toml(content: StringSlice[...]) -> StringSlice[ImmutAnyOrigin]:
+fn toml_to_tagged_json(
+    content: StringSlice[...],
+) -> StringSlice[ImmutAnyOrigin]:
     from collections.string import String
 
-    return String(parse_toml(content))
+    s = String()
+    parse_toml(content).write_tagged_json_to(s)
+    return s
