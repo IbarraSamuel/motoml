@@ -7,6 +7,7 @@ from utils import Variant
 from sys.intrinsics import _type_is_eq, unlikely, likely
 from collections.dict import _DictEntryIter
 from builtin.builtin_slice import ContiguousSlice
+from sys.compile import codegen_unreachable
 from memory import OwnedPointer
 import os
 
@@ -485,6 +486,9 @@ fn string_to_type[
         idx += 5
         return TomlType[data.origin](False)
 
+    var v_init = idx
+
+    # Parse floats
     var sign = 1
     if data[idx] == neg:
         sign = -1
@@ -524,17 +528,17 @@ fn string_to_type[
         idx += 1
 
     # TODO: Change this. For now let's use this one:
-    var v = data[init:idx]
+    var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
     if flt:
         try:
-            var vi = atol(StringSlice(unsafe_from_utf8=v))
+            var vi = atof(v)
             return TomlType[data.origin](vi)
         except:
-            os.abort("identified as float but it's not a float")
+            os.abort("should be a float but it's not an float")
 
     else:
         try:
-            var vi = Int(StringSlice(unsafe_from_utf8=v))
+            var vi = atol(v)
             return TomlType[data.origin](vi)
         except:
             os.abort("should be an int but it's not an integer")
