@@ -1,71 +1,72 @@
-from motoml.read import parse_toml
-from testing import assert_equal, TestSuite
-
-# TODO: Test nested keys..
-comptime TOML_TYPES = r'''
-string = "abcd"
-string_with_scape = "ab\"cd"
-multiline_string = """
-select * from something
-"""
-positive_integer = 30
-negative_integer = -30
-positive_float = 3.45
-negative_float = -3.45
-boolean_true = true 
-boolean_false = false
-list = [1, -3.4, "some", true, [1,2], {a=1, b=2}]
-table = {first=1, second=2}
-
-nested.table = {val=2}
-
-[multiline]
-first = 1
-second = 2
-
-[[multiline_list]]
-some_v = 1
-
-[nested.multiline]
-first = 1
-second = 2
-
-[[nested.multiline_list]]
-some_v = 1
-'''
-
-comptime desired_multiline_string = """
-select * from something
-"""
-
-comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
-
-# fn test_parse_toml_improvement() raises:
-#     """Test if new iterations really work better than old versions."""
-#     from benchmark import run
-#     from testing import assert_true
-
-#     fn old_impl():
-#         _ = parse_toml(TOML_TYPES)
-
-#     fn new_impl():
-#         _ = parse_toml_v2(TOML_TYPES)
-
-#     var old_report = run[func2=old_impl](max_iters=1000)
-#     var new_report = run[func2=new_impl](max_iters=1000)
-
-#     var old_time = old_report.duration()
-#     var new_time = new_report.duration()
-
-#     assert_true(new_time <= old_time)
+from motoml.parser import parse_toml, toml_to_tagged_json
+from test_suite import TestSuite
+from files_to_test import TOML_FILES
+from pathlib import Path
+from reflection import call_location
+from python import PythonObject, Python
+from testing import assert_equal, assert_true
 
 
-fn test_all_toml_types() raises:
-    var res = materialize[TOML_TYPES_RES]()
-    assert_equal(res["string"].string(), "abcd")
-    assert_equal(res["string_with_scape"].string(), r'ab\"cd')
-    assert_equal(res["multiline_string"].string(), desired_multiline_string)
+def sorting(py: PythonObject, item: PythonObject) -> PythonObject:
+    if py.isinstance(item, py.dict):
+        lst = py.list()
+        for kv in item.items():
+            key = kv[0]
+            values = kv[1]
+            lst.append(py.tuple(key, py.sorting(values)))
+        return py.sorted(lst)
+    if py.isinstance(item, py.list):
+        lst = py.list()
+        for x in item:
+            lst.append(py.sorting(x))
+        return py.sorted(lst)
+    else:
+        return item
+
+
+fn file_test[strpath: StaticString]() raises:
+    var file = toml_files() / strpath
+    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
+    if not (file.exists() and exp_file.exists()):
+        raise "file not exists: " + String(file)
+
+    var content = file.read_text()
+    var json_result = toml_to_tagged_json(content)
+    var exp_result = exp_file.read_text()
+
+    var json = Python.import_module("json")
+    var py_result = json.loads(PythonObject(json_result))
+    var py_expected = json.loads(PythonObject(exp_result))
+
+    var py = Python.import_module("builtins")
+    py_result = sorting(py, py_result)
+    py_expected = sorting(py, py_expected)
+    assert_true(py_result == py_expected)
+
+
+@always_inline
+fn toml_files() -> Path:
+    var loc = call_location().file_name
+    return Path(loc[: loc.rfind("/")]) / "toml_files"
 
 
 fn main() raises:
-    TestSuite.discover_tests[__functions_in_module()]().run()
+    comptime lines = StringSlice(TOML_FILES).splitlines()
+    var suite = TestSuite()
+
+    @parameter
+    for li in range(len(lines)):
+        comptime fpath = lines[li]
+
+        @parameter
+        if not (fpath.startswith("valid") and fpath.endswith(".toml")):
+            continue
+
+        var file = toml_files() / fpath
+
+        if not file.exists():
+            continue
+
+        suite.test[file_test[fpath]](fpath)
+
+    suite^.run()

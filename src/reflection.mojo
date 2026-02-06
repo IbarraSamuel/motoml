@@ -3,7 +3,7 @@ TODO: Add Variant Support
 TODO: Make it a single implementation.
 """
 
-from motoml.read import TomlType, AnyTomlType, parse_toml
+from motoml.toml_types import TomlType, AnyTomlType
 from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from builtin.rebind import downcast
 from reflection import (

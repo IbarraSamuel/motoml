@@ -36,6 +36,7 @@ motoml = { path = "." }
 [tasks]
 test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
 test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
-tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
+test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests" }
+tests = { depends-on = ["test-reflection", "test-comptime-parser", "test-parser"] }
 
 # TODO: CHECK DOCS

@@ -1,11 +1,12 @@
-from motoml.read import parse_toml, TomlType, AnyTomlType
+from motoml.parser import parse_toml
+from motoml.toml_types import TomlType, AnyTomlType
 from motoml.reflection import toml_to_type_raises, toml_to_type
 from testing import TestSuite, assert_equal
 from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 
 
 @fieldwise_init
-struct Info[o: ImmutOrigin](Movable, Writable, Representable):
+struct Info[o: ImmutOrigin](Movable, Representable, Writable):
     var name: StringSlice[Self.o]
     var version: StringSlice[Self.o]
 
@@ -14,8 +15,9 @@ struct Info[o: ImmutOrigin](Movable, Writable, Representable):
         self.write_to(s)
         return s
 
+
 @fieldwise_init
-struct Language[o: ImmutOrigin](Movable, Writable, Representable):
+struct Language[o: ImmutOrigin](Movable, Representable, Writable):
     var info: Info[Self.o]
     var current_version: Optional[Float64]
     var stable_version: Optional[Float64]
@@ -27,7 +29,7 @@ struct Language[o: ImmutOrigin](Movable, Writable, Representable):
 
 
 @fieldwise_init
-struct TestBuild[o: ImmutOrigin](Movable, Writable, Representable):
+struct TestBuild[o: ImmutOrigin](Movable, Representable, Writable):
     var name: StringSlice[Self.o]
     var age: Int
     var other_types: List[Float64]
@@ -37,6 +39,7 @@ struct TestBuild[o: ImmutOrigin](Movable, Writable, Representable):
         var s = String()
         self.write_to(s)
         return s
+
 
 comptime TOML_CONTENT = """
 name = "samuel"
@@ -85,7 +88,6 @@ fn test_toml_to_type() raises:
     assert_equal(value.language.info.name, "mojo")
     assert_equal(value.language.current_version.value(), 0.26)
     assert_equal(Bool(value.language.stable_version), False)
-
 
 
 fn main() raises:

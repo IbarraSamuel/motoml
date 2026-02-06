@@ -19,6 +19,7 @@ comptime CurlyBracketOpen = ord("{")
 comptime CurlyBracketClose = ord("}")
 
 comptime NewLine = ord("\n")
+comptime Enter = ord("\r")
 comptime Space = ord(" ")
 
 comptime Comma = ord(",")
@@ -121,6 +122,7 @@ fn string_to_type[
     end_char: Byte
 ](data: Span[Byte], mut idx: Int) -> toml.TomlType[data.origin]:
     """Returns end of value + 1."""
+    print("parsing value at idx: ", idx)
     comptime lower, upper = ord("0"), ord("9")
     comptime INT_AGG, DEC_AGG = 10.0, 0.1
     comptime neg, pos = ord("-"), ord("+")
@@ -249,7 +251,9 @@ fn parse_key_span_and_get_container[
         idx += 1
 
     else:
-        while data[idx] != close_char and data[idx] != Space:
+        while (
+            data[idx] != close_char and data[idx] != Space and idx < len(data)
+        ):
             if data[idx] == Period:
                 key = data[key_init:idx]
                 ref cont = get_or_ref_container["table"](key, base)
@@ -392,6 +396,10 @@ fn parse_toml(content: StringSlice) -> toml.TomlType[content.origin]:
 
     var base = toml.TomlType[content.origin].new_table()
     var data = content.as_bytes()
+
+    skip[NewLine, Enter, Space](data, idx)
+    if not idx < len(data):
+        return base^
 
     print("parsing initial kv pairs...")
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
