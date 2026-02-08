@@ -64,10 +64,12 @@ comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
 fn test_all_toml_types() raises:
     # Materialize compile time values.
     var res = materialize[TOML_TYPES_RES]()
-
-    assert_equal(res["string"].string(), "abcd")
-    assert_equal(res["string_with_scape"].string(), r"ab\"cd")
-    assert_equal(res["multiline_string"].string(), desired_multiline_string)
+    if not res:
+        raise "failed to parse toml file."
+    var r = res.take()
+    assert_equal(r["string"].string(), "abcd")
+    assert_equal(r["string_with_scape"].string(), r"ab\"cd")
+    assert_equal(r["multiline_string"].string(), desired_multiline_string)
 
 
 fn main() raises:

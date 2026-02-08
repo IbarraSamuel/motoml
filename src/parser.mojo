@@ -9,7 +9,6 @@ from collections.dict import _DictEntryIter
 from builtin.builtin_slice import ContiguousSlice
 from sys.compile import codegen_unreachable
 from memory import OwnedPointer
-import os
 
 from motoml import toml_types as toml
 
@@ -68,7 +67,7 @@ fn parse_quoted_string(
 
 fn parse_inline_collection[
     collection: toml.CollectionType
-](data: Span[Byte], mut idx: Int) -> toml.TomlType[data.origin]:
+](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """Assumes the first char is already within the collection, but could be a space.
     """
     # print("parse inline collection", collection.inner)
@@ -95,7 +94,7 @@ fn parse_inline_collection[
         # print("finished table", value)
 
     elif collection == "plain":
-        os.abort("cannot use plain in this context.")
+        raise ("cannot use plain in this context.")
 
     ref arr = value.as_opaque_array()
 
@@ -120,7 +119,7 @@ fn parse_inline_collection[
 
 fn string_to_type[
     end_char: Byte
-](data: Span[Byte], mut idx: Int) -> toml.TomlType[data.origin]:
+](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """Returns end of value + 1."""
     print("parsing value at idx: ", idx)
     comptime lower, upper = ord("0"), ord("9")
@@ -168,7 +167,7 @@ fn string_to_type[
                 idx += 1
                 continue
 
-            os.abort("value is not a numeric value.")
+            raise ("value is not a numeric value. It's another dtype")
 
         var cc = Float64(c - lower)
         num = (
@@ -185,19 +184,19 @@ fn string_to_type[
             var vi = atof(v)
             return toml.TomlType[data.origin](vi)
         except:
-            os.abort("should be a float but it's not a float")
+            raise ("should be a float but it's not a float")
 
     else:
         try:
             var vi = atol(v)
             return toml.TomlType[data.origin](vi)
         except:
-            os.abort("should be a int but it's not a integer")
+            raise ("should be a int but it's not a integer")
 
 
 fn parse_value[
     end_char: Byte
-](data: Span[Byte], mut idx: Int, out value: toml.TomlType[data.origin],):
+](data: Span[Byte], mut idx: Int, out value: toml.TomlType[data.origin]) raises:
     # Assumes the first char is the first value of the value to parse.
     if data[idx] == Quote:
         if data[idx + 1] == Quote and data[idx + 2] == Quote:
@@ -276,13 +275,14 @@ fn parse_key_span_and_get_container[
     if collection == "plain":
         return base
 
+    print("key:", StringSlice(unsafe_from_utf8=key))
     # For the rest, use the table as the holder of the key.
     return get_or_ref_container[collection](key, base)
 
 
 fn find_kv_and_update_base[
     end_char: Byte
-](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]):
+](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     var key = data[idx:idx]
 
     ref tb = parse_key_span_and_get_container["plain", Equal](
@@ -300,7 +300,7 @@ fn find_kv_and_update_base[
 
 fn parse_and_update_kv_pairs[
     separator: Byte, end_char: Byte
-](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]):
+](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     """This function ends at end_char always."""
     skip[Space, NewLine](data, idx)
     print(
@@ -324,9 +324,9 @@ fn parse_and_update_kv_pairs[
 
 fn parse_and_store_multiline_collection(
     data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]
-):
+) raises:
     if data[idx] != SquareBracketOpen:
-        os.abort("Not an array or table")
+        raise ("Not an array or table")
 
     var is_array = data[idx + 1] == SquareBracketOpen
     idx += 1 + Int(is_array)
@@ -353,9 +353,14 @@ fn parse_and_store_multiline_collection(
 
     # Use `tb` to store any kv pairs
 
-    # If there is a key, there should be a value right?
+    # If there is a table key, there should be values right?
     stop_at[NewLine, SquareBracketOpen](data, idx)
     skip[NewLine](data, idx)
+
+    # Identify if there is a nested table within a table list
+    # for that, the next table should have the same key as the table list.
+    # which one is the key you have curently? Take the init to idx now.
+    # Which key is in nested table? Check from [ to ] and match if the key startswith table arr key.
 
     if data[idx] == SquareBracketOpen or idx >= len(data):
         return
@@ -391,7 +396,10 @@ fn stop_at[*chars: Byte](data: Span[Byte], mut idx: Int):
         idx += 1
 
 
-fn parse_toml(content: StringSlice) -> toml.TomlType[content.origin]:
+# TODO: impl array subtables.
+fn parse_toml_raises(
+    content: StringSlice,
+) raises -> toml.TomlType[content.origin]:
     var idx = 0
 
     var base = toml.TomlType[content.origin].new_table()
@@ -415,11 +423,18 @@ fn parse_toml(content: StringSlice) -> toml.TomlType[content.origin]:
     return base^
 
 
+fn parse_toml(content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
+    try:
+        return parse_toml_raises(content)
+    except:
+        return None
+
+
 fn toml_to_tagged_json(
     content: StringSlice[...],
-) -> StringSlice[ImmutAnyOrigin]:
+) raises -> StringSlice[ImmutAnyOrigin]:
     from collections.string import String
 
     s = String()
-    parse_toml(content).write_tagged_json_to(s)
+    parse_toml_raises(content).write_tagged_json_to(s)
     return s

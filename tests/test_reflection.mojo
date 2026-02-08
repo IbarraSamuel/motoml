@@ -59,7 +59,11 @@ comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
 fn test_toml_to_type_raises() raises:
     var toml_obj = materialize[TOML_OBJ]()
-    var value = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
+    if not toml_obj:
+        raise "Failed to parse toml object."
+    var value = toml_to_type_raises[TestBuild[StaticConstantOrigin]](
+        toml_obj.take()
+    )
 
     assert_equal(value.name, "samuel")
     assert_equal(value.age, 30)
@@ -70,7 +74,11 @@ fn test_toml_to_type_raises() raises:
 
 fn test_toml_to_type() raises:
     var toml_obj = materialize[TOML_OBJ]()
-    var value_or_none = toml_to_type[TestBuild[StaticConstantOrigin]](toml_obj^)
+    if not toml_obj:
+        raise "failed to parse toml object."
+    var value_or_none = toml_to_type[TestBuild[StaticConstantOrigin]](
+        toml_obj.take()
+    )
 
     # in case there is no value, the error will pop up into the test error.
     var is_some = Bool(value_or_none)

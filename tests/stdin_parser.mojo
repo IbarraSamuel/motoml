@@ -1,4 +1,4 @@
-from motoml.read import toml_to_tagged_json, parse_toml
+from motoml.parser import toml_to_tagged_json, parse_toml
 from io.io import _fdopen
 from sys import stdin
 from sys import argv
@@ -10,12 +10,10 @@ fn main() raises:
     var in_str = String()
     while True:
         try:
-            var content = stdh.readline()    
+            var content = stdh.readline()
             in_str.write(content, "\n")
         except:
             break
 
-    var toml = parse_toml(in_str)
-    var out_str = String()
-    toml.write_tagged_json_to(out_str)
-    print(out_str)
+    var json = toml_to_tagged_json(in_str)
+    print(json)
