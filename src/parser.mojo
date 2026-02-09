@@ -25,24 +25,27 @@ comptime Comma = ord(",")
 comptime Equal = ord("=")
 comptime Period = ord(".")
 
-comptime Quote = ord('"')
+comptime DoubleQuote = ord('"')
+comptime SingleQuote = ord("'")
 comptime Escape = ord("\\")
 
 
-fn parse_multiline_string(
-    data: Span[Byte], var idx: Int, out value: Span[Byte, data.origin]
-):
+fn parse_multiline_string[
+    quote_type: Byte
+](data: Span[Byte], var idx: Int, out value: Span[Byte, data.origin]):
     idx += 3
     var value_init = idx
 
     while (
-        data[idx] != Quote or data[idx - 1] != Quote or data[idx - 2] != Quote
+        data[idx] != quote_type
+        or data[idx - 1] != quote_type
+        or data[idx - 2] != quote_type
     ):
         idx += 1
         if (
-            data[idx] == Quote
-            and data[idx - 1] == Quote
-            and data[idx - 2] == Quote
+            data[idx] == quote_type
+            and data[idx - 1] == quote_type
+            and data[idx - 2] == quote_type
             and data[idx - 3] == Escape
         ):
             idx += 1
@@ -51,15 +54,15 @@ fn parse_multiline_string(
     value = data[value_init : idx - 2]
 
 
-fn parse_quoted_string(
-    data: Span[Byte], mut idx: Int, out value: Span[Byte, data.origin]
-):
+fn parse_quoted_string[
+    quote_type: Byte
+](data: Span[Byte], mut idx: Int, out value: Span[Byte, data.origin]):
     idx += 1
     var value_init = idx
 
-    while data[idx] != Quote:
+    while data[idx] != quote_type:
         idx += 1
-        if data[idx] == Quote and data[idx - 1] == Escape:
+        if data[idx] == quote_type and data[idx - 1] == Escape:
             idx += 1
 
     value = data[value_init:idx]
@@ -70,7 +73,6 @@ fn parse_inline_collection[
 ](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """Assumes the first char is already within the collection, but could be a space.
     """
-    # print("parse inline collection", collection.inner)
     # comptime ContainerEnd = SquareBracketClose if collection == "array" else CurlyBracketClose
 
     var value: toml.TomlType[data.origin]
@@ -91,7 +93,6 @@ fn parse_inline_collection[
             data, idx, value
         )
         return value^
-        # print("finished table", value)
 
     elif collection == "plain":
         raise ("cannot use plain in this context.")
@@ -198,12 +199,19 @@ fn parse_value[
     end_char: Byte
 ](data: Span[Byte], mut idx: Int, out value: toml.TomlType[data.origin]) raises:
     # Assumes the first char is the first value of the value to parse.
-    if data[idx] == Quote:
-        if data[idx + 1] == Quote and data[idx + 2] == Quote:
-            var s = parse_multiline_string(data, idx)
+    if data[idx] == DoubleQuote:
+        if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
+            var s = parse_multiline_string[DoubleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
         else:
-            var s = parse_quoted_string(data, idx)
+            var s = parse_quoted_string[DoubleQuote](data, idx)
+            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+    elif data[idx] == SingleQuote:
+        if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
+            var s = parse_multiline_string[SingleQuote](data, idx)
+            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+        else:
+            var s = parse_quoted_string[SingleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
     elif data[idx] == SquareBracketOpen:
         idx += 1
@@ -243,9 +251,10 @@ fn parse_key_span_and_get_container[
 ) -> ref[base] toml.TomlType[o]:
     """Assumes that first character is not a space. Ends on close char."""
     var key_init = idx
-    print("parsing key span and getting container.")
-    if data[idx] == Quote:
-        key = parse_quoted_string(data, idx)
+    if data[idx] == DoubleQuote:
+        key = parse_quoted_string[DoubleQuote](data, idx)
+    elif data[idx] == SingleQuote:
+        key = parse_quoted_string[SingleQuote](data, idx)
         # Ignore closing quote
         idx += 1
 
@@ -275,7 +284,6 @@ fn parse_key_span_and_get_container[
     if collection == "plain":
         return base
 
-    print("key:", StringSlice(unsafe_from_utf8=key))
     # For the rest, use the table as the holder of the key.
     return get_or_ref_container[collection](key, base)
 
@@ -303,14 +311,6 @@ fn parse_and_update_kv_pairs[
 ](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     """This function ends at end_char always."""
     skip[Space, NewLine](data, idx)
-    print(
-        "parsing kv at idx:",
-        idx,
-        "and value:",
-        Codepoint(data[idx]),
-        "and len(data) =",
-        len(data),
-    )
     while idx < len(data) and data[idx] != end_char:
         find_kv_and_update_base[end_char=end_char](data, idx, base)
         skip[Space](data, idx)
