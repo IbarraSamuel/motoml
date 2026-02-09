@@ -18,7 +18,7 @@ comptime OpaqueTable[o: Origin] = Dict[StringRef[o], Opaque[MutExternalOrigin]]
 
 
 struct CollectionType[_v: __mlir_type.`!kgen.string`](
-    Equatable, TrivialRegisterType
+    Equatable, TrivialRegisterPassable
 ):
     comptime inner = StringLiteral[Self._v]()
 
@@ -45,7 +45,7 @@ struct CollectionType[_v: __mlir_type.`!kgen.string`](
 
 
 struct TomlRef[data: ImmutOrigin, toml: ImmutOrigin](
-    Iterable, TrivialRegisterType
+    Iterable, TrivialRegisterPassable
 ):
     comptime Toml = TomlType[Self.data]
     comptime IteratorType[origin: Origin]: Iterator = Self.Toml.IteratorType[

@@ -362,12 +362,30 @@ fn parse_and_store_multiline_collection(
     # which one is the key you have curently? Take the init to idx now.
     # Which key is in nested table? Check from [ to ] and match if the key startswith table arr key.
 
-    if data[idx] == SquareBracketOpen or idx >= len(data):
+    if (data[idx] == SquareBracketOpen and not is_array) or idx >= len(data):
         return
 
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
         data, idx, tb[]
     )
+
+    if is_array:
+        while data[idx] == SquareBracketOpen and StringSlice(
+            unsafe_from_utf8=data[idx + 1 :]
+        ).startswith(StringSlice(unsafe_from_utf8=key)):
+            # we have a case of a nested table.
+            idx += len(key) + 1
+            var inner_extra_key = data[idx:idx]
+            ref inner_tb = parse_key_span_and_get_container[
+                collection="table", close_char=SquareBracketClose
+            ](data, idx, tb[], inner_extra_key)
+            stop_at[NewLine, SquareBracketOpen](data, idx)
+            skip[NewLine](data, idx)
+            if idx >= len(data):
+                return
+            parse_and_update_kv_pairs[
+                separator=NewLine, end_char=SquareBracketOpen
+            ](data, idx, inner_tb)
 
 
 @always_inline
