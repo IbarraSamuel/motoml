@@ -546,7 +546,6 @@ fn stop_at[*chars: Byte](data: Span[Byte], mut idx: Int):
         idx += 1
 
 
-# TODO: impl array subtables.
 fn parse_toml_raises(
     content: StringSlice,
 ) raises -> toml.TomlType[content.origin]:
