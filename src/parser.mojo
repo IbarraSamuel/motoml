@@ -250,28 +250,41 @@ fn parse_key_span_and_get_container[
     mut key: Span[Byte, o],
 ) -> ref[base] toml.TomlType[o]:
     """Assumes that first character is not a space. Ends on close char."""
-    var key_init = idx
-    if data[idx] == DoubleQuote:
-        key = parse_quoted_string[DoubleQuote](data, idx)
-    elif data[idx] == SingleQuote:
-        key = parse_quoted_string[SingleQuote](data, idx)
-        # Ignore closing quote
-        idx += 1
+    # var key_init = idx
+    # if data[idx] == DoubleQuote:
+    #     key = parse_quoted_string[DoubleQuote](data, idx)
+    # elif data[idx] == SingleQuote:
+    #     key = parse_quoted_string[SingleQuote](data, idx)
+    #     # Ignore closing quote
+    #     idx += 1
 
-    else:
-        while (
-            data[idx] != close_char and data[idx] != Space and idx < len(data)
-        ):
-            if data[idx] == Period:
+    # TODO: Note: You cannot assume that the quoted keys are already complete. You might have:
+    # quote."some".'thing' and it's valid.
+    # else:
+    var dummy_key = key
+    var key_init = idx
+    while data[idx] != close_char and idx < len(data):
+        if data[idx] == SingleQuote:
+            key = parse_quoted_string[SingleQuote](data, idx)
+        elif data[idx] == DoubleQuote:
+            key = parse_quoted_string[DoubleQuote](data, idx)
+        # TODO: include tabs here too.
+        elif data[idx] == Space:
+            # You should close the key, and keep going
+            key = data[key_init:idx]
+        elif data[idx] == Period:
+            # calculate the key if it's dummy, because it's not calculated
+            if key == dummy_key:
                 key = data[key_init:idx]
-                ref cont = get_or_ref_container["table"](key, base)
-                # ignore dot
-                idx += 1
-                skip[Space](data, idx)
-                return parse_key_span_and_get_container[collection, close_char](
-                    data, idx, cont, key
-                )
+
+            ref cont = get_or_ref_container["table"](key, base)
+            # ignore dot
             idx += 1
+            skip[Space](data, idx)
+            return parse_key_span_and_get_container[collection, close_char](
+                data, idx, cont, key
+            )
+        idx += 1
 
         key = data[key_init:idx]
 
