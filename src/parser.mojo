@@ -3,6 +3,7 @@ Rules:
 Dotted keys, can create a dictionary grouping the values.
 """
 
+from collections.string import Codepoint
 from utils import Variant
 from sys.intrinsics import _type_is_eq, unlikely, likely
 from collections.dict import _DictEntryIter
@@ -32,7 +33,7 @@ comptime Escape = ord("\\")
 
 fn parse_multiline_string[
     quote_type: Byte
-](data: Span[Byte], var idx: Int, out value: Span[Byte, data.origin]):
+](data: Span[Byte], mut idx: Int, out value: Span[Byte, data.origin]):
     idx += 3
     var value_init = idx
 
@@ -42,12 +43,7 @@ fn parse_multiline_string[
         or data[idx - 2] != quote_type
     ):
         idx += 1
-        if (
-            data[idx] == quote_type
-            and data[idx - 1] == quote_type
-            and data[idx - 2] == quote_type
-            and data[idx - 3] == Escape
-        ):
+        if data[idx] == quote_type and data[idx - 1] == Escape:
             idx += 1
 
     # When it stopped, the value already have two quotes, remove them from value
@@ -122,7 +118,7 @@ fn string_to_type[
     end_char: Byte
 ](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """Returns end of value + 1."""
-    print("parsing value at idx: ", idx)
+    # print("parsing value at idx: ", idx)
     comptime lower, upper = ord("0"), ord("9")
     comptime INT_AGG, DEC_AGG = 10.0, 0.1
     comptime neg, pos = ord("-"), ord("+")
@@ -201,16 +197,20 @@ fn parse_value[
     # Assumes the first char is the first value of the value to parse.
     if data[idx] == DoubleQuote:
         if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
+            # print("value is a triple double quote string")
             var s = parse_multiline_string[DoubleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
         else:
+            # print("value is double quote string")
             var s = parse_quoted_string[DoubleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
+            # print("value is a triple single quote string")
             var s = parse_multiline_string[SingleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
         else:
+            # print("value is single quote string")
             var s = parse_quoted_string[SingleQuote](data, idx)
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
     elif data[idx] == SquareBracketOpen:
@@ -250,17 +250,8 @@ fn parse_key_span_and_get_container[
     mut key: Span[Byte, o],
 ) -> ref[base] toml.TomlType[o]:
     """Assumes that first character is not a space. Ends on close char."""
-    # var key_init = idx
-    # if data[idx] == DoubleQuote:
-    #     key = parse_quoted_string[DoubleQuote](data, idx)
-    # elif data[idx] == SingleQuote:
-    #     key = parse_quoted_string[SingleQuote](data, idx)
-    #     # Ignore closing quote
-    #     idx += 1
-
     # TODO: Note: You cannot assume that the quoted keys are already complete. You might have:
     # quote."some".'thing' and it's valid.
-    # else:
     var dummy_key = key
     var key_init = idx
     while data[idx] != close_char and idx < len(data):
@@ -286,6 +277,7 @@ fn parse_key_span_and_get_container[
             )
         idx += 1
 
+    if key == dummy_key:
         key = data[key_init:idx]
 
     # if data[idx] == Space:
@@ -305,18 +297,21 @@ fn find_kv_and_update_base[
     end_char: Byte
 ](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     var key = data[idx:idx]
-
+    # print("parsing kv pair")
     ref tb = parse_key_span_and_get_container["plain", Equal](
         data, idx, base, key
     )
+    # print("key:", StringSlice(unsafe_from_utf8=key))
     idx += 1
 
     skip[Space](data, idx)
 
     # NOTE: changed from CloseCurlyBracket to end_char... Check
+    # print("Parsing value...")
     tb.as_opaque_table()[StringSlice(unsafe_from_utf8=key)] = parse_value[
         end_char
     ](data, idx).move_to_addr()
+    # print("parsing value done!")
 
 
 fn parse_and_update_kv_pairs[
@@ -326,9 +321,22 @@ fn parse_and_update_kv_pairs[
     skip[Space, NewLine](data, idx)
     while idx < len(data) and data[idx] != end_char:
         find_kv_and_update_base[end_char=end_char](data, idx, base)
+        # print("done with kv and update function.")
         skip[Space](data, idx)
+        # print("spaces skipped")
         stop_at[separator, end_char](data, idx)
-        if data[idx] == end_char or idx == len(data):
+        # print(
+        #     "stopped at separator or end char. Curr value: `",
+        #     Codepoint(data[idx]),
+        #     "` and byte: ",
+        #     data[idx],
+        #     " and idx: ",
+        #     idx,
+        #     " out of total of: ",
+        #     len(data),
+        #     sep="",
+        # )
+        if data[idx] == end_char or idx >= len(data):
             break
 
         # we are at separator
@@ -375,30 +383,74 @@ fn parse_and_store_multiline_collection(
     # which one is the key you have curently? Take the init to idx now.
     # Which key is in nested table? Check from [ to ] and match if the key startswith table arr key.
 
-    if (data[idx] == SquareBracketOpen and not is_array) or idx >= len(data):
+    # in case we hit end of file.
+    if idx >= len(data):
         return
 
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
         data, idx, tb[]
     )
 
+    # TODO: Check if nested tables within tables are allowed.
     if is_array:
-        while data[idx] == SquareBracketOpen and StringSlice(
-            unsafe_from_utf8=data[idx + 1 :]
-        ).startswith(StringSlice(unsafe_from_utf8=key)):
+        while (
+            data[idx] == SquareBracketOpen
+            and data[idx + 1 : idx + 1 + len(key)] == key  # startswith
+        ) or (
+            data[idx] == SquareBracketOpen
+            and data[idx + 1] == SquareBracketOpen
+            and data[idx + 2 : idx + 2 + len(key)] == key
+        ):
+            var shift = Int(data[idx + 1] == SquareBracketOpen)
+            # if the table is repeated, could be:
+            # 1. There is a new entry on the list.
+            # just don't do anything, close this, let it to the next.
+            if data[idx + 1 + len(key) + shift] == SquareBracketClose:
+                return
             # we have a case of a nested table.
-            idx += len(key) + 1
             var inner_extra_key = data[idx:idx]
-            ref inner_tb = parse_key_span_and_get_container[
-                collection="table", close_char=SquareBracketClose
-            ](data, idx, tb[], inner_extra_key)
+            var inner_cont: UnsafePointer[
+                toml.TomlType[data.origin], MutAnyOrigin
+            ]
+            # print("parsing inner value:")
+            # Array
+            if data[idx + 1] == SquareBracketOpen:
+                idx += len(key) + 3
+                # print("inner value as an array.")
+                ref array = parse_key_span_and_get_container[
+                    collection="array", close_char=SquareBracketClose
+                ](data, idx, tb[], inner_extra_key).as_opaque_array()
+                array.append(base.new_table().move_to_addr())
+                inner_cont = array[len(array) - 1].bitcast[
+                    toml.TomlType[data.origin]
+                ]()
+            # Table
+            else:
+                idx += len(key) + 2
+                # print("inner value as a table.")
+                inner_cont = UnsafePointer(
+                    to=parse_key_span_and_get_container[
+                        collection="table", close_char=SquareBracketClose
+                    ](data, idx, tb[], inner_extra_key)
+                )
+            # print(
+            #     "inner value parsing done!: Inner key:",
+            #     StringSlice(unsafe_from_utf8=inner_extra_key),
+            # )
             stop_at[NewLine, SquareBracketOpen](data, idx)
             skip[NewLine](data, idx)
             if idx >= len(data):
                 return
+            # print(
+            #     "parsing value for inner container... `",
+            #     StringSlice(unsafe_from_utf8=data[idx : idx + 40]),
+            #     "`",
+            #     sep="",
+            # )
             parse_and_update_kv_pairs[
                 separator=NewLine, end_char=SquareBracketOpen
-            ](data, idx, inner_tb)
+            ](data, idx, inner_cont[])
+            # print("inner value added!")
 
 
 @always_inline
