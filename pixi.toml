@@ -34,6 +34,8 @@ motoml = { path = "." }
 # tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
 
 [tasks]
+parser = { cmd = "mojo tests/stdin_parser.mojo" }
+
 test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
 test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
 test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests" }

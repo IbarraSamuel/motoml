@@ -13,27 +13,27 @@ from memory import OwnedPointer
 
 from motoml import toml_types as toml
 
-comptime SquareBracketOpen = ord("[")
-comptime SquareBracketClose = ord("]")
-comptime CurlyBracketOpen = ord("{")
-comptime CurlyBracketClose = ord("}")
+comptime SquareBracketOpen = Byte(ord("["))
+comptime SquareBracketClose = Byte(ord("]"))
+comptime CurlyBracketOpen = Byte(ord("{"))
+comptime CurlyBracketClose = Byte(ord("}"))
 
-comptime NewLine = ord("\n")
-comptime Enter = ord("\r")
-comptime Space = ord(" ")
+comptime NewLine = Byte(ord("\n"))
+comptime Enter = Byte(ord("\r"))
+comptime Space = Byte(ord(" "))
 
-comptime Comma = ord(",")
-comptime Equal = ord("=")
-comptime Period = ord(".")
+comptime Comma = Byte(ord(","))
+comptime Equal = Byte(ord("="))
+comptime Period = Byte(ord("."))
 
-comptime DoubleQuote = ord('"')
-comptime SingleQuote = ord("'")
-comptime Escape = ord("\\")
+comptime DoubleQuote = Byte(ord('"'))
+comptime SingleQuote = Byte(ord("'"))
+comptime Escape = Byte(ord("\\"))
 
 
 fn parse_multiline_string[
     quote_type: Byte
-](data: Span[Byte], mut idx: Int, out value: Span[Byte, data.origin]):
+](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
     idx += 3
     var value_init = idx
 
@@ -47,12 +47,18 @@ fn parse_multiline_string[
             idx += 1
 
     # When it stopped, the value already have two quotes, remove them from value
-    value = data[value_init : idx - 2]
+    return data[value_init : idx - 2]
 
 
 fn parse_quoted_string[
     quote_type: Byte
-](data: Span[Byte], mut idx: Int, out value: Span[Byte, data.origin]):
+](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
+    # print(
+    #     "parsing quoted string from span: `",
+    #     StringSlice(unsafe_from_utf8=data[idx : idx + 39]),
+    #     "`",
+    #     sep="",
+    # )
     idx += 1
     var value_init = idx
 
@@ -61,7 +67,14 @@ fn parse_quoted_string[
         if data[idx] == quote_type and data[idx - 1] == Escape:
             idx += 1
 
-    value = data[value_init:idx]
+    # print("span from: `", value_init, "` ,`", idx, "`", sep="")
+    # print(
+    #     "span: `",
+    #     StringSlice(unsafe_from_utf8=data[value_init:idx]),
+    #     "`",
+    #     sep="",
+    # )
+    return data[value_init:idx]
 
 
 fn parse_inline_collection[
@@ -79,12 +92,11 @@ fn parse_inline_collection[
     else:
         value = toml.TomlType[data.origin].new_table()
 
-    skip[Space](data, idx)
-
     # We should be at the start of the inner value.
     # Could not be triple quoted.
     @parameter
     if collection == "table":
+        skip[Space](data, idx)
         parse_and_update_kv_pairs[separator=Comma, end_char=CurlyBracketClose](
             data, idx, value
         )
@@ -99,8 +111,10 @@ fn parse_inline_collection[
     skip[Space, NewLine](data, idx)
 
     while data[idx] != SquareBracketClose:
-        arr.append(parse_value[SquareBracketClose](data, idx).move_to_addr())
-
+        var arr_item = parse_value[SquareBracketClose](data, idx)
+        arr.append(arr_item^.move_to_addr())
+        # We are at the end of the item parsed, let's move +1
+        idx += 1
         # For both table and array, you need to split by comma
         stop_at[Comma, SquareBracketClose](data, idx)
         if data[idx] == SquareBracketClose:
@@ -119,26 +133,26 @@ fn string_to_type[
 ](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """Returns end of value + 1."""
     # print("parsing value at idx: ", idx)
-    comptime lower, upper = ord("0"), ord("9")
+    comptime lower, upper = Byte(ord("0")), Byte(ord("9"))
     comptime INT_AGG, DEC_AGG = 10.0, 0.1
-    comptime neg, pos = ord("-"), ord("+")
+    comptime neg, pos = Byte(ord("-")), Byte(ord("+"))
     # var all_is_digit = True
     # var has_period = False
 
     if data[idx : idx + 4] == StringSlice("true").as_bytes():
-        idx += 4
+        idx += 3
         return toml.TomlType[data.origin](True)
 
     elif data[idx : idx + 5] == StringSlice("false").as_bytes():
-        idx += 5
+        idx += 4
         return toml.TomlType[data.origin](False)
 
     var v_init = idx
 
     # Parse floats
-    var sign = 1
+    var sign = 1.0
     if data[idx] == neg:
-        sign = -1
+        sign = -1.0
         idx += 1
     elif data[idx] == pos:
         idx += 1
@@ -176,6 +190,8 @@ fn string_to_type[
 
     # TODO: Change this. For now let's use this one:
     var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
+    # Roll back one step because we finalized all time in the next item
+    idx -= 1
     if flt:
         try:
             var vi = atof(v)
@@ -252,20 +268,27 @@ fn parse_key_span_and_get_container[
     """Assumes that first character is not a space. Ends on close char."""
     # TODO: Note: You cannot assume that the quoted keys are already complete. You might have:
     # quote."some".'thing' and it's valid.
-    var dummy_key = key
+    var key_found = False
     var key_init = idx
     while data[idx] != close_char and idx < len(data):
-        if data[idx] == SingleQuote:
+        if not key_found and data[idx] == SingleQuote:
+            # print("is single quoted key")
             key = parse_quoted_string[SingleQuote](data, idx)
-        elif data[idx] == DoubleQuote:
+            # print("key:", StringSlice(unsafe_from_utf8=key))
+            key_found = True
+        elif not key_found and data[idx] == DoubleQuote:
+            # print("is double quoted key")
             key = parse_quoted_string[DoubleQuote](data, idx)
+            # print("key:", StringSlice(unsafe_from_utf8=key))
+            key_found = True
         # TODO: include tabs here too.
-        elif data[idx] == Space:
+        elif not key_found and data[idx] == Space:
             # You should close the key, and keep going
             key = data[key_init:idx]
+            key_found = True
         elif data[idx] == Period:
             # calculate the key if it's dummy, because it's not calculated
-            if key == dummy_key:
+            if not key_found:
                 key = data[key_init:idx]
 
             ref cont = get_or_ref_container["table"](key, base)
@@ -277,7 +300,10 @@ fn parse_key_span_and_get_container[
             )
         idx += 1
 
-    if key == dummy_key:
+    # print("key upstream:", StringSlice(unsafe_from_utf8=key))
+    # TODO: Check if this is affecting the case when the key is empty or something similar.
+    if not key_found:
+        # Dummy key found. Replace with the last span.
         key = data[key_init:idx]
 
     # if data[idx] == Space:
@@ -301,17 +327,23 @@ fn find_kv_and_update_base[
     ref tb = parse_key_span_and_get_container["plain", Equal](
         data, idx, base, key
     )
-    print("key in kv finding...:", StringSlice(unsafe_from_utf8=key))
+    # ends at the last char
+    # print(
+    #     "key in kv finding: `", StringSlice(unsafe_from_utf8=key), "`", sep=""
+    # )
     idx += 1
 
     skip[Space](data, idx)
 
     # NOTE: changed from CloseCurlyBracket to end_char... Check
     # print("Parsing value...")
-    tb.as_opaque_table()[StringSlice(unsafe_from_utf8=key)] = parse_value[
-        end_char
-    ](data, idx).move_to_addr()
-    # print("parsing value done!")
+    var value = parse_value[end_char](data, idx)
+    idx += 1
+    # print("value parsed!")
+    tb.as_opaque_table()[StringSlice(unsafe_from_utf8=key)] = (
+        value^.move_to_addr()
+    )
+    # print("value parsing and storing done!")
 
 
 fn parse_and_update_kv_pairs[
@@ -320,9 +352,9 @@ fn parse_and_update_kv_pairs[
     """This function ends at end_char always."""
     while idx < len(data) and data[idx] != end_char:
         skip[Space, NewLine](data, idx)
-        print("Finding kv pairs...")
+        # print("Finding kv pairs...")
         find_kv_and_update_base[end_char=end_char](data, idx, base)
-        print("end with finding...")
+        # print("end with finding...")
         skip[Space](data, idx)
         stop_at[separator, end_char](data, idx)
         if data[idx] == end_char or idx >= len(data):
@@ -356,7 +388,7 @@ fn parse_and_store_multiline_collection[
         o = data.origin, collection, SquareBracketClose
     ](data, idx, base, key)
 
-    print("on key:", StringSlice(unsafe_from_utf8=key))
+    # print("on key:", StringSlice(unsafe_from_utf8=key))
 
     @parameter
     if collection == "array":
@@ -382,18 +414,18 @@ fn parse_and_store_multiline_collection[
     if idx >= len(data):
         return
 
-    print(
-        "Parsing values for table with key:",
-        StringSlice(unsafe_from_utf8=key),
-        "starting at: `{}`".format(
-            StringSlice(unsafe_from_utf8=data[idx : idx + 40])
-        ),
-    )
+    # print(
+    #     "Parsing values for table with key:",
+    #     StringSlice(unsafe_from_utf8=key),
+    #     "starting at: `{}`".format(
+    #         StringSlice(unsafe_from_utf8=data[idx : idx + 40])
+    #     ),
+    # )
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
         data, idx, tb[]
     )
-    print("parsing values done!.")
-    print("collection type:", collection.inner)
+    # print("parsing values done!.")
+    # print("collection type:", collection.inner)
 
     # TODO: Check if nested tables within tables are allowed.
     @parameter
@@ -527,13 +559,13 @@ fn parse_toml_raises(
     if not idx < len(data):
         return base^
 
-    print("parsing initial kv pairs...")
+    # print("parsing initial kv pairs...")
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
         data, idx, base
     )
 
     # Here we are at end of file or start of a table or table list
-    print("parsing tables...")
+    # print("parsing tables...")
     while idx < len(data):
         # already assume data[idx] is SquareBracketOpen
         idx += 1
@@ -545,7 +577,7 @@ fn parse_toml_raises(
             # it's a table
             parse_and_store_multiline_collection["table"](data, idx, base, {})
 
-    print("done parsing toml!")
+    # print("done parsing toml!")
     return base^
 
 

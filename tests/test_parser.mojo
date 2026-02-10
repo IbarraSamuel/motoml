@@ -7,21 +7,38 @@ from python import PythonObject, Python
 from testing import assert_equal, assert_true
 
 
-def sorting(py: PythonObject, item: PythonObject) -> PythonObject:
-    if py.isinstance(item, py.dict):
-        lst = py.list()
-        for kv in item.items():
-            key = kv[0]
-            values = kv[1]
-            lst.append(py.tuple(key, py.sorting(values)))
-        return py.sorted(lst)
-    if py.isinstance(item, py.list):
-        lst = py.list()
-        for x in item:
-            lst.append(py.sorting(x))
-        return py.sorted(lst)
-    else:
-        return item
+# def sorting(py: PythonObject, item: PythonObject) -> PythonObject:
+#     if py.isinstance(item, py.dict):
+#         sorted_keys = py.sorted(item.keys())
+#         result_dict = py.dict()
+#         for k in sorted_keys:
+#             result_dict[k] = sorting(py, item[k])
+#         return result_dict
+#     if py.isinstance(item, py.list):
+#         lst = py.list()
+#         for x in item:
+#             lst.append(sorting(py, x))
+#         return py.sorted(lst)
+#     else:
+#         return item
+
+
+# def compare_two_objs(
+#     py: PythonObject, obj1: PythonObject, obj2: PythonObject
+# ) -> PythonObject:
+#     if py.isinstance(item, py.dict):
+#         sorted_keys = py.sorted(item.keys())
+#         result_dict = py.dict()
+#         for k in sorted_keys:
+#             result_dict[k] = sorting(py, item[k])
+#         return result_dict
+#     if py.isinstance(item, py.list):
+#         lst = py.list()
+#         for x in item:
+#             lst.append(sorting(py, x))
+#         return py.sorted(lst)
+#     else:
+#         return item
 
 
 fn file_test[strpath: StaticString]() raises:
@@ -39,10 +56,12 @@ fn file_test[strpath: StaticString]() raises:
     var py_result = json.loads(PythonObject(json_result))
     var py_expected = json.loads(PythonObject(exp_result))
 
-    var py = Python.import_module("builtins")
-    py_result = sorting(py, py_result)
-    py_expected = sorting(py, py_expected)
-    assert_true(py_result == py_expected)
+    try:
+        assert_true(py_result == py_expected)
+    except:
+        var str_res = String(py_result)
+        var exp_res = String(py_expected)
+        assert_equal(str_res, exp_res)
 
 
 @always_inline
@@ -58,6 +77,7 @@ fn main() raises:
     @parameter
     for li in range(len(lines)):
         comptime fpath = lines[li]
+        comptime root_fpath = StaticString("tests/toml_files/" + fpath)
 
         @parameter
         if not (fpath.startswith("valid") and fpath.endswith(".toml")):
@@ -68,6 +88,6 @@ fn main() raises:
         if not file.exists():
             continue
 
-        suite.test[file_test[fpath]](fpath)
+        suite.test[file_test[fpath]](root_fpath)
 
     suite^.run()
