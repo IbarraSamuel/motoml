@@ -301,7 +301,7 @@ fn find_kv_and_update_base[
     ref tb = parse_key_span_and_get_container["plain", Equal](
         data, idx, base, key
     )
-    # print("key:", StringSlice(unsafe_from_utf8=key))
+    print("key in kv finding...:", StringSlice(unsafe_from_utf8=key))
     idx += 1
 
     skip[Space](data, idx)
@@ -318,24 +318,13 @@ fn parse_and_update_kv_pairs[
     separator: Byte, end_char: Byte
 ](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     """This function ends at end_char always."""
-    skip[Space, NewLine](data, idx)
     while idx < len(data) and data[idx] != end_char:
+        skip[Space, NewLine](data, idx)
+        print("Finding kv pairs...")
         find_kv_and_update_base[end_char=end_char](data, idx, base)
-        # print("done with kv and update function.")
+        print("end with finding...")
         skip[Space](data, idx)
-        # print("spaces skipped")
         stop_at[separator, end_char](data, idx)
-        # print(
-        #     "stopped at separator or end char. Curr value: `",
-        #     Codepoint(data[idx]),
-        #     "` and byte: ",
-        #     data[idx],
-        #     " and idx: ",
-        #     idx,
-        #     " out of total of: ",
-        #     len(data),
-        #     sep="",
-        # )
         if data[idx] == end_char or idx >= len(data):
             break
 
@@ -343,29 +332,35 @@ fn parse_and_update_kv_pairs[
         skip[separator, Space](data, idx)
 
 
-fn parse_and_store_multiline_collection(
-    data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]
+fn parse_and_store_multiline_collection[
+    collection: toml.CollectionType
+](
+    data: Span[Byte],
+    mut idx: Int,
+    mut base: toml.TomlType[data.origin],
+    var base_key: Span[Byte, data.origin],
 ) raises:
-    if data[idx] != SquareBracketOpen:
-        raise ("Not an array or table")
+    """Assume we are already at the place where we should start parsing."""
+    # if data[idx] == SquareBracketOpen:
+    #     raise ("Not an array or table")
 
-    var is_array = data[idx + 1] == SquareBracketOpen
-    idx += 1 + Int(is_array)
+    # var is_array = data[idx + 1] == SquareBracketOpen
+    # idx += 1 + Int(is_array)
 
+    var init_idx = idx
     var tb: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin]
     var key = data[idx:idx]
     # Right away parse the key
 
-    var cont_getter = parse_key_span_and_get_container[
-        o = data.origin, "array", SquareBracketClose
-    ] if is_array else parse_key_span_and_get_container[
-        o = data.origin, "table", SquareBracketClose
-    ]
+    ref container = parse_key_span_and_get_container[
+        o = data.origin, collection, SquareBracketClose
+    ](data, idx, base, key)
 
-    ref container = cont_getter(data, idx, base, key)
-    idx += Int(is_array)
+    print("on key:", StringSlice(unsafe_from_utf8=key))
 
-    if is_array:
+    @parameter
+    if collection == "array":
+        idx += 1
         ref array = container.as_opaque_array()
         array.append(base.new_table().move_to_addr())
         tb = array[len(array) - 1].bitcast[toml.TomlType[data.origin]]()
@@ -376,7 +371,7 @@ fn parse_and_store_multiline_collection(
 
     # If there is a table key, there should be values right?
     stop_at[NewLine, SquareBracketOpen](data, idx)
-    skip[NewLine](data, idx)
+    skip[NewLine, Space](data, idx)
 
     # Identify if there is a nested table within a table list
     # for that, the next table should have the same key as the table list.
@@ -387,70 +382,110 @@ fn parse_and_store_multiline_collection(
     if idx >= len(data):
         return
 
+    print(
+        "Parsing values for table with key:",
+        StringSlice(unsafe_from_utf8=key),
+        "starting at: `{}`".format(
+            StringSlice(unsafe_from_utf8=data[idx : idx + 40])
+        ),
+    )
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
         data, idx, tb[]
     )
+    print("parsing values done!.")
+    print("collection type:", collection.inner)
 
     # TODO: Check if nested tables within tables are allowed.
-    if is_array:
+    @parameter
+    if collection == "array":
+        # Base should NOT HAVE dot included.
+        if len(base_key) == 0:
+            base_key = key
+        else:
+            base_key = data[init_idx - len(base_key) - 1 : init_idx + len(key)]
         while (
+            # It's a table
             data[idx] == SquareBracketOpen
-            and data[idx + 1 : idx + 1 + len(key)] == key  # startswith
+            and data[idx + 1 : idx + 1 + len(base_key)]
+            == base_key  # startswith
+            and data[idx + 1 + len(base_key)] != SquareBracketClose
         ) or (
+            # It's an array
             data[idx] == SquareBracketOpen
             and data[idx + 1] == SquareBracketOpen
-            and data[idx + 2 : idx + 2 + len(key)] == key
+            and data[idx + 2 : idx + 2 + len(base_key)] == base_key
+            and data[idx + 2 + len(base_key)] != SquareBracketClose
         ):
-            var shift = Int(data[idx + 1] == SquareBracketOpen)
-            # if the table is repeated, could be:
-            # 1. There is a new entry on the list.
-            # just don't do anything, close this, let it to the next.
-            if data[idx + 1 + len(key) + shift] == SquareBracketClose:
-                return
-            # we have a case of a nested table.
-            var inner_extra_key = data[idx:idx]
-            var inner_cont: UnsafePointer[
-                toml.TomlType[data.origin], MutAnyOrigin
-            ]
-            # print("parsing inner value:")
-            # Array
-            if data[idx + 1] == SquareBracketOpen:
-                idx += len(key) + 3
-                # print("inner value as an array.")
-                ref array = parse_key_span_and_get_container[
-                    collection="array", close_char=SquareBracketClose
-                ](data, idx, tb[], inner_extra_key).as_opaque_array()
-                array.append(base.new_table().move_to_addr())
-                inner_cont = array[len(array) - 1].bitcast[
-                    toml.TomlType[data.origin]
-                ]()
-            # Table
-            else:
-                idx += len(key) + 2
-                # print("inner value as a table.")
-                inner_cont = UnsafePointer(
-                    to=parse_key_span_and_get_container[
-                        collection="table", close_char=SquareBracketClose
-                    ](data, idx, tb[], inner_extra_key)
+            # Since you need to skip the current level, you can just strip key
+            # from the multiline collection.
+
+            # Then, next inner iterations have no clue on the initial keys, for that, let's keep
+            # a runtime optional value, when available, you should check on that one, instead of
+            # the generated key. If not available, just go with the generated key.
+            idx += 1
+            if data[idx] == SquareBracketOpen:
+                idx += 1
+                # Since you need to skip the current level, you can just strip key
+                # from the multiline collection.
+                idx += len(base_key) + 1
+                parse_and_store_multiline_collection["array"](
+                    data, idx, tb[], base_key
                 )
-            # print(
-            #     "inner value parsing done!: Inner key:",
-            #     StringSlice(unsafe_from_utf8=inner_extra_key),
-            # )
-            stop_at[NewLine, SquareBracketOpen](data, idx)
-            skip[NewLine](data, idx)
-            if idx >= len(data):
-                return
-            # print(
-            #     "parsing value for inner container... `",
-            #     StringSlice(unsafe_from_utf8=data[idx : idx + 40]),
-            #     "`",
-            #     sep="",
-            # )
-            parse_and_update_kv_pairs[
-                separator=NewLine, end_char=SquareBracketOpen
-            ](data, idx, inner_cont[])
-            # print("inner value added!")
+            else:
+                idx += len(base_key) + 1
+                parse_and_store_multiline_collection["table"](
+                    data, idx, tb[], base_key
+                )
+
+            # var shift = Int(data[idx + 1] == SquareBracketOpen)
+            # # if the table is repeated, could be:
+            # # 1. There is a new entry on the list.
+            # # just don't do anything, close this, let it to the next.
+
+            # # we have a case of a nested table.
+            # var inner_extra_key = data[idx:idx]
+            # var inner_cont: UnsafePointer[
+            #     toml.TomlType[data.origin], MutAnyOrigin
+            # ]
+            # # print("parsing inner value:")
+            # # Array
+            # if data[idx + 1] == SquareBracketOpen:
+            #     idx += len(key) + 3
+            #     # print("inner value as an array.")
+            #     ref array = parse_key_span_and_get_container[
+            #         collection="array", close_char=SquareBracketClose
+            #     ](data, idx, tb[], inner_extra_key).as_opaque_array()
+            #     array.append(base.new_table().move_to_addr())
+            #     inner_cont = array[len(array) - 1].bitcast[
+            #         toml.TomlType[data.origin]
+            #     ]()
+            # # Table
+            # else:
+            #     idx += len(key) + 2
+            #     # print("inner value as a table.")
+            #     inner_cont = UnsafePointer(
+            #         to=parse_key_span_and_get_container[
+            #             collection="table", close_char=SquareBracketClose
+            #         ](data, idx, tb[], inner_extra_key)
+            #     )
+            # # print(
+            # #     "inner value parsing done!: Inner key:",
+            # #     StringSlice(unsafe_from_utf8=inner_extra_key),
+            # # )
+            # stop_at[NewLine, SquareBracketOpen](data, idx)
+            # skip[NewLine](data, idx)
+            # if idx >= len(data):
+            #     return
+            # # print(
+            # #     "parsing value for inner container... `",
+            # #     StringSlice(unsafe_from_utf8=data[idx : idx + 40]),
+            # #     "`",
+            # #     sep="",
+            # # )
+            # parse_and_update_kv_pairs[
+            #     separator=NewLine, end_char=SquareBracketOpen
+            # ](data, idx, inner_cont[])
+            # # print("inner value added!")
 
 
 @always_inline
@@ -500,7 +535,15 @@ fn parse_toml_raises(
     # Here we are at end of file or start of a table or table list
     print("parsing tables...")
     while idx < len(data):
-        parse_and_store_multiline_collection(data, idx, base)
+        # already assume data[idx] is SquareBracketOpen
+        idx += 1
+        if data[idx] == SquareBracketOpen:
+            # it's an array
+            idx += 1
+            parse_and_store_multiline_collection["array"](data, idx, base, {})
+        else:
+            # it's a table
+            parse_and_store_multiline_collection["table"](data, idx, base, {})
 
     print("done parsing toml!")
     return base^
