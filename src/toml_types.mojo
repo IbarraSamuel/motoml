@@ -317,7 +317,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         if inner.isa[self.String]():
             return String(
                 '{"type": "string", "value": "',
-                inner[self.String].replace("\n", "\\n"),
+                inner[self.String].removeprefix("\n").replace("\n", "\\n"),
                 '"}',
             )
         elif inner.isa[self.Integer]():
@@ -328,12 +328,15 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             # var repr = "inf" if inner[self.Float] == self.Float.MAX else String(
             #     inner[self.Float]
             # )
-            return String(
-                '{"type": "float", "value": "',
-                "inf" if inner[self.Float]
-                == self.Float.MAX else String(inner[self.Float]),
-                '"}',
-            )
+            var v = inner[self.Float]
+            var final: String
+            if v == self.Float.MAX:
+                final = "inf"
+            elif v - self.Float(Int(v)) == 0.0:
+                final = String(Int(v))
+            else:
+                final = String(v)
+            return String('{"type": "float", "value": "', final, '"}')
         elif inner.isa[self.NaN]():
             return String('{"type": "float", "value": "nan"}')
         elif inner.isa[self.Boolean]():
@@ -351,7 +354,10 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             var values = ", ".join(
                 [
                     String(
-                        '"', kv.key, '": ', Self.from_addr(kv.value).__repr__()
+                        '"',
+                        kv.key.replace('"', '\\"'),
+                        '": ',
+                        Self.from_addr(kv.value).__repr__(),
                     )
                     for kv in table.items()
                 ]
