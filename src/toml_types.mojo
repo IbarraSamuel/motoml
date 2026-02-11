@@ -359,7 +359,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 [
                     String(
                         '"',
-                        kv.key.replace('"', '"'),
+                        kv.key.replace('"', '\\"'),
                         '": ',
                         Self.from_addr(kv.value).__repr__(),
                     )

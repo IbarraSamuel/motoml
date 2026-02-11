@@ -45,9 +45,7 @@ fn file_test[strpath: StaticString]() raises:
     var file = toml_files() / strpath
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not (file.exists() and exp_file.exists()):
-        raise "file not exists: " + String(file)
-
-    # print("parsing file:", file)
+        raise "one file not exists: " + String(file) + " or " + String(exp_file)
     var content = file.read_text()
     var json_result = toml_to_tagged_json(content)
     var exp_result = exp_file.read_text()
@@ -55,21 +53,22 @@ fn file_test[strpath: StaticString]() raises:
     var json = Python.import_module("json")
 
     try:
-        py_expected = json.loads(PythonObject(exp_result))
+        py_obj = PythonObject(exp_result)
+        py_expected = json.loads(py_obj)
     except:
-        raise "[TESTCASE ERR] Error parsing expected json document: {}".format(
-            exp_result
-        )
+        raise "[TESTCASE ERR]"
 
     try:
-        py_result = json.loads(PythonObject(json_result))
+        r_obj = PythonObject(json_result)
     except:
-        # assert_equal(
-        #     json_result.replace(" ", "").replace("\n", ""),
-        #     exp_result.replace(" ", "").replace("\n", ""),
-        # )
-        raise "[OUTPUT ERR] Error parsing json output from parser: {}".format(
+        raise "[Python Interop Error] Failed to convert json result to python object. {}".format(
             json_result
+        )
+    try:
+        py_result = json.loads(r_obj)
+    except:
+        raise "[OUTPUT ERR] Error parsing json output from parser: {}".format(
+            r_obj
         )
 
     try:
@@ -102,7 +101,6 @@ fn main() raises:
     @parameter
     for li in range(len(files_to_test)):
         comptime fpath = files_to_test[li]
-        print("fpath")
         comptime root_fpath = StaticString(
             "[{}]: tests/toml_files/{}".format(li, fpath)
         )

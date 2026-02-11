@@ -463,7 +463,10 @@ fn parse_and_store_multiline_collection[
     mut base: toml.TomlType[data.origin],
     var base_key: Span[Byte, data.origin],
 ) raises:
-    """Assume we are already at the place where we should start parsing."""
+    """Assume we are already at the place where we should start parsing.
+    But could be a space or a tab, so just skip it.
+    """
+    skip[Space, Tab](data, idx)
     # if data[idx] == SquareBracketOpen:
     #     raise ("Not an array or table")
 
