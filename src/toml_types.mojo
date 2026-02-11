@@ -325,12 +325,17 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 '{"type": "integer", "value": "', inner[self.Integer], '"}'
             )
         elif inner.isa[self.Float]():
-            var val = inner[self.Float]
-            if val == self.Float.MAX:
-                
+            # var repr = "inf" if inner[self.Float] == self.Float.MAX else String(
+            #     inner[self.Float]
+            # )
             return String(
-                '{"type": "float", "value": "', inner[self.Float], '"}'
+                '{"type": "float", "value": "',
+                "inf" if inner[self.Float]
+                == self.Float.MAX else String(inner[self.Float]),
+                '"}',
             )
+        elif inner.isa[self.NaN]():
+            return String('{"type": "float", "value": "nan"}')
         elif inner.isa[self.Boolean]():
             var value = "true" if inner[self.Boolean] else "false"
             return String('{"type": "bool", "value": "', value, '"}')

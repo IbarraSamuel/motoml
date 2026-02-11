@@ -2,3 +2,5 @@
 .pixi/*
 !.pixi/config.toml
 kgen.trace*
+stdin_parser
+
