@@ -154,14 +154,20 @@ fn string_to_type[
     # var all_is_digit = True
     # var has_period = False
 
-    if data[idx : idx + 4] == StringSlice("true").as_bytes():
+    if data[idx : idx + 4] == "true".as_bytes():
         idx += 3
         return toml.TomlType[data.origin](True)
 
-    elif data[idx : idx + 5] == StringSlice("false").as_bytes():
+    elif data[idx : idx + 5] == "false".as_bytes():
         idx += 4
         return toml.TomlType[data.origin](False)
 
+    elif data[idx : idx + 3] == "nan".as_bytes():
+        idx += 2
+        return toml.TomlType[data.origin](None)
+    elif data[idx : idx + 3] == "inf".as_bytes():
+        idx += 2
+        return toml.TomlType[data.origin](Float64.MAX)
     var v_init = idx
 
     # Parse floats
@@ -604,8 +610,6 @@ fn parse_toml(content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
         return None
 
 
-fn toml_to_tagged_json(
-    content: StringSlice[...]
-) raises -> String:
+fn toml_to_tagged_json(content: StringSlice[...]) raises -> String:
     var toml_values = parse_toml_raises(content)
     return toml_values.__repr__()

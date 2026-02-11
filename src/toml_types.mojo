@@ -128,6 +128,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime String = StringRef[Self.o]
     comptime Integer = Integer
     comptime Float = Float
+    comptime NaN = NoneType
     comptime Boolean = Boolean
 
     comptime Array = List[Self]
@@ -286,6 +287,9 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn __init__(out self, var v: Self.Float):
         self.inner = v
 
+    fn __init__(out self, var v: NoneType):
+        self.inner = v
+
     fn __init__(out self, var v: Self.Boolean):
         self.inner = v
 
@@ -321,6 +325,9 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 '{"type": "integer", "value": "', inner[self.Integer], '"}'
             )
         elif inner.isa[self.Float]():
+            var val = inner[self.Float]
+            if val == self.Float.MAX:
+                
             return String(
                 '{"type": "float", "value": "', inner[self.Float], '"}'
             )
@@ -353,6 +360,7 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     StringRef[o],
     Integer,
     Float,
+    NoneType,
     Boolean,
     OpaqueArray,
     OpaqueTable[o],
