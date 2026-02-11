@@ -47,7 +47,7 @@ fn file_test[strpath: StaticString]() raises:
     if not (file.exists() and exp_file.exists()):
         raise "file not exists: " + String(file)
 
-    print("parsing file:", file)
+    # print("parsing file:", file)
     var content = file.read_text()
     var json_result = toml_to_tagged_json(content)
     var exp_result = exp_file.read_text()
@@ -57,19 +57,19 @@ fn file_test[strpath: StaticString]() raises:
     try:
         py_expected = json.loads(PythonObject(exp_result))
     except:
-        assert_equal(
-            json_result.replace(" ", "").replace("\n", ""),
-            exp_result.replace(" ", "").replace("\n", ""),
-        )
+        # assert_equal(
+        #     json_result.replace(" ", "").replace("\n", ""),
+        #     exp_result.replace(" ", "").replace("\n", ""),
+        # )
         raise "[TESTCASE ERR] Error parsing expected json document"
 
     try:
         py_result = json.loads(PythonObject(json_result))
     except:
-        assert_equal(
-            json_result.replace(" ", "").replace("\n", ""),
-            exp_result.replace(" ", "").replace("\n", ""),
-        )
+        # assert_equal(
+        #     json_result.replace(" ", "").replace("\n", ""),
+        #     exp_result.replace(" ", "").replace("\n", ""),
+        # )
         raise "[OUTPUT ERR] Error parsing json output from parser"
 
     try:

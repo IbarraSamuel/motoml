@@ -312,7 +312,9 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
         if inner.isa[self.String]():
             return String(
-                '{"type": "string", "value": "', inner[self.String], '"}'
+                '{"type": "string", "value": "',
+                inner[self.String].replace("\n", "\\n"),
+                '"}',
             )
         elif inner.isa[self.Integer]():
             return String(
@@ -331,13 +333,6 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 [Self.from_addr(addr).__repr__() for addr in array]
             )
             return String("[", values, "]")
-            # w.write("[")
-            # for i, v in enumerate(array):
-            #     if i != 0:
-            #         w.write(", ")
-            #     ref value = Self.from_addr(v)
-            #     value.(w)
-            # w.write("]")
 
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
@@ -350,13 +345,6 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 ]
             )
             return String("{", values, "}")
-            # for i, kv in enumerate(table.items()):
-            #     if i != 0:
-            #         w.write(", ")
-            #     ref value = Self.from_addr(kv.value)
-            #     w.write('"', kv.key, '": ')
-            #     value.write_tagged_json_to(w)
-            # w.write("}")
         else:
             os.abort("type to repr not identified")
 
