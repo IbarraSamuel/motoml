@@ -81,12 +81,15 @@ fn parse_quoted_string[
 
 fn parse_inline_collection[
     collection: toml.CollectionType
-](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
+](data: Span[Byte], mut idx: Int, _lvl: Int) raises -> toml.TomlType[
+    data.origin
+]:
     """Assumes the first char is already within the collection, but could be a space.
     """
     # comptime ContainerEnd = SquareBracketClose if collection == "array" else CurlyBracketClose
 
     var value: toml.TomlType[data.origin]
+    skip_blanks_and_comments(data, idx)
 
     @parameter
     if collection == "array":
@@ -98,9 +101,9 @@ fn parse_inline_collection[
     # Could not be triple quoted.
     @parameter
     if collection == "table":
-        skip[Space](data, idx)
+        # skip[Space, Tab, Enter](data, idx)
         parse_and_update_kv_pairs[separator=Comma, end_char=CurlyBracketClose](
-            data, idx, value
+            data, idx, value, _lvl
         )
         return value^
 
@@ -110,7 +113,7 @@ fn parse_inline_collection[
     ref arr = value.as_opaque_array()
 
     # For sure this is an array or list.
-    skip_blanks_and_comments(data, idx)
+    # skip_blanks_and_comments(data, idx)
     # skip[Space, NewLine](data, idx)
 
     while data[idx] != SquareBracketClose:
@@ -121,7 +124,7 @@ fn parse_inline_collection[
         #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
         #     ),
         # )
-        var arr_item = parse_value[SquareBracketClose](data, idx)
+        var arr_item = parse_value[SquareBracketClose](data, idx, _lvl)
         # var s = String()
         # arr_item.write_tagged_json_to(s)
         # print("value parsed: `{}`".format(s))
@@ -218,19 +221,24 @@ fn string_to_type[
             var vi = atof(v)
             return toml.TomlType[data.origin](vi)
         except:
-            raise ("should be a float but it's not a float")
+            raise ("should be a float but it's not a float: {}.".format(v))
 
     else:
         try:
             var vi = atol(v)
             return toml.TomlType[data.origin](vi)
         except:
-            raise ("should be a int but it's not a integer")
+            raise ("should be a int but it's not a integer: {}".format(v))
 
 
 fn parse_value[
     end_char: Byte
-](data: Span[Byte], mut idx: Int, out value: toml.TomlType[data.origin]) raises:
+](
+    data: Span[Byte],
+    mut idx: Int,
+    out value: toml.TomlType[data.origin],
+    _lvl: Int,
+) raises:
     # Assumes the first char is the first value of the value to parse.
     if data[idx] == DoubleQuote:
         if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
@@ -253,11 +261,13 @@ fn parse_value[
     elif data[idx] == SquareBracketOpen:
         idx += 1
         # print("parsing inline array...")
-        value = parse_inline_collection["array"](data, idx)
+        value = parse_inline_collection["array"](data, idx, _lvl)
+        # print("last multiline array codepoint parsed is:", Codepoint(data[idx]))
     elif data[idx] == CurlyBracketOpen:
         idx += 1
         # print("parsing inline table...")
-        value = parse_inline_collection["table"](data, idx)
+        value = parse_inline_collection["table"](data, idx, _lvl)
+        # print("last multiline table codepoint parsed is:", Codepoint(data[idx]))
     else:
         value = string_to_type[end_char](data, idx)
 
@@ -305,7 +315,7 @@ fn parse_key_span_and_get_container[
             # print("key:", StringSlice(unsafe_from_utf8=key))
             key_found = True
         # TODO: include tabs here too.
-        elif not key_found and data[idx] == Space:
+        elif not key_found and (data[idx] == Space or data[idx] == Tab):
             # You should close the key, and keep going
             key = data[key_init:idx]
             key_found = True
@@ -323,7 +333,7 @@ fn parse_key_span_and_get_container[
             ref cont = get_or_ref_container["table"](key, base)
             # ignore dot
             idx += 1
-            skip[Space](data, idx)
+            skip[Space, Tab](data, idx)
             return parse_key_span_and_get_container[collection, close_char](
                 data, idx, cont, key
             )
@@ -350,7 +360,12 @@ fn parse_key_span_and_get_container[
 
 fn find_kv_and_update_base[
     end_char: Byte
-](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
+](
+    data: Span[Byte],
+    mut idx: Int,
+    mut base: toml.TomlType[data.origin],
+    _lvl: Int,
+) raises:
     var key = data[idx:idx]
     # print("parsing kv pair")
     # print(
@@ -380,7 +395,7 @@ fn find_kv_and_update_base[
     #     "Parsing value starting at:",
     #     "`{}...`".format(StringSlice(unsafe_from_utf8=data[idx : idx + 30])),
     # )
-    var value = parse_value[end_char](data, idx)
+    var value = parse_value[end_char](data, idx, _lvl)
     idx += 1
     # var s = String()
     # value.write_tagged_json_to(s)
@@ -393,25 +408,55 @@ fn find_kv_and_update_base[
 
 fn parse_and_update_kv_pairs[
     separator: Byte, end_char: Byte
-](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
-    """This function ends at end_char always."""
+](
+    data: Span[Byte],
+    mut idx: Int,
+    mut base: toml.TomlType[data.origin],
+    _lvl: Int,
+) raises:
+    """This function expect to be on top of the value to start parsing. So item=1.
+    End at the last value + 1.
+    """
     while idx < len(data) and data[idx] != end_char:
         # skip[Space, NewLine](data, idx)
-        skip_blanks_and_comments(data, idx)
-        # print("Finding kv pairs...")
-        find_kv_and_update_base[end_char=end_char](data, idx, base)
+        # print(
+        #     "->->" * _lvl,
+        #     "Finding kv pairs... span: ```{}...```\n\n".format(
+        #         StringSlice(unsafe_from_utf8=data[idx : idx + 50]).replace(
+        #             "\n", "\\n"
+        #         )
+        #     ),
+        # )
+        find_kv_and_update_base[end_char=end_char](data, idx, base, _lvl + 1)
+        # You are one char after the end of the value.
+        # print(
+        #     "->->" * _lvl,
+        #     "we are at end of kv parsing at: `{}` with span: ```{}...```\n\n"
+        #     .format(
+        #         Codepoint(data[idx]),
+        #         StringSlice(unsafe_from_utf8=data[idx : idx + 50]).replace(
+        #             "\n", "\\n"
+        #         ),
+        #     ),
+        # )
         # print("end with finding...")
-        skip[Space](data, idx)
+        # skip[Space, Enter, Tab](data, idx)
         stop_at[separator, end_char](data, idx)
         if data[idx] == end_char or idx >= len(data):
+            # print(
+            #     "->->" * _lvl,
+            #     "found collection end before separator. Break at:",
+            #     Codepoint(end_char),
+            # )
             break
 
         # we are at separator
-        skip[separator, Space](data, idx)
+        skip[separator](data, idx)
+        skip_blanks_and_comments(data, idx)
 
 
 fn parse_and_store_multiline_collection[
-    collection: toml.CollectionType
+    collection: toml.CollectionType, _lvl: Int
 ](
     data: Span[Byte],
     mut idx: Int,
@@ -473,7 +518,7 @@ fn parse_and_store_multiline_collection[
     #     ),
     # )
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
-        data, idx, tb[]
+        data, idx, tb[], _lvl
     )
     # print("parsing values done!.")
     # print("collection type:", collection.inner)
@@ -511,12 +556,12 @@ fn parse_and_store_multiline_collection[
                 # Since you need to skip the current level, you can just strip key
                 # from the multiline collection.
                 idx += len(base_key) + 1
-                parse_and_store_multiline_collection["array"](
+                parse_and_store_multiline_collection["array", _lvl](
                     data, idx, tb[], base_key
                 )
             else:
                 idx += len(base_key) + 1
-                parse_and_store_multiline_collection["table"](
+                parse_and_store_multiline_collection["table", _lvl](
                     data, idx, tb[], base_key
                 )
 
@@ -583,8 +628,9 @@ fn parse_toml_raises(
 
     # print("parsing initial kv pairs...")
     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
-        data, idx, base
+        data, idx, base, 0
     )
+    # print("end parsing initial kv pairs...")
 
     # Here we are at end of file or start of a table or table list
     # print("parsing tables...")
@@ -594,10 +640,14 @@ fn parse_toml_raises(
         if data[idx] == SquareBracketOpen:
             # it's an array
             idx += 1
-            parse_and_store_multiline_collection["array"](data, idx, base, {})
+            parse_and_store_multiline_collection["array", 0](
+                data, idx, base, {}
+            )
         else:
             # it's a table
-            parse_and_store_multiline_collection["table"](data, idx, base, {})
+            parse_and_store_multiline_collection["table", 0](
+                data, idx, base, {}
+            )
 
     # print("done parsing toml!")
     return base^

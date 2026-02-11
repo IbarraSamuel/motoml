@@ -57,11 +57,9 @@ fn file_test[strpath: StaticString]() raises:
     try:
         py_expected = json.loads(PythonObject(exp_result))
     except:
-        # assert_equal(
-        #     json_result.replace(" ", "").replace("\n", ""),
-        #     exp_result.replace(" ", "").replace("\n", ""),
-        # )
-        raise "[TESTCASE ERR] Error parsing expected json document"
+        raise "[TESTCASE ERR] Error parsing expected json document: {}".format(
+            exp_result
+        )
 
     try:
         py_result = json.loads(PythonObject(json_result))
@@ -70,7 +68,9 @@ fn file_test[strpath: StaticString]() raises:
         #     json_result.replace(" ", "").replace("\n", ""),
         #     exp_result.replace(" ", "").replace("\n", ""),
         # )
-        raise "[OUTPUT ERR] Error parsing json output from parser"
+        raise "[OUTPUT ERR] Error parsing json output from parser: {}".format(
+            json_result
+        )
 
     try:
         assert_true(py_result == py_expected)
@@ -86,24 +86,26 @@ fn toml_files() -> Path:
     return Path(loc[: loc.rfind("/")]) / "toml_files"
 
 
+fn filter_files(files: StaticString) -> List[StaticString]:
+    return [
+        f
+        for f in files.splitlines()
+        if (f.startswith("valid") and f.endswith(".toml"))
+    ]
+
+
 fn main() raises:
-    comptime lines = StringSlice(TOML_FILES).splitlines()
+    comptime files_to_test = filter_files(TOML_FILES)
+
     var suite = TestSuite()
 
     @parameter
-    for li in range(len(lines)):
-        comptime fpath = lines[li]
-        comptime root_fpath = StaticString("tests/toml_files/" + fpath)
-
-        @parameter
-        if not (fpath.startswith("valid") and fpath.endswith(".toml")):
-            continue
-
-        var file = toml_files() / fpath
-
-        if not file.exists():
-            continue
-
+    for li in range(len(files_to_test)):
+        comptime fpath = files_to_test[li]
+        print("fpath")
+        comptime root_fpath = StaticString(
+            "[{}]: tests/toml_files/{}".format(li, fpath)
+        )
         suite.test[file_test[fpath]](root_fpath)
 
     suite^.run()
