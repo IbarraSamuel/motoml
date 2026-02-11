@@ -21,7 +21,9 @@ comptime CurlyBracketClose = Byte(ord("}"))
 comptime NewLine = Byte(ord("\n"))
 comptime Enter = Byte(ord("\r"))
 comptime Space = Byte(ord(" "))
+comptime Tab = Byte(ord("\t"))
 
+comptime Comment = Byte(ord("#"))
 comptime Comma = Byte(ord(","))
 comptime Equal = Byte(ord("="))
 comptime Period = Byte(ord("."))
@@ -108,14 +110,27 @@ fn parse_inline_collection[
     ref arr = value.as_opaque_array()
 
     # For sure this is an array or list.
-    skip[Space, NewLine](data, idx)
+    skip_blanks_and_comments(data, idx)
+    # skip[Space, NewLine](data, idx)
 
     while data[idx] != SquareBracketClose:
+        # print(
+        #     "parsing array value at idx:",
+        #     idx,
+        #     "and span: `{}`".format(
+        #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
+        #     ),
+        # )
         var arr_item = parse_value[SquareBracketClose](data, idx)
+        # var s = String()
+        # arr_item.write_tagged_json_to(s)
+        # print("value parsed: `{}`".format(s))
         arr.append(arr_item^.move_to_addr())
         # We are at the end of the item parsed, let's move +1
         idx += 1
         # For both table and array, you need to split by comma
+        skip_blanks_and_comments(data, idx)
+
         stop_at[Comma, SquareBracketClose](data, idx)
         if data[idx] == SquareBracketClose:
             break
@@ -123,7 +138,7 @@ fn parse_inline_collection[
         # we are at a comma
         idx += 1
 
-        skip[Space, NewLine](data, idx)
+        skip_blanks_and_comments(data, idx)
 
     return value^
 
@@ -231,9 +246,11 @@ fn parse_value[
             value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
     elif data[idx] == SquareBracketOpen:
         idx += 1
+        # print("parsing inline array...")
         value = parse_inline_collection["array"](data, idx)
     elif data[idx] == CurlyBracketOpen:
         idx += 1
+        # print("parsing inline table...")
         value = parse_inline_collection["table"](data, idx)
     else:
         value = string_to_type[end_char](data, idx)
@@ -291,6 +308,12 @@ fn parse_key_span_and_get_container[
             if not key_found:
                 key = data[key_init:idx]
 
+            # print(
+            #     "Initializing inner table within key: `",
+            #     StringSlice(unsafe_from_utf8=key),
+            #     "`",
+            #     sep="",
+            # )
             ref cont = get_or_ref_container["table"](key, base)
             # ignore dot
             idx += 1
@@ -324,22 +347,38 @@ fn find_kv_and_update_base[
 ](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     var key = data[idx:idx]
     # print("parsing kv pair")
+    # print(
+    #     " -? trying to find key at span: `",
+    #     StringSlice(unsafe_from_utf8=data[idx : idx + 30]),
+    #     "...` at idx: ",
+    #     idx,
+    #     sep="",
+    # )
     ref tb = parse_key_span_and_get_container["plain", Equal](
         data, idx, base, key
     )
     # ends at the last char
     # print(
-    #     "key in kv finding: `", StringSlice(unsafe_from_utf8=key), "`", sep=""
+    #     " -> key in kv finding: `",
+    #     StringSlice(unsafe_from_utf8=key),
+    #     "` at idx: ",
+    #     idx,
+    #     sep="",
     # )
     idx += 1
 
     skip[Space](data, idx)
 
     # NOTE: changed from CloseCurlyBracket to end_char... Check
-    # print("Parsing value...")
+    # print(
+    #     "Parsing value starting at:",
+    #     "`{}...`".format(StringSlice(unsafe_from_utf8=data[idx : idx + 30])),
+    # )
     var value = parse_value[end_char](data, idx)
     idx += 1
-    # print("value parsed!")
+    # var s = String()
+    # value.write_tagged_json_to(s)
+    # print("value parsed!", s)
     tb.as_opaque_table()[StringSlice(unsafe_from_utf8=key)] = (
         value^.move_to_addr()
     )
@@ -351,7 +390,8 @@ fn parse_and_update_kv_pairs[
 ](data: Span[Byte], mut idx: Int, mut base: toml.TomlType[data.origin]) raises:
     """This function ends at end_char always."""
     while idx < len(data) and data[idx] != end_char:
-        skip[Space, NewLine](data, idx)
+        # skip[Space, NewLine](data, idx)
+        skip_blanks_and_comments(data, idx)
         # print("Finding kv pairs...")
         find_kv_and_update_base[end_char=end_char](data, idx, base)
         # print("end with finding...")
@@ -388,7 +428,12 @@ fn parse_and_store_multiline_collection[
         o = data.origin, collection, SquareBracketClose
     ](data, idx, base, key)
 
-    # print("on key:", StringSlice(unsafe_from_utf8=key))
+    # print(
+    #     "multiline collection key elem: `",
+    #     StringSlice(unsafe_from_utf8=key),
+    #     "`",
+    #     sep="",
+    # )
 
     @parameter
     if collection == "array":
@@ -403,7 +448,7 @@ fn parse_and_store_multiline_collection[
 
     # If there is a table key, there should be values right?
     stop_at[NewLine, SquareBracketOpen](data, idx)
-    skip[NewLine, Space](data, idx)
+    skip_blanks_and_comments(data, idx)
 
     # Identify if there is a nested table within a table list
     # for that, the next table should have the same key as the table list.
@@ -469,56 +514,6 @@ fn parse_and_store_multiline_collection[
                     data, idx, tb[], base_key
                 )
 
-            # var shift = Int(data[idx + 1] == SquareBracketOpen)
-            # # if the table is repeated, could be:
-            # # 1. There is a new entry on the list.
-            # # just don't do anything, close this, let it to the next.
-
-            # # we have a case of a nested table.
-            # var inner_extra_key = data[idx:idx]
-            # var inner_cont: UnsafePointer[
-            #     toml.TomlType[data.origin], MutAnyOrigin
-            # ]
-            # # print("parsing inner value:")
-            # # Array
-            # if data[idx + 1] == SquareBracketOpen:
-            #     idx += len(key) + 3
-            #     # print("inner value as an array.")
-            #     ref array = parse_key_span_and_get_container[
-            #         collection="array", close_char=SquareBracketClose
-            #     ](data, idx, tb[], inner_extra_key).as_opaque_array()
-            #     array.append(base.new_table().move_to_addr())
-            #     inner_cont = array[len(array) - 1].bitcast[
-            #         toml.TomlType[data.origin]
-            #     ]()
-            # # Table
-            # else:
-            #     idx += len(key) + 2
-            #     # print("inner value as a table.")
-            #     inner_cont = UnsafePointer(
-            #         to=parse_key_span_and_get_container[
-            #             collection="table", close_char=SquareBracketClose
-            #         ](data, idx, tb[], inner_extra_key)
-            #     )
-            # # print(
-            # #     "inner value parsing done!: Inner key:",
-            # #     StringSlice(unsafe_from_utf8=inner_extra_key),
-            # # )
-            # stop_at[NewLine, SquareBracketOpen](data, idx)
-            # skip[NewLine](data, idx)
-            # if idx >= len(data):
-            #     return
-            # # print(
-            # #     "parsing value for inner container... `",
-            # #     StringSlice(unsafe_from_utf8=data[idx : idx + 40]),
-            # #     "`",
-            # #     sep="",
-            # # )
-            # parse_and_update_kv_pairs[
-            #     separator=NewLine, end_char=SquareBracketOpen
-            # ](data, idx, inner_cont[])
-            # # print("inner value added!")
-
 
 @always_inline
 fn skip[*chars: Byte](data: Span[Byte], mut idx: Int):
@@ -546,6 +541,27 @@ fn stop_at[*chars: Byte](data: Span[Byte], mut idx: Int):
         idx += 1
 
 
+@always_inline
+fn skip_blanks_and_comments(data: Span[Byte], mut idx: Int):
+    # print(
+    #     "blank shift starts at:", Codepoint(data[idx]), "with ord:", data[idx]
+    # )
+    while True:
+        skip[NewLine, Enter, Space, Tab](data, idx)
+        if data[idx] != Comment:
+            break
+        stop_at[NewLine](data, idx)
+    # print(
+    #     "blank shift stop at:",
+    #     Codepoint(data[idx]),
+    #     "with ord:",
+    #     data[idx],
+    #     "and span: `{}`".format(
+    #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
+    #     ),
+    # )
+
+
 fn parse_toml_raises(
     content: StringSlice,
 ) raises -> toml.TomlType[content.origin]:
@@ -554,7 +570,8 @@ fn parse_toml_raises(
     var base = toml.TomlType[content.origin].new_table()
     var data = content.as_bytes()
 
-    skip[NewLine, Enter, Space](data, idx)
+    skip_blanks_and_comments(data, idx)
+
     if not idx < len(data):
         return base^
 
@@ -588,10 +605,7 @@ fn parse_toml(content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
 
 
 fn toml_to_tagged_json(
-    content: StringSlice[...],
-) raises -> StringSlice[ImmutAnyOrigin]:
-    from collections.string import String
-
-    s = String()
-    parse_toml_raises(content).write_tagged_json_to(s)
-    return s
+    content: StringSlice[...]
+) raises -> String:
+    var toml_values = parse_toml_raises(content)
+    return toml_values.__repr__()

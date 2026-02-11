@@ -53,8 +53,24 @@ fn file_test[strpath: StaticString]() raises:
     var exp_result = exp_file.read_text()
 
     var json = Python.import_module("json")
-    var py_result = json.loads(PythonObject(json_result))
-    var py_expected = json.loads(PythonObject(exp_result))
+
+    try:
+        py_expected = json.loads(PythonObject(exp_result))
+    except:
+        assert_equal(
+            json_result.replace(" ", "").replace("\n", ""),
+            exp_result.replace(" ", "").replace("\n", ""),
+        )
+        raise "[TESTCASE ERR] Error parsing expected json document"
+
+    try:
+        py_result = json.loads(PythonObject(json_result))
+    except:
+        assert_equal(
+            json_result.replace(" ", "").replace("\n", ""),
+            exp_result.replace(" ", "").replace("\n", ""),
+        )
+        raise "[OUTPUT ERR] Error parsing json output from parser"
 
     try:
         assert_true(py_result == py_expected)

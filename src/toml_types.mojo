@@ -124,7 +124,7 @@ struct TomlTableIter[
         return kv.key, TomlRef(toml_value)
 
 
-struct TomlType[o: ImmutOrigin](Copyable, Iterable):
+struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime String = StringRef[Self.o]
     comptime Integer = Integer
     comptime Float = Float
@@ -307,39 +307,56 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable):
             for v in table.values():
                 v.free()
 
-    fn write_tagged_json_to(self, mut w: Some[Writer]):
+    fn __repr__(self) -> String:
         ref inner = self.inner
 
         if inner.isa[self.String]():
-            w.write('{"type": "string", "value": "', inner[self.String], '"}')
+            return String(
+                '{"type": "string", "value": "', inner[self.String], '"}'
+            )
         elif inner.isa[self.Integer]():
-            w.write(
-                '{"type": "integer", "value":, "', inner[self.Integer], '"}'
+            return String(
+                '{"type": "integer", "value": "', inner[self.Integer], '"}'
             )
         elif inner.isa[self.Float]():
-            w.write('{"type": "float", "value", "', inner[self.Float], '"}')
+            return String(
+                '{"type": "float", "value": "', inner[self.Float], '"}'
+            )
         elif inner.isa[self.Boolean]():
             var value = "true" if inner[self.Boolean] else "false"
-            w.write('{"type": "bool", "value": "', value, '"}')
+            return String('{"type": "bool", "value": "', value, '"}')
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
-            w.write("[")
-            for i, v in enumerate(array):
-                if i != 0:
-                    w.write(", ")
-                ref value = Self.from_addr(v)
-                value.write_tagged_json_to(w)
-            w.write("]")
+            var values = ", ".join(
+                [Self.from_addr(addr).__repr__() for addr in array]
+            )
+            return String("[", values, "]")
+            # w.write("[")
+            # for i, v in enumerate(array):
+            #     if i != 0:
+            #         w.write(", ")
+            #     ref value = Self.from_addr(v)
+            #     value.(w)
+            # w.write("]")
+
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
-            w.write("{")
-            for i, kv in enumerate(table.items()):
-                if i != 0:
-                    w.write(", ")
-                ref value = Self.from_addr(kv.value)
-                w.write('"', kv.key, '": ')
-                value.write_tagged_json_to(w)
-            w.write("}")
+            var values = ", ".join(
+                [
+                    String(
+                        '"', kv.key, '": ', Self.from_addr(kv.value).__repr__()
+                    )
+                    for kv in table.items()
+                ]
+            )
+            return String("{", values, "}")
+            # for i, kv in enumerate(table.items()):
+            #     if i != 0:
+            #         w.write(", ")
+            #     ref value = Self.from_addr(kv.value)
+            #     w.write('"', kv.key, '": ')
+            #     value.write_tagged_json_to(w)
+            # w.write("}")
         else:
             os.abort("type to repr not identified")
 
