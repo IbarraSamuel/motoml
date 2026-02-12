@@ -598,7 +598,7 @@ packages:
   timestamp: 1770788865502
 - conda: .
   name: motoml
-  version: 0.0.2
+  version: 0.0.3
   build: h60d57d3_0
   subdir: osx-arm64
   variants:
@@ -607,7 +607,7 @@ packages:
   - mojo-compiler <=1.0.0
 - conda: .
   name: motoml
-  version: 0.0.2
+  version: 0.0.3
   build: hb0f4dca_0
   subdir: linux-64
   variants:
