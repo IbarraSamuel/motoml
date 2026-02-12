@@ -3,12 +3,12 @@ authors = ["Samuel Ibarra <ing.samuelibarra@gmail.com>"]
 channels = ["https://prefix.dev/max-nightly", "https://prefix.dev/conda-forge"]
 name = "motoml"
 platforms = ["linux-64", "osx-arm64"]
-version = "0.0.1"
+version = "0.0.3"
 preview = ["pixi-build"]
 
 [package]
 name = "motoml"
-version = "0.0.2"
+version = "0.0.3"
 description = "TOML Reader for Mojo."
 
 [package.build]
