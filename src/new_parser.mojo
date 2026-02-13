@@ -274,10 +274,10 @@ fn get_or_ref_container[
     return last_tb.setdefault(k, last_addr).bitcast[toml.TomlType[o]]()[]
 
 
-fn parse_key[
+fn parse_keys[
     o: Origin, //, close_char: Byte
-](data: Span[Byte, o], mut idx: Int, mut key_base: List[Span[Byte, o]]) -> Span[
-    Byte, o
+](data: Span[Byte, o], mut idx: Int, var key_base: List[Span[Byte, o]]) -> List[
+    Span[Byte, o]
 ]:
     """
     In a case we have a.b.c we expect to get back (a.b.c, c), no quotes included.
@@ -313,7 +313,7 @@ fn parse_key[
             # skip dot
             idx += 1
             # Return the inner element?
-            return parse_key[close_char](data, idx, key_base)
+            return parse_keys[close_char](data, idx, key_base^)
 
         idx += 1
 
@@ -322,7 +322,7 @@ fn parse_key[
 
     var k = key.unsafe_take()
     key_base.append(k)
-    return k
+    return key_base^
 
 
 # fn parse_key_span_and_get_container[
@@ -399,8 +399,8 @@ fn find_kv[
     data: Span[Byte],
     mut idx: Int,
     # mut base: toml.TomlType[data.origin],
-    mut key_base: List[Span[Byte, data.origin]],
-) raises -> Tuple[Span[Byte, data.origin], toml.TomlType[data.origin]]:
+    var key_base: List[Span[Byte, data.origin]],
+) raises -> Tuple[List[Span[Byte, data.origin]], toml.TomlType[data.origin]]:
     # var key = data[idx:idx]
     # print("parsing kv pair")
     # print(
@@ -411,7 +411,7 @@ fn find_kv[
     #     sep="",
     # )
 
-    var key = parse_key[Equal](data, idx, key_base)
+    var keys = parse_keys[Equal](data, idx, key_base^)
     # var value = get_or_ref_container["table"](key, base)
     # ref tb = parse_key_span_and_get_container["plain", Equal](
     #     data, idx, base, key
@@ -442,7 +442,7 @@ fn find_kv[
     #     value^.move_to_addr()
     # )
     # print("value parsing and storing done!")
-    return key, value^
+    return keys^, value^
 
 
 fn parse_kv_pairs[
@@ -462,15 +462,19 @@ fn parse_kv_pairs[
         #         )
         #     ),
         # )
+        # Base is always a new table because you are not parsing
+        # something on multiline mode.
         var key_base = List[Span[Byte, data.origin]]()
-        var k = parse_key[Equal](data, idx, key_base)
+        var keys = parse_keys[Equal](data, idx, key_base^)
         idx += 1
         skip[Space, Tab](data, idx)
         var v = parse_value[end_char](data, idx)
         idx += 1
 
-        var kk = StringSlice[mut=False](unsafe_from_utf8=k)
-        table.as_opaque_table()[kk] = v^.move_to_addr()
+        ref cont = get_or_ref_container["table"](keys, table)
+        var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
+        cont.as_opaque_table()[kk] = v^.move_to_addr()
+        # table.as_opaque_table()[kk] = v^.move_to_addr()
         # You are one char after the end of the value.
         # print(
         #     "->->" * _lvl,
@@ -514,8 +518,7 @@ fn parse_multiline_collection[
     """
     skip[Space, Tab](data, idx)
     print("parsing multiline collection key:")
-    var key_levels = List[Span[Byte, data.origin]]()
-    var _ = parse_key[SquareBracketClose](data, idx, key_levels)
+    key_levels = parse_keys[SquareBracketClose](data, idx, {})
     idx += comptime (1 + Int(collection == "array"))
 
     # Create container
@@ -751,12 +754,15 @@ fn parse_toml_raises(
     # Here we are at end of file or start of a table or table list
     print("parsing tables...")
     var last_base = UnsafePointer(to=base)
+    var last_key_base = List[Span[Byte, data.origin]]()
     while idx < len(data):
         idx += 1
         if data[idx] == SquareBracketOpen:
             # it's an array
             idx += 1
-            ref cont = parse_multiline_collection["array"](data, idx, base)
+            ref cont = parse_multiline_collection["array"](
+                data, idx, base, last_keys, last_base
+            )
             last_base = UnsafePointer(to=cont)
         else:
             # it's a table

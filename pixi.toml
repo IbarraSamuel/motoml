@@ -25,7 +25,7 @@ mojo-compiler = "<=1.0.0"
 
 [dependencies]
 mojo = "*"
-motoml = { path = "." }
+# motoml = { path = "." }
 
 
 # [tasks]
