@@ -1,4 +1,4 @@
-from motoml.parser import parse_toml, toml_to_tagged_json
+from motoml.new_parser import parse_toml, toml_to_tagged_json
 from test_suite import TestSuite
 from files_to_test import TOML_FILES
 from pathlib import Path
