@@ -2,8 +2,12 @@ export def compile-toml-parser [] {
   pixi run mojo build tests/stdin_parser.mojo
 }
 
-export def parse-toml [file: path] {
-  open $file --raw | ./stdin_parser
+export def parse-toml [file?: path] : [
+  string -> string,
+  nothing -> string
+] {
+  let f = if $file != null {open $file --raw} else {$in} 
+  $f | ./stdin_parser
 }
 
 export def compare-toml-parser [file: path] {

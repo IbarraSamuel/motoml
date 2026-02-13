@@ -47,6 +47,7 @@ fn file_test[strpath: StaticString]() raises:
     if not (file.exists() and exp_file.exists()):
         raise "one file not exists: " + String(file) + " or " + String(exp_file)
     var content = file.read_text()
+    print("parsing file:", file)
     var json_result = toml_to_tagged_json(content)
     var exp_result = exp_file.read_text()
 

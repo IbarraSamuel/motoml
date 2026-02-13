@@ -1,4 +1,4 @@
-from motoml.parser import toml_to_tagged_json, parse_toml
+from motoml.new_parser import toml_to_tagged_json, parse_toml
 from io.io import _fdopen
 from sys import stdin
 from sys import argv
