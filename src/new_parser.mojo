@@ -336,7 +336,7 @@ fn parse_keys[
 
 
 fn parse_kv_pairs[
-    separator: Byte, end_char: Byte
+    separator: Byte, end_char: Byte, *, log: Bool = False
 ](data: Span[Byte], mut idx: Int) raises -> toml.TomlType[data.origin]:
     """This function expect to be on top of the value to start parsing. So item=1.
     End at the last value + 1.
@@ -347,16 +347,22 @@ fn parse_kv_pairs[
         # something on multiline mode.
         var key_base = List[Span[Byte, data.origin]]()
         var keys = parse_keys[Equal](data, idx, key_base^)
-        print(
-            "inline keys -> <",
-            ",".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
-            ">",
-            sep="",
-        )
+
+        @parameter
+        if log:
+            print(
+                "inline keys -> <",
+                ",".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
+                ">",
+                sep="",
+            )
         idx += 1
         skip[Space, Tab](data, idx)
         var v = parse_value[end_char](data, idx)
-        print("inline value -> '", v.__repr__(), "'", sep="")
+
+        @parameter
+        if log:
+            print("inline value -> '", v.__repr__(), "'", sep="")
         idx += 1
 
         ref cont = get_container_ref(
@@ -372,67 +378,6 @@ fn parse_kv_pairs[
         skip[separator](data, idx)
         skip_blanks_and_comments(data, idx)
     return table^
-
-
-# fn parse_multiline_collection_and_store[
-#     o: Origin, //, collection: toml.CollectionType
-# ](
-#     data: Span[Byte, o],
-#     mut idx: Int,
-#     # mut base: toml.TomlType[o],
-#     # TODO: Usse this!
-#     mut last_keys: List[Span[Byte, o]],
-#     mut last_base: toml.TomlType[o],
-# ) raises -> ref[base] toml.TomlType[o]:
-#     """Assume where are on the position to start parsing the multiline key.
-#     But please skip spaces and tabs.
-#     """
-#     skip[Space, Tab](data, idx)
-#     print("parsing multiline collection key:")
-#     key_levels = parse_keys[SquareBracketClose](data, idx, {})
-#     idx += comptime (1 + Int(collection == "array"))
-
-#     # Create container
-#     ref container_ptr = get_or_ref_container[collection](key_levels, base)
-
-#     if idx >= len(data):
-#         return container_ptr
-
-#     print("parsing values for the key")
-#     stop_at[NewLine, SquareBracketOpen](data, idx)
-#     skip_blanks_and_comments(data, idx)
-
-#     var table = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
-
-#     @parameter
-#     if collection == "table":
-#         container_ptr = table^
-#     else:
-#         container_ptr.as_opaque_array().append(table^.move_to_addr())
-
-#     return container_ptr
-
-
-# fn parse_multiline_key(
-#     data: Span[Byte], mut idx: Int, mut keys: List[Span[Byte, data.origin]]
-# ) raises -> toml.TomlType[data.origin]:
-#     """Assume where are on the position to start parsing the multiline key.
-#     But please skip spaces and tabs.
-#     """
-#     skip[Space, Tab](data, idx)
-#     # print("parsing multiline collection key:")
-#     keys = parse_keys[SquareBracketClose](data, idx, {})
-
-#     # In case you are on a list, just skip the second squarebracket open
-#     idx += 1 + Int(data[idx] == SquareBracketOpen)
-
-#     stop_at[NewLine, SquareBracketOpen](data, idx)
-#     if data[idx] == SquareBracketOpen or idx >= len(data):
-#         return toml.TomlType[data.origin].new_table()
-#     skip_blanks_and_comments(data, idx)
-
-#     # print("parsing values for the key")
-#     return parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
 
 
 fn parse_multiline_keys(
@@ -452,183 +397,6 @@ fn parse_multiline_keys(
     skip_blanks_and_comments(data, idx)
 
     return keys^
-
-
-# fn parse_multiline_collection(
-#     data: Span[Byte], mut idx: Int, mut keys: List[Span[Byte, data.origin]]
-# ) raises -> toml.TomlType[data.origin]:
-#     """Assume where are on the position to start parsing the multiline key.
-#     But please skip spaces and tabs.
-#     """
-#     skip[Space, Tab](data, idx)
-#     print("parsing multiline collection key:")
-#     keys = parse_keys[SquareBracketClose](data, idx, {})
-
-#     # In case you are on a list, just skip the second squarebracket open
-#     idx += 1 + Int(data[idx] == SquareBracketOpen)
-
-#     stop_at[NewLine, SquareBracketOpen](data, idx)
-#     if data[idx] == SquareBracketOpen or idx >= len(data):
-#         return toml.TomlType[data.origin].new_table()
-#     skip_blanks_and_comments(data, idx)
-
-#     print("parsing values for the key")
-#     return parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
-
-# @parameter
-# if collection == "table":
-#     container_ptr = table^
-# else:
-#     container_ptr.as_opaque_array().append(table^.move_to_addr())
-
-# TODO: Handle tables within array values.
-
-# Ends at SquareBracketClose all the time
-# var b = UnsafePointer(to=base)
-# for k in key_levels:
-#     b = UnsafePointer(to=get_or_ref_container[collection](k, base))
-
-# return container_ptr
-
-
-# fn parse_and_store_multiline_collection[
-#     collection: toml.CollectionType, _lvl: Int
-# ](
-#     data: Span[Byte],
-#     mut idx: Int,
-#     mut base: toml.TomlType[data.origin],
-#     var base_key: Span[Byte, data.origin],
-# ) raises:
-#     """Assume we are already at the place where we should start parsing.
-#     But could be a space or a tab, so just skip it.
-#     """
-#     skip[Space, Tab](data, idx)
-#     # if data[idx] == SquareBracketOpen:
-#     #     raise ("Not an array or table")
-
-#     # var is_array = data[idx + 1] == SquareBracketOpen
-#     # idx += 1 + Int(is_array)
-
-#     var init_idx = idx
-#     var tb: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin]
-#     var key = data[idx:idx]
-#     # Right away parse the key
-
-#     print("parsing key for mulitiline collection...")
-#     ref container = parse_key_span_and_get_container[
-#         o = data.origin, collection, SquareBracketClose
-#     ](data, idx, base, key)
-
-#     print(
-#         "multiline collection key elem: `",
-#         StringSlice(unsafe_from_utf8=key),
-#         "`",
-#         sep="",
-#     )
-
-#     @parameter
-#     if collection == "array":
-#         idx += 1
-#         ref array = container.as_opaque_array()
-#         array.append(base.new_table().move_to_addr())
-#         tb = array[len(array) - 1].bitcast[toml.TomlType[data.origin]]()
-#     else:
-#         tb = UnsafePointer(to=container)
-
-#     # Use `tb` to store any kv pairs
-
-#     # If there is a table key, there should be values right?
-#     stop_at[NewLine, SquareBracketOpen](data, idx)
-#     skip_blanks_and_comments(data, idx)
-
-#     # Identify if there is a nested table within a table list
-#     # for that, the next table should have the same key as the table list.
-#     # which one is the key you have curently? Take the init to idx now.
-#     # Which key is in nested table? Check from [ to ] and match if the key startswith table arr key.
-
-#     # in case we hit end of file.
-#     if idx >= len(data):
-#         return
-
-#     print(
-#         "Parsing values for table with key:",
-#         StringSlice(unsafe_from_utf8=key),
-#         "starting at: `{}`".format(
-#             StringSlice(unsafe_from_utf8=data[idx : idx + 40])
-#         ),
-#     )
-#     parse_and_update_kv_pairs[separator=NewLine, end_char=SquareBracketOpen](
-#         data, idx, tb[], _lvl
-#     )
-#     print("parsing values done!.")
-#     print("collection type:", collection.inner)
-
-#     # TODO
-#     # In case of nested structures in here, we need to consider quotes when comparing base values with key values.
-#     @parameter
-#     if collection == "array":
-#         # Base should NOT HAVE dot included.
-#         if len(base_key) == 0:
-#             base_key = key
-#         else:
-#             base_key = data[init_idx - len(base_key) - 1 : init_idx + len(key)]
-
-#         while data[idx] == SquareBracketOpen and (
-#             (
-#                 # It's a table
-#                 data[idx + 1 : idx + 1 + len(base_key)] == base_key
-#                 and data[idx + 1 + len(base_key)] != SquareBracketClose
-#             )
-#             or (
-#                 # It's an array
-#                 data[idx + 1] == SquareBracketOpen
-#                 and data[idx + 2 : idx + 2 + len(base_key)] == base_key
-#                 and data[idx + 2 + len(base_key)] != SquareBracketClose
-#             )
-#         ):
-#             print(
-#                 "we have a nested table definition within an array with base"
-#                 " key `{}` starting at:: `{}...`".format(
-#                     StringSlice(unsafe_from_utf8=base_key),
-#                     StringSlice(unsafe_from_utf8=data[idx : idx + 30]),
-#                 )
-#             )
-#             # Since you need to skip the current level, you can just strip key
-#             # from the multiline collection.
-
-#             # Then, next inner iterations have no clue on the initial keys, for that, let's keep
-#             # a runtime optional value, when available, you should check on that one, instead of
-#             # the generated key. If not available, just go with the generated key.
-#             idx += 1
-#             if data[idx] == SquareBracketOpen:
-#                 idx += 1
-#                 # Since you need to skip the current level, you can just strip key
-#                 # from the multiline collection.
-#                 idx += len(base_key)
-#                 if data[idx] != Period:
-#                     print(
-#                         "no period found at `{}`, skipping...".format(
-#                             Codepoint(data[idx])
-#                         )
-#                     )
-#                     break
-#                 idx += 1
-#                 parse_and_store_multiline_collection["array", _lvl](
-#                     data, idx, tb[], base_key
-#                 )
-#             else:
-#                 idx += len(base_key)
-#                 if data[idx] != Period:
-#                     print(
-#                         "no period found at `{}`, skipping...".format(
-#                             Codepoint(data[idx])
-#                         )
-#                     )
-#                     break
-#                 idx += 1
-#                 parse_and_store_multiline_collection["table", _lvl](
-#                     data, idx, tb[], base_key
-#                 )
 
 
 @always_inline
@@ -666,15 +434,75 @@ fn skip_blanks_and_comments(data: Span[Byte], mut idx: Int):
         stop_at[NewLine](data, idx)
 
 
-# fn keys_are_equal[
-#     o: Origin, //
-# ](keys: Tuple[Span[Byte, o], Span[Byte, o]]) -> Bool:
-#     return keys[0] == keys[1]
+fn tp_eq[o: Origin](v: Tuple[Span[Byte, o], Span[Byte, o]]) -> Bool:
+    return v[0] == v[1]
 
 
-fn parse_toml_raises(
-    content: StringSlice,
-) raises -> toml.TomlType[content.origin]:
+fn parse_multiline_collections_new[
+    *, log: Bool = True
+](
+    data: Span[Byte],
+    mut idx: Int,
+    mut base: toml.TomlType[data.origin],
+    base_keys: Span[Span[Byte, data.origin]],
+    nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
+) raises:
+    # Assume current container is a table where I need to push each kv found
+    while idx < len(data):
+        var is_array = data[idx + 1] == SquareBracketOpen
+        idx += 1 + Int(is_array)
+        var keys = parse_multiline_keys(data, idx)
+        var values = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
+        var def_cont = base.new_array() if is_array else base.new_table()
+
+        var should_be_nested = (
+            len(base_keys) > 0
+            and len(keys[len(base_keys) :]) > 0
+            and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
+        )
+
+        @parameter
+        if log:
+            print(
+                "---------- multiline keys[",
+                "array" if is_array else "table",
+                "] [nested?:",
+                should_be_nested,
+                "]------------:",
+            )
+            print(
+                "[",
+                ".".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
+                "]",
+                sep="",
+            )
+            print(
+                "----------- multiline values -------------:\n",
+                values.__repr__(),
+            )
+
+        var new_keys = keys[len(base_keys) :] if should_be_nested else keys
+        var new_base = Pointer(to=nested[]) if should_be_nested else Pointer(
+            to=base
+        )
+
+        ref cont = get_container_ref(new_keys, new_base[], default=def_cont^)
+        cont = values^
+
+        if is_array:
+            print("going deeper...")
+            parse_multiline_collections_new[log=log](
+                data, idx, new_base[], keys, UnsafePointer(to=cont)
+            )
+
+        if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
+            print("going out...")
+            return
+
+
+fn parse_toml_raises[
+    *, log: Bool = False
+](content: StringSlice,) raises -> toml.TomlType[content.origin]:
     var data = content.as_bytes()
 
     var idx = 0
@@ -684,7 +512,7 @@ fn parse_toml_raises(
         return toml.TomlType[content.origin].new_table()
 
     print("parsing initial kv pairs...")
-    var base = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
+    var base = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
     print("end parsing initial kv pairs...")
 
     # Here we are at end of file or start of a table or table list
@@ -703,6 +531,15 @@ fn parse_toml_raises(
     # [[a.b]]
     #     [a.b.c]
     #         d = "val1"
+    #
+    # 1. parse key
+    #
+    # 1. Check if is basable. For that:
+    # * should be an array, so keep base only if you are in an array.
+    # * Store keys only. You already know you only store keys of array locations.
+    #
+    # 2. Check if it's subset. For that:
+    # * Check that current parsed keys
     # a is a last_keys candidate but not a nested attr
     # a.b is a last_keys candidate and a nested attr
     # a.b.c is a nested attr
@@ -712,117 +549,36 @@ fn parse_toml_raises(
     # For array-related, you should return a reference to the list index, to just put
     # the parsed value in there. By default, you can just use a empty table.
 
-    fn tp_eq[o: Origin](v: Tuple[Span[Byte, o], Span[Byte, o]]) -> Bool:
-        return v[0] == v[1]
-
-    print(
-        "starting multiline parsing on row: `{}...`".format(
-            StringSlice(unsafe_from_utf8=data[idx : idx + 30])
-        )
-    )
-    while idx < len(data):
-        var is_array = data[idx + 1] == SquareBracketOpen
-
-        idx += 1 + Int(is_array)
-
+    @parameter
+    if log:
         print(
-            "---------- multiline keys[",
-            "array" if is_array else "table",
-            "]------------:",
-        )
-        var keys = parse_multiline_keys(data, idx)
-        print(
-            "[",
-            ".".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
-            "]",
-            sep="",
-        )
-        var values = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
-        print(
-            "----------- multiline values -------------:\n", values.__repr__()
-        )
-        var default_cont = (
-            toml.TomlType[content.origin]
-            .new_array() if is_array else toml.TomlType[content.origin]
-            .new_table()
-        )
-
-        # var is_subset = all(map[keys_are_equal[o=content.origin]](zip(last_keys, keys)))
-        var container: Pointer[toml.TomlType[content.origin], origin_of(base)]
-
-        var is_arr_nested = (
-            len(last_keys) > 0
-            and all(map[tp_eq[content.origin]](zip(last_keys, keys)))
-            and len(keys[len(last_keys) :]) > 0
-        )
-        print("count of base:", len(last_keys))
-        print(
-            "is really subset:",
-            all(map[tp_eq[content.origin]](zip(last_keys, keys))),
-        )
-        print("count of keys after base:", len(keys[len(last_keys) :]))
-
-        if not is_arr_nested:
-            print("base collection")
-            ref cont = get_container_ref(keys, base, default=default_cont^)
-            container = Pointer(to=cont)
-            last_base = container if is_array else Pointer(to=base)
-            last_keys = keys^ if is_array else []
-
-        else:
-            # keys is a subset of last_keys
-            # Assume keys is larger or the same as last_keys
-            # var tp = "array" if default_cont.inner.isa[
-            #     toml.TomlType[content.origin].OpaqueArray
-            # ]() else "table"
-            print("relative collection")
-            # print(
-            #     "nested collection. Creating a container with default type:",
-            #     tp,
-            #     ". Current multiline type is:",
-            #     "array" if is_array else "table",
-            #     "and last base type is:",
-            #     "array" if last_base[].inner.isa[
-            #         toml.TomlType[content.origin].OpaqueArray
-            #     ]() else "table",
-            # )
-            # print(
-            #     "previous keys: [",
-            #     ",".join([StringSlice(unsafe_from_utf8=k) for k in last_keys]),
-            #     "] and len of:",
-            #     len(last_keys),
-            #     sep="",
-            # )
-            # print(
-            #     "nested keys to use: [",
-            #     ",".join(
-            #         [
-            #             StringSlice(unsafe_from_utf8=k)
-            #             for k in keys[len(last_keys) :]
-            #         ]
-            #     ),
-            #     "]",
-            #     sep="",
-            # )
-            ref cont = get_container_ref(
-                keys[len(last_keys) :],
-                last_base[],
-                default=default_cont^,
+            "starting multiline parsing on row: `{}...`".format(
+                StringSlice(unsafe_from_utf8=data[idx : idx + 30])
             )
-            container = Pointer(to=cont)
+        )
 
-        container[] = values^
-    # print("done parsing toml!")
+    var base_keys: List[Span[Byte, content.origin]] = {}
+    parse_multiline_collections_new(
+        data, idx, base, base_keys[:], UnsafePointer(to=base)
+    )
+
+    @parameter
+    if log:
+        print("done parsing toml!")
     return base^
 
 
-fn parse_toml(content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
+fn parse_toml[
+    *, log: Bool = False
+](content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
     try:
-        return parse_toml_raises(content)
+        return parse_toml_raises[log=log](content)
     except:
         return None
 
 
-fn toml_to_tagged_json(content: StringSlice[...]) raises -> String:
-    var toml_values = parse_toml_raises(content)
+fn toml_to_tagged_json[
+    *, log: Bool = False
+](content: StringSlice[...]) raises -> String:
+    var toml_values = parse_toml_raises[log=log](content)
     return toml_values.__repr__()

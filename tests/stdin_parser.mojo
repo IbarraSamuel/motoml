@@ -15,5 +15,5 @@ fn main() raises:
         except:
             break
 
-    var json = toml_to_tagged_json(in_str)
+    var json = toml_to_tagged_json[log=True](in_str)
     print(json)
