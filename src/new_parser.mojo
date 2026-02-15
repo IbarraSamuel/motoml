@@ -438,16 +438,85 @@ fn tp_eq[o: Origin](v: Tuple[Span[Byte, o], Span[Byte, o]]) -> Bool:
     return v[0] == v[1]
 
 
-fn parse_multiline_collections_new[
+# fn parse_multiline_collections_new[
+#     *, log: Bool = True
+# ](
+#     data: Span[Byte],
+#     mut idx: Int,
+#     mut base: toml.TomlType[data.origin],
+#     base_keys: Span[Span[Byte, data.origin]],
+#     nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
+# ) raises:
+#     # Assume current container is a table where I need to push each kv found
+#     while idx < len(data):
+#         var is_array = data[idx + 1] == SquareBracketOpen
+#         idx += 1 + Int(is_array)
+#         var keys = parse_multiline_keys(data, idx)
+#         var values = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
+#         var def_cont = base.new_array() if is_array else base.new_table()
+
+#         var should_be_nested = (
+#             len(base_keys) > 0
+#             and len(keys[len(base_keys) :]) > 0
+#             and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
+#         )
+
+#         @parameter
+#         if log:
+#             print(
+#                 "---------- multiline keys[",
+#                 "array" if is_array else "table",
+#                 "] [nested?:",
+#                 should_be_nested,
+#                 "]------------:",
+#             )
+#             print(
+#                 "[",
+#                 ".".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
+#                 "]",
+#                 sep="",
+#             )
+#             print(
+#                 "----------- multiline values -------------:\n",
+#                 values.__repr__(),
+#             )
+
+#         var new_keys = keys[len(base_keys) :] if should_be_nested else keys
+#         var new_base = Pointer(to=nested[]) if should_be_nested else Pointer(
+#             to=base
+#         )
+
+#         ref cont = get_container_ref(new_keys, new_base[], default=def_cont^)
+#         cont = values^
+
+#         if is_array:
+#             print("going deeper...")
+#             parse_multiline_collections_new[log=log](
+#                 data, idx, new_base[], keys, UnsafePointer(to=cont)
+#             )
+
+#         if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
+#             print("going out...")
+#             return
+
+
+fn parse_multiline_collections[
     *, log: Bool = True
 ](
     data: Span[Byte],
     mut idx: Int,
     mut base: toml.TomlType[data.origin],
-    base_keys: Span[Span[Byte, data.origin]],
-    nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
+    # base_keys: Span[Span[Byte, data.origin]],
+    # nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
 ) raises:
     # Assume current container is a table where I need to push each kv found
+    var contexts: List[
+        Tuple[
+            List[Span[Byte, data.origin]],
+            Pointer[toml.TomlType[data.origin], origin_of(base)],
+        ]
+    ] = [(List[Span[Byte, data.origin]](), Pointer(to=base))]
+
     while idx < len(data):
         var is_array = data[idx + 1] == SquareBracketOpen
         idx += 1 + Int(is_array)
@@ -455,49 +524,106 @@ fn parse_multiline_collections_new[
         var values = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
         var def_cont = base.new_array() if is_array else base.new_table()
 
-        var should_be_nested = (
-            len(base_keys) > 0
-            and len(keys[len(base_keys) :]) > 0
-            and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
-        )
-
         @parameter
         if log:
             print(
                 "---------- multiline keys[",
                 "array" if is_array else "table",
-                "] [nested?:",
-                should_be_nested,
                 "]------------:",
             )
             print(
                 "[",
-                ".".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
+                _repr_keys(keys),
                 "]",
                 sep="",
             )
+        # Check each last context and pop if current is not a subset untill it is.
+        var pair = contexts.pop()
+        var base_keys, ctx = pair[0][:], pair[1]
+        while len(contexts) > 0:
+
+            @parameter
+            if log:
+                print(
+                    "compare: `{}` vs `{}`".format(
+                        _repr_keys(base_keys), _repr_keys(keys)
+                    )
+                )
+            if len(keys) > len(base_keys) and all(
+                map[tp_eq[data.origin]](zip(base_keys, keys))
+            ):
+
+                @parameter
+                if log:
+                    print(
+                        "found that current key is nested on key: `{}`".format(
+                            _repr_keys(base_keys)
+                        ),
+                    )
+                break
+
+            pair = contexts.pop()
+            base_keys, ctx = pair[0][:], pair[1]
+        else:
+
+            @parameter
+            if log:
+                print("using base container (root)")
+
+        # Here we are at the right context
+        # var should_be_nested = (
+        #     len(base_keys) > 0
+        #     and len(keys[len(base_keys) :]) > 0
+        #     and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
+        # )
+
+        @parameter
+        if log:
             print(
                 "----------- multiline values -------------:\n",
                 values.__repr__(),
             )
 
-        var new_keys = keys[len(base_keys) :] if should_be_nested else keys
-        var new_base = Pointer(to=nested[]) if should_be_nested else Pointer(
-            to=base
-        )
+        var rltv_keys = keys[len(base_keys) :]
 
-        ref cont = get_container_ref(new_keys, new_base[], default=def_cont^)
+        @parameter
+        if log:
+            print("Getting container...")
+        ref cont = get_container_ref(rltv_keys, ctx[], default=def_cont^)
+
+        @parameter
+        if log:
+            print("store value into the container...")
         cont = values^
 
-        if is_array:
-            print("going deeper...")
-            parse_multiline_collections_new[log=log](
-                data, idx, new_base[], keys, UnsafePointer(to=cont)
-            )
+        # if is_array:
+        #     print("going deeper...")
+        #     parse_multiline_collections_new[log=log](
+        #         data, idx, new_base[], keys, UnsafePointer(to=cont)
+        #     )
 
-        if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
-            print("going out...")
-            return
+        # if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
+        #     print("going out...")
+        #     return
+
+        @parameter
+        if log:
+            print(
+                "append back current keys base and base ctx. `{}`".format(
+                    _repr_keys(base_keys),
+                )
+            )
+        contexts.append(pair^)
+
+        @parameter
+        if log:
+            print("append current keys and ctx. `{}`".format(_repr_keys(keys)))
+        contexts.append((keys^, Pointer(to=cont)))
+
+
+fn _repr_keys[o: Origin](v: Span[Span[Byte, o]]) -> String:
+    var r = ".".join([StringSlice(unsafe_from_utf8=k) for k in v])
+    return r
 
 
 fn parse_toml_raises[
@@ -511,14 +637,19 @@ fn parse_toml_raises[
     if idx >= len(data):
         return toml.TomlType[content.origin].new_table()
 
-    print("parsing initial kv pairs...")
+    @parameter
+    if log:
+        print("parsing initial kv pairs...")
     var base = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
-    print("end parsing initial kv pairs...")
+
+    @parameter
+    if log:
+        print("end parsing initial kv pairs...")
 
     # Here we are at end of file or start of a table or table list
     # print("parsing tables...")
-    var last_base = Pointer(to=base)
-    var last_keys = List[Span[Byte, data.origin]]()
+    # var last_base = Pointer(to=base)
+    # var last_keys = List[Span[Byte, data.origin]]()
 
     # NOTES:
     # 1. Do not store base. Calculate base using the last keys values.
@@ -532,7 +663,25 @@ fn parse_toml_raises[
     #     [a.b.c]
     #         d = "val1"
     #
+    # 0. Calculate key path and container type
+    # 1. Create the container within base where key => a and type => array
+    # 2. Keep this context open for next operations
+    # 2. Create an entry within the list and store a default table in it
+    # 3. parse
+    #
+    # 0. Calculate key path and container type
+    # 2. if the key path is defined within the current context,
+    # 2.
     # 1. parse key
+    #
+    # How to go up and down in contexts.
+    # 1. Each contexts holds the base keys used for them
+    # 2. When the key is readed and the type is defined, we should be able to go up and down.
+    # 3. Then, each context should be able to return the keys that bring it out (when the context is closed)
+    # 4. After the context entry, the outer context should check the key list retrieved, if it's not a subset, it should keep bubbling up
+    # 5. If its in it's current context, parse the value on it.
+    # 6. Use UnsafePointer to move the value using tuple notation. so context should return tuple, not a key only.
+    #
     #
     # 1. Check if is basable. For that:
     # * should be an array, so keep base only if you are in an array.
@@ -557,10 +706,7 @@ fn parse_toml_raises[
             )
         )
 
-    var base_keys: List[Span[Byte, content.origin]] = {}
-    parse_multiline_collections_new(
-        data, idx, base, base_keys[:], UnsafePointer(to=base)
-    )
+    parse_multiline_collections[log=log](data, idx, base)
 
     @parameter
     if log:
