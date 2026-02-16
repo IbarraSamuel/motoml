@@ -3,4 +3,5 @@
 !.pixi/config.toml
 kgen.trace*
 stdin_parser
-
+parser
+parser-w-logs

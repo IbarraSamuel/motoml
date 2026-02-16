@@ -108,7 +108,10 @@ struct TomlTableIter[
         origin = Self.toml,
     ]
 
-    fn __init__(out self, ref[Self.toml] v: Self.Toml.OpaqueTable):
+    fn __init__(
+        out self: TomlTableIter[Self.data, origin_of(v)],
+        ref[Self.toml] v: Self.Toml.OpaqueTable,
+    ):
         self.pointer = v.items()
 
     fn __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
@@ -193,11 +196,15 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn new_table(out self: Self):
         self = Self(Self.OpaqueTable(capacity=32))
 
-    fn as_opaque_table(ref self) -> ref[self.inner] Self.OpaqueTable:
-        return self.inner[Self.OpaqueTable]
+    fn as_opaque_table(ref self) -> ref[self] Self.OpaqueTable:
+        return UnsafePointer(
+            to=self.inner[Self.OpaqueTable]
+        ).unsafe_origin_cast[origin_of(self)]()[]
 
-    fn as_opaque_array(ref self) -> ref[self.inner] Self.OpaqueArray:
-        return self.inner[Self.OpaqueArray]
+    fn as_opaque_array(ref self) -> ref[self] Self.OpaqueArray:
+        return UnsafePointer(
+            to=self.inner[Self.OpaqueArray]
+        ).unsafe_origin_cast[origin_of(self)]()[]
 
     # ==== Access inner values using methods ====
 

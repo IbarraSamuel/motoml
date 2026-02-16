@@ -274,7 +274,7 @@ fn parse_value[
 
 fn get_or_ref_container[
     collection: toml.CollectionType
-](key: Span[Byte], mut base: toml.TomlType[key.origin]) -> ref[
+](key: Span[mut=False, Byte], mut base: toml.TomlType[key.origin]) -> ref[
     base
 ] toml.TomlType[key.origin]:
     str_key = StringSlice(unsafe_from_utf8=key)
@@ -291,13 +291,13 @@ fn get_or_ref_container[
 
 
 fn parse_key_span_and_get_container[
-    o: Origin, //, collection: toml.CollectionType, close_char: Byte
+    collection: toml.CollectionType, close_char: Byte
 ](
-    data: Span[Byte, o],
+    data: Span[mut=False, Byte],
     mut idx: Int,
-    mut base: toml.TomlType[o],
-    mut key: Span[Byte, o],
-) -> ref[base] toml.TomlType[o]:
+    mut base: toml.TomlType[data.origin],
+    mut key: Span[Byte, data.origin],
+) -> ref[base] toml.TomlType[data.origin]:
     """Assumes that first character is not a space. Ends on close char."""
     # TODO: Note: You cannot assume that the quoted keys are already complete. You might have:
     # quote."some".'thing' and it's valid.
@@ -361,7 +361,7 @@ fn parse_key_span_and_get_container[
 fn find_kv_and_update_base[
     end_char: Byte
 ](
-    data: Span[Byte],
+    data: Span[mut=False, Byte],
     mut idx: Int,
     mut base: toml.TomlType[data.origin],
     _lvl: Int,
@@ -409,7 +409,7 @@ fn find_kv_and_update_base[
 fn parse_and_update_kv_pairs[
     separator: Byte, end_char: Byte
 ](
-    data: Span[Byte],
+    data: Span[mut=False, Byte],
     mut idx: Int,
     mut base: toml.TomlType[data.origin],
     _lvl: Int,
@@ -458,7 +458,7 @@ fn parse_and_update_kv_pairs[
 fn parse_and_store_multiline_collection[
     collection: toml.CollectionType, _lvl: Int
 ](
-    data: Span[Byte],
+    data: Span[mut=False, Byte],
     mut idx: Int,
     mut base: toml.TomlType[data.origin],
     var base_key: Span[Byte, data.origin],
@@ -479,7 +479,7 @@ fn parse_and_store_multiline_collection[
     # Right away parse the key
 
     ref container = parse_key_span_and_get_container[
-        o = data.origin, collection, SquareBracketClose
+        collection, SquareBracketClose
     ](data, idx, base, key)
 
     # print(

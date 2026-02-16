@@ -3,7 +3,8 @@ TOML reader for mojo.
 
 
 # TODO:
-1. End in strings with /
-2. Unicode special handling
-3. Fix empty array names
+1.[x] End in strings with /
+2.[ ] Unicode special handling
+3.[x] Fix empty array names
+4.[ ] Fix container overwrite
 
