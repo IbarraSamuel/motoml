@@ -322,17 +322,24 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         ref inner = self.inner
 
         if inner.isa[self.String]():
-            var s = (
-                inner[self.String]
-                .removeprefix("\n")
+            var s = inner[self.String]
+            var ss = (
+                s.removeprefix("\n")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
                 .replace("\r", "\\r")
             )
-            # if s.find("\\x") != -1:
-            #     s = "".join([c for c in s.codepoints()])
+            if s.find("\\x") != -1:
+                i = s.find("\\x") + 2
+                min_n = ord("0")
+                while ord(s[byte=i]) 
+                ss = ss.replace("\\x")
+            for c in s.codepoints():
+                print(c, end="")
+            print()
+            # ss = "".join([String(c) for c in s.codepoints()])
 
-            return String('{"type": "string", "value": "', s, '"}')
+            return String('{"type": "string", "value": "', ss, '"}')
         elif inner.isa[self.Integer]():
             return String(
                 '{"type": "integer", "value": "', inner[self.Integer], '"}'
