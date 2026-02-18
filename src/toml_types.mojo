@@ -322,15 +322,17 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         ref inner = self.inner
 
         if inner.isa[self.String]():
-            return String(
-                '{"type": "string", "value": "',
+            var s = (
                 inner[self.String]
                 .removeprefix("\n")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .replace("\r", "\\r"),
-                '"}',
+                .replace("\r", "\\r")
             )
+            # if s.find("\\x") != -1:
+            #     s = "".join([c for c in s.codepoints()])
+
+            return String('{"type": "string", "value": "', s, '"}')
         elif inner.isa[self.Integer]():
             return String(
                 '{"type": "integer", "value": "', inner[self.Integer], '"}'
@@ -366,7 +368,11 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 [
                     String(
                         '"',
-                        kv.key.replace('"', '\\"'),
+                        kv.key.replace('\\"', '"')
+                        .replace('"', '\\"')
+                        .replace("\n", "\\n")
+                        .replace("\t", "\\t")
+                        .replace("\r", "\\r"),
                         '": ',
                         Self.from_addr(kv.value).__repr__(),
                     )

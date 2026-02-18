@@ -255,7 +255,7 @@ fn parse_value[
 
 
 fn get_container_ref[
-    o: ImmutOrigin, //
+    o: ImmutOrigin, //, log: Bool = False
 ](
     keys: Span[Span[mut=False, Byte, o]],
     mut base: toml.TomlType[keys.T.origin].OpaqueTable,
@@ -265,7 +265,14 @@ fn get_container_ref[
     var is_array = default.inner.isa[toml.TomlType[o].OpaqueArray]()
     var cont = Pointer[origin=MutAnyOrigin](to=base)
     for k in keys[: len(keys) - 1]:
-        ref inner_v = base.setdefault(
+
+        @parameter
+        if log:
+            print(
+                "|> k -> '{}' ".format(StringSlice(unsafe_from_utf8=k)), end=""
+            )
+
+        ref inner_v = cont[].setdefault(
             StringSlice(unsafe_from_utf8=k),
             toml.TomlType[o].new_table().move_to_addr(),
         )
@@ -276,18 +283,24 @@ fn get_container_ref[
         )
 
     var k = StringSlice(unsafe_from_utf8=keys[len(keys) - 1])
+
+    @parameter
+    if log:
+        print("|> k -> '{}'".format(k))
     ref pre_last = cont[]
     var last = pre_last.setdefault(k, default^.move_to_addr()).bitcast[
         toml.TomlType[o]
     ]()
-    if not is_array:
-        # just refer to the placeholder of the key.
-        return last[]
 
-    # Add a last element and refer to it. So we can modify the last element.
-    ref arr = last[].as_opaque_array()
-    arr.append(toml.TomlType[o].new_table().move_to_addr())
-    return arr[len(arr) - 1].bitcast[toml.TomlType[o]]()[]
+    return last[]
+    # if not is_array:
+    #     # just refer to the placeholder of the key.
+    #     return last[]
+
+    # # Add a last element and refer to it. So we can modify the last element.
+    # ref arr = last[].as_opaque_array()
+    # arr.append(toml.TomlType[o].new_table().move_to_addr())
+    # return arr[len(arr) - 1].bitcast[toml.TomlType[o]]()[]
 
 
 # fn store_in_container[
@@ -357,6 +370,8 @@ fn parse_keys[
             key_base.append(key.unsafe_value())
             # skip dot
             idx += 1
+            # Skip any space between parsed element and next key
+            skip[Space, Tab](data, idx)
             # Return the inner element?
             return parse_keys[close_char](data, idx, key_base^)
 
@@ -647,7 +662,10 @@ fn parse_multiline_collections[
 
             @parameter
             if log:
-                print("using base container (root)")
+                print(
+                    "using base container (root) with base keys:",
+                    _repr_keys(base_keys),
+                )
 
         # Here we are at the right context
         # var should_be_nested = (
@@ -660,13 +678,43 @@ fn parse_multiline_collections[
 
         @parameter
         if log:
+            print(
+                "[i] Keys used in the current store proc: ->>",
+                _repr_keys(rltv_keys),
+                "with the value to store as:",
+                [
+                    "{}: {}".format(
+                        kv.key,
+                        kv.value.bitcast[
+                            toml.TomlType[data.origin]
+                        ]()[].__repr__(),
+                    )
+                    for kv in values.items()
+                ],
+            )
+
+        @parameter
+        if log:
             print(">> Getting container from ctx...")
-        ref cont = get_container_ref(rltv_keys, ctx[], default=def_cont^)
+        var cont = Pointer(
+            to=get_container_ref[log=log](rltv_keys, ctx[], default=def_cont^)
+        )
 
         @parameter
         if log:
             print(">> store value into the container...")
-        cont.as_opaque_table().update(values)
+
+        if is_array:
+            ref arr = cont[].as_opaque_array()
+            arr.append(toml.TomlType[data.origin].new_table().move_to_addr())
+            cont = Pointer(
+                to=arr[len(arr) - 1]
+                .bitcast[toml.TomlType[data.origin]]()
+                .unsafe_origin_cast[origin_of(base)]()[]
+            )
+
+        cont[].as_opaque_table().update(values)
+
         # cont = values^
 
         # if is_array:
@@ -691,13 +739,31 @@ fn parse_multiline_collections[
         @parameter
         if log:
             print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
-        var new_ctx = (keys^, Pointer(to=cont.as_opaque_table()))
+        var new_ctx = (keys^, Pointer(to=cont[].as_opaque_table()))
         contexts.append(new_ctx^)
+
+        @parameter
+        if log:
+            print("Current base repr:", _repr_dict(base))
 
 
 fn _repr_keys[o: Origin](v: Span[Span[Byte, o]]) -> String:
     var r = ".".join([StringSlice(unsafe_from_utf8=k) for k in v])
     return r
+
+
+fn _repr_dict[
+    o: Origin
+](
+    v: Dict[StringSlice[o], UnsafePointer[NoneType, MutExternalOrigin]]
+) -> String:
+    var r = [
+        "{}: {}".format(
+            kv.key, kv.value.bitcast[toml.TomlType[o]]()[].__repr__()
+        )
+        for kv in v.items()
+    ]
+    return String(r)
 
 
 fn parse_toml_raises[
@@ -772,13 +838,13 @@ fn parse_toml_raises[
     # For array-related, you should return a reference to the list index, to just put
     # the parsed value in there. By default, you can just use a empty table.
 
-    @parameter
-    if log:
-        print(
-            "starting multiline parsing on row: `{}...`".format(
-                StringSlice(unsafe_from_utf8=data[idx : idx + 30])
-            )
-        )
+    # @parameter
+    # if log:
+    #     print(
+    #         "starting multiline parsing on row: `{}...`".format(
+    #             StringSlice(unsafe_from_utf8=data[idx : idx + 30])
+    #         )
+    #     )
 
     parse_multiline_collections[log=log](data, idx, base)
 
