@@ -7,6 +7,7 @@ from collections.dict import _DictEntryIter
 
 # TYPES
 comptime StringRef[o: Origin] = StringSlice[o]
+comptime StringLit[o: Origin] = Span[Byte, o]
 comptime Integer = Int
 comptime Float = Float64
 comptime Boolean = Bool
@@ -126,8 +127,54 @@ struct TomlTableIter[
         return kv.key, TomlRef(toml_value)
 
 
+fn parse_string_escape(v: StringSlice) -> String:
+    var ss = String(v)
+    var ssb = ss.as_bytes()
+    # is a \x but is not \\x
+    while (
+        ((init := ss.find("\\x")) != -1) or ((init := ss.find("\\u")) != -1)
+    ) and (init == 0 or ssb[init - 1] != Byte(ord("\\"))):
+        comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
+        comptime (min_c, max_c) = Byte(ord("a")), Byte(ord("f"))
+        comptime (min_C, max_C) = Byte(ord("A")), Byte(ord("F"))
+        # print("new hex found!")
+        var i = init + 2
+        # print("char is:", ss, "with \\x found at:", init, "and char: '{}'".format(ss[byte=i]), end=" ")
+        while i < len(ss) and (
+            ((c := ssb[i]) >= min_n and c <= max_n)
+            or (c >= min_c and c <= max_c)
+            or (c >= min_C and c <= max_C)
+        ):
+            i += 1
+        # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
+        # print("complete span is:", ss[init:i])
+        var value: UInt32 = 0
+        for ii in range(i - init - 2):
+            var _ord = ssb[i - ii - 1]
+            var _rtv: Byte
+            if _ord >= min_n and _ord <= max_n:
+                _rtv = _ord - min_n
+            elif _ord >= min_c and _ord <= max_c:
+                _rtv = 10 + _ord - min_c
+            elif _ord >= min_C and _ord <= max_C:
+                _rtv = 10 + _ord - min_C
+            else:
+                os.abort("NOT ABLE TO PARSE {} pattern!".format(ss[init:i]))
+
+            value += UInt32(_rtv) * UInt32(16**ii)
+        var codepoint = Codepoint(unsafe_unchecked_codepoint=value)
+        # print("[[i]] codepoint parsed!!: ", codepoint)
+        # ss = ss[:init] + String(codepoint) + ss[i:]
+        # print("string now will be partitioned in 3 parts: {}".format(ss[:init]), String(codepoint), ss[i:], sep=" <> ")
+        ss = ss[:init] + String(codepoint) + ss[i:]
+        ssb = ss.as_bytes()
+
+    return ss
+
+
 struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime String = StringRef[Self.o]
+    comptime StringLiteral = StringLit[Self.o]
     comptime Integer = Integer
     comptime Float = Float
     comptime NaN = NoneType
@@ -190,11 +237,11 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     # TODO: Ask to provide capacity, to minimize allocations
     @staticmethod
     fn new_array(out self: Self):
-        self = Self(Self.OpaqueArray(capacity=32))
+        self = Self(array=Self.OpaqueArray(capacity=32))
 
     @staticmethod
     fn new_table(out self: Self):
-        self = Self(Self.OpaqueTable(capacity=32))
+        self = Self(table=Self.OpaqueTable(capacity=32))
 
     fn as_opaque_table(ref self) -> ref[self] Self.OpaqueTable:
         return UnsafePointer(
@@ -285,26 +332,29 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn items(ref self) -> TomlTableIter[Self.o, origin_of(self.inner)]:
         return TomlTableIter(self.inner[Self.OpaqueTable])
 
-    fn __init__(out self, var v: Self.String):
-        self.inner = v
+    fn __init__(out self, *, var string: Self.String):
+        self.inner = string
 
-    fn __init__(out self, var v: Self.Integer):
-        self.inner = v
+    fn __init__(out self, *, var string_literal: Self.StringLiteral):
+        self.inner = string_literal
 
-    fn __init__(out self, var v: Self.Float):
-        self.inner = v
+    fn __init__(out self, *, var integer: Self.Integer):
+        self.inner = integer
 
-    fn __init__(out self, var v: NoneType):
-        self.inner = v
+    fn __init__(out self, *, var float: Self.Float):
+        self.inner = float
 
-    fn __init__(out self, var v: Self.Boolean):
-        self.inner = v
+    fn __init__(out self, *, var none: NoneType):
+        self.inner = none
 
-    fn __init__(out self, var v: Self.OpaqueArray):
-        self.inner = v^
+    fn __init__(out self, *, var boolean: Self.Boolean):
+        self.inner = boolean
 
-    fn __init__(out self, var v: Self.OpaqueTable):
-        self.inner = v^
+    fn __init__(out self, *, var array: Self.OpaqueArray):
+        self.inner = array^
+
+    fn __init__(out self, *, var table: Self.OpaqueTable):
+        self.inner = table^
 
     fn __del__(deinit self):
         ref inner = self.inner
@@ -321,6 +371,16 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn __repr__(self) -> String:
         ref inner = self.inner
 
+        if inner.isa[self.StringLiteral]():
+            var s = StringSlice(unsafe_from_utf8=inner[self.StringLiteral])
+            var ss = (
+                s.removeprefix("\n")
+                .replace("\\", "\\\\")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r")
+            )
+            return String('{"type": "string", "value": "', ss, '"}')
         if inner.isa[self.String]():
             var s = inner[self.String]
             var ss = (
@@ -329,16 +389,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 .replace("\t", "\\t")
                 .replace("\r", "\\r")
             )
-            if s.find("\\x") != -1:
-                i = s.find("\\x") + 2
-                min_n = ord("0")
-                while ord(s[byte=i]) 
-                ss = ss.replace("\\x")
-            for c in s.codepoints():
-                print(c, end="")
-            print()
-            # ss = "".join([String(c) for c in s.codepoints()])
-
+            ss = parse_string_escape(ss)
             return String('{"type": "string", "value": "', ss, '"}')
         elif inner.isa[self.Integer]():
             return String(
@@ -375,11 +426,13 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 [
                     String(
                         '"',
-                        kv.key.replace('\\"', '"')
-                        .replace('"', '\\"')
-                        .replace("\n", "\\n")
-                        .replace("\t", "\\t")
-                        .replace("\r", "\\r"),
+                        parse_string_escape(
+                            kv.key.replace('\\"', '"')
+                            .replace('"', '\\"')
+                            .replace("\n", "\\n")
+                            .replace("\t", "\\t")
+                            .replace("\r", "\\r")
+                        ),
                         '": ',
                         Self.from_addr(kv.value).__repr__(),
                     )
@@ -393,6 +446,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
 comptime AnyTomlType[o: ImmutOrigin] = Variant[
     StringRef[o],
+    StringLit[o],
     Integer,
     Float,
     NoneType,

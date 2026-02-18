@@ -159,18 +159,18 @@ fn string_to_type[
 
     if data[idx : idx + 4] == "true".as_bytes():
         idx += 3
-        return toml.TomlType[data.origin](True)
+        return toml.TomlType[data.origin](boolean=True)
 
     elif data[idx : idx + 5] == "false".as_bytes():
         idx += 4
-        return toml.TomlType[data.origin](False)
+        return toml.TomlType[data.origin](boolean=False)
 
     elif data[idx : idx + 3] == "nan".as_bytes():
         idx += 2
-        return toml.TomlType[data.origin](None)
+        return toml.TomlType[data.origin](none=None)
     elif data[idx : idx + 3] == "inf".as_bytes():
         idx += 2
-        return toml.TomlType[data.origin](Float64.MAX)
+        return toml.TomlType[data.origin](float=Float64.MAX)
     var v_init = idx
 
     # Parse floats
@@ -219,14 +219,14 @@ fn string_to_type[
     if flt:
         try:
             var vi = atof(v)
-            return toml.TomlType[data.origin](vi)
+            return toml.TomlType[data.origin](float=vi)
         except:
             raise ("should be a float but it's not a float: {}.".format(v))
 
     else:
         try:
             var vi = atol(v)
-            return toml.TomlType[data.origin](vi)
+            return toml.TomlType[data.origin](integer=vi)
         except:
             raise ("should be a int but it's not a integer: {}".format(v))
 
@@ -244,20 +244,24 @@ fn parse_value[
         if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
             # print("value is a triple double quote string")
             var s = parse_multiline_string[DoubleQuote](data, idx)
-            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+            value = toml.TomlType[data.origin](
+                string=StringSlice(unsafe_from_utf8=s)
+            )
         else:
             # print("value is double quote string")
             var s = parse_quoted_string[DoubleQuote](data, idx)
-            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+            value = toml.TomlType[data.origin](
+                string=StringSlice(unsafe_from_utf8=s)
+            )
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
             # print("value is a triple single quote string")
             var s = parse_multiline_string[SingleQuote](data, idx)
-            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+            value = toml.TomlType[data.origin](string_literal=s)
         else:
             # print("value is single quote string")
             var s = parse_quoted_string[SingleQuote](data, idx)
-            value = toml.TomlType[data.origin](StringSlice(unsafe_from_utf8=s))
+            value = toml.TomlType[data.origin](string_literal=s)
     elif data[idx] == SquareBracketOpen:
         idx += 1
         # print("parsing inline array...")
