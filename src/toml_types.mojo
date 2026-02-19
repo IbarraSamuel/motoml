@@ -140,10 +140,14 @@ fn parse_string_escape(v: StringSlice) -> String:
         # print("new hex found!")
         var i = init + 2
         # print("char is:", ss, "with \\x found at:", init, "and char: '{}'".format(ss[byte=i]), end=" ")
-        while i < len(ss) and (
-            ((c := ssb[i]) >= min_n and c <= max_n)
-            or (c >= min_c and c <= max_c)
-            or (c >= min_C and c <= max_C)
+        while (
+            i < len(ss)
+            and (
+                ((c := ssb[i]) >= min_n and c <= max_n)
+                or (c >= min_c and c <= max_c)
+                or (c >= min_C and c <= max_C)
+            )
+            and (ssb[init + 1] == Byte(ord("x")) or (i - init - 2) < 4)
         ):
             i += 1
         # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
@@ -169,6 +173,11 @@ fn parse_string_escape(v: StringSlice) -> String:
         ss = ss[:init] + String(codepoint) + ss[i:]
         ssb = ss.as_bytes()
 
+    while (esc := ss.find("\\")) != -1 and (ss[byte=esc + 1]):
+    # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
+    #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
+    # ):
+    #     ss = String(ss[: len(ss) - 1])
     return ss
 
 
@@ -375,6 +384,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             var s = StringSlice(unsafe_from_utf8=inner[self.StringLiteral])
             var ss = (
                 s.removeprefix("\n")
+                # .removesuffix("\n")
                 .replace("\\", "\\\\")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
@@ -385,6 +395,8 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             var s = inner[self.String]
             var ss = (
                 s.removeprefix("\n")
+                # .strip(" \n")
+                # .removesuffix("\\")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
                 .replace("\r", "\\r")
