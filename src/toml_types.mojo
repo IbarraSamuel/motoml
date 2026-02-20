@@ -4,17 +4,42 @@ from sys.intrinsics import likely, _type_is_eq
 from reflection import get_type_name
 from utils import Variant
 from collections.dict import _DictEntryIter
+from hashlib import Hasher
 
 # TYPES
-comptime StringRef[o: Origin] = StringSlice[o]
-comptime StringLit[o: Origin] = Span[Byte, o]
+comptime StringRef[o: ImmutOrigin] = StringSlice[o]
+comptime StringLit[o: ImmutOrigin] = Span[Byte, o]
 comptime Integer = Int
 comptime Float = Float64
 comptime Boolean = Bool
 
-comptime Opaque[o: Origin] = OpaquePointer[o]
+comptime Opaque[o: MutOrigin] = OpaquePointer[o]
 comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
-comptime OpaqueTable[o: Origin] = Dict[StringRef[o], Opaque[MutExternalOrigin]]
+comptime OpaqueTable[o: ImmutOrigin] = Dict[
+    TableKey[o], Opaque[MutExternalOrigin]
+]
+
+comptime AnyTomlType[o: ImmutOrigin] = Variant[
+    StringRef[o],
+    StringLit[o],
+    Integer,
+    Float,
+    NoneType,
+    Boolean,
+    OpaqueArray,
+    OpaqueTable[o],
+]
+
+
+# Table key needs to be pre-process because could be changed by unicode escapes
+@fieldwise_init
+struct TableKey[origin: ImmutOrigin](KeyElement):
+    var is_literal: Bool
+    """This doesn't mean it's a literal String, it just mean that it a
+    string literal or it's a String but not with a scape in any place.
+    If there is a scape, then it requires modification,
+    so it's not literal on that sense."""
+    var value: Span[Byte, Self.origin]
 
 
 struct CollectionType[_v: __mlir_type.`!kgen.string`](
@@ -124,7 +149,11 @@ struct TomlTableIter[
         ref kv = next(self.pointer)
 
         ref toml_value = kv.value.bitcast[Self.Toml]()[]
-        return kv.key, TomlRef(toml_value)
+        return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
+
+
+fn string_replace(s: StringSlice) -> String:
+    return s.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
 
 
 fn parse_string_escape(v: StringSlice) -> String:
@@ -221,13 +250,15 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime Boolean = Boolean
 
     comptime Array = List[Self]
-    comptime Table = Dict[Self.String, Self]
+    comptime Table = Dict[TableKey[Self.o], Self]
 
     # Store a list of addesses.
     comptime OpaqueArray = OpaqueArray
     comptime OpaqueTable = OpaqueTable[Self.o]
     comptime RefArray[o: ImmutOrigin] = List[TomlRef[Self.o, o]]
-    comptime RefTable[o: ImmutOrigin] = Dict[Self.String, TomlRef[Self.o, o]]
+    comptime RefTable[o: ImmutOrigin] = Dict[
+        TableKey[Self.o], TomlRef[Self.o, o]
+    ]
 
     # Iterable
     comptime IteratorType[
@@ -271,7 +302,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         ptr.init_pointee_move(self^)
         return ptr.bitcast[NoneType]()
 
-    fn to_addr(ref self) -> Opaque[origin_of(self)]:
+    fn to_addr(mut self) -> Opaque[origin_of(self)]:
         return UnsafePointer(to=self).bitcast[NoneType]()
 
     # TODO: Ask to provide capacity, to minimize allocations
@@ -314,7 +345,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn to_table(deinit self) -> Self.Table:
         """Points to self, because external origin it's managed by self."""
         return {
-            kv.key: Self.take_from_addr(kv.value)
+            kv.key.copy(): Self.take_from_addr(kv.value)
             for kv in self.inner[Self.OpaqueTable].items()
         }
 
@@ -328,7 +359,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn table(self) -> Self.RefTable[origin_of(self.inner)]:
         """Points to self, because external origin it's managed by self."""
         return {
-            kv.key: TomlRef[Self.o, origin_of(self.inner)](
+            kv.key.copy(): TomlRef[Self.o, origin_of(self.inner)](
                 Self.from_addr(kv.value)
             )
             for kv in self.inner[Self.OpaqueTable].items()
@@ -351,7 +382,8 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             return False
         elif self.isa[Self.Table]():
             for i in self.as_opaque_table():
-                if i == v:
+                # TODO: Handle modified string cases
+                if StringSlice(unsafe_from_utf8=i.value) == v:
                     return True
             return False
         return False
@@ -362,7 +394,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         ref table = self.inner[Self.OpaqueTable]
 
         for kv in table.items():
-            if kv.key == key:
+            if StringSlice(unsafe_from_utf8=kv.key.value) == key:
                 return Self.from_addr(kv.value)
 
         os.abort("key not found in toml")
@@ -413,28 +445,14 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
         if inner.isa[self.StringLiteral]():
             var s = StringSlice(unsafe_from_utf8=inner[self.StringLiteral])
-            var ss = (
-                s.removeprefix("\n")
-                # .removesuffix("\n")
-                .replace("\\", "\\\\")
-                .replace("\n", "\\n")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r")
-            )
+            var ss = string_replace(s.removeprefix("\n").replace("\\", "\\\\"))
             return String('{"type": "string", "value": "', ss, '"}')
+
         if inner.isa[self.String]():
             var s = inner[self.String]
             # print(">> unformatted:", s)
-            var ss = parse_string_escape(s)
             # print("escape parsing done!")
-            ss = (
-                ss.removeprefix("\n")
-                # .strip(" \n")
-                # .removesuffix("\\")
-                .replace("\n", "\\n")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r")
-            )
+            var ss = string_replace(parse_string_escape(s).removeprefix("\n"))
             # ss = parse_string_escape(ss)
             return String('{"type": "string", "value": "', ss, '"}')
         elif inner.isa[self.Integer]():
@@ -468,38 +486,30 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
-            var values = ", ".join(
-                [
-                    String(
-                        '"',
-                        parse_string_escape(
-                            kv.key.replace('\\"', '"')
-                            .replace('"', '\\"')
-                            .replace("\n", "\\n")
-                            .replace("\t", "\\t")
-                            .replace("\r", "\\r")
-                        ),
-                        '": ',
-                        Self.from_addr(kv.value).__repr__(),
+            var s = String("{")
+            for i, kv in enumerate(table.items()):
+                ref k = kv.key
+                ref v = kv.value
+
+                if i != 0:
+                    s += ", "
+
+                var key_repr: String
+                var ps = StringSlice(unsafe_from_utf8=k.value)
+                if k.is_literal:
+                    key_repr = string_replace(
+                        ps.removeprefix("\n").replace("\\", "\\\\")
                     )
-                    for kv in table.items()
-                ]
-            )
-            return String("{", values, "}")
+                else:
+                    key_repr = string_replace(
+                        parse_string_escape(ps).removeprefix("\n")
+                    )
+
+                s += "{}: {}".format(key_repr, Self.from_addr(v).__repr__())
+            s += "}"
+            return s
         else:
             os.abort("type to repr not identified")
-
-
-comptime AnyTomlType[o: ImmutOrigin] = Variant[
-    StringRef[o],
-    StringLit[o],
-    Integer,
-    Float,
-    NoneType,
-    Boolean,
-    OpaqueArray,
-    OpaqueTable[o],
-]
 
 
 # @explicit_destroy("You should free this pointer.")
