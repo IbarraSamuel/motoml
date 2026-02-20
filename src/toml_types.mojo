@@ -130,50 +130,81 @@ struct TomlTableIter[
 fn parse_string_escape(v: StringSlice) -> String:
     var ss = String(v)
     var ssb = ss.as_bytes()
+    var search_base = 0
     # is a \x but is not \\x
     while (
-        ((init := ss.find("\\x")) != -1) or ((init := ss.find("\\u")) != -1)
-    ) and (init == 0 or ssb[init - 1] != Byte(ord("\\"))):
+        ((init := ss.find("\\x", search_base)) != -1)
+        or ((init := ss.find("\\u", search_base)) != -1)
+        or ((init := ss.find("\\e", search_base)) != -1)
+    ) and (init - search_base == 0 or ssb[init - 1] != Byte(ord("\\"))):
         comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
         comptime (min_c, max_c) = Byte(ord("a")), Byte(ord("f"))
         comptime (min_C, max_C) = Byte(ord("A")), Byte(ord("F"))
         # print("new hex found!")
         var i = init + 2
         # print("char is:", ss, "with \\x found at:", init, "and char: '{}'".format(ss[byte=i]), end=" ")
-        while (
-            i < len(ss)
-            and (
-                ((c := ssb[i]) >= min_n and c <= max_n)
-                or (c >= min_c and c <= max_c)
-                or (c >= min_C and c <= max_C)
-            )
-            and (ssb[init + 1] == Byte(ord("x")) or (i - init - 2) < 4)
-        ):
-            i += 1
-        # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
-        # print("complete span is:", ss[init:i])
-        var value: UInt32 = 0
-        for ii in range(i - init - 2):
-            var _ord = ssb[i - ii - 1]
-            var _rtv: Byte
-            if _ord >= min_n and _ord <= max_n:
-                _rtv = _ord - min_n
-            elif _ord >= min_c and _ord <= max_c:
-                _rtv = 10 + _ord - min_c
-            elif _ord >= min_C and _ord <= max_C:
-                _rtv = 10 + _ord - min_C
+        var codepoint: String
+        if ssb[init + 1] == Byte(ord("e")):
+            if (mloc := ss.find("m", init + 3)) != -1 and ssb[init + 2] == Byte(
+                ord("[")
+            ):
+                i = mloc + 1
+                codepoint = ""
             else:
-                os.abort("NOT ABLE TO PARSE {} pattern!".format(ss[init:i]))
+                codepoint = "\\u001b"
 
-            value += UInt32(_rtv) * UInt32(16**ii)
-        var codepoint = Codepoint(unsafe_unchecked_codepoint=value)
+        else:
+            while (
+                i < len(ss)
+                and (
+                    ((c := ssb[i]) >= min_n and c <= max_n)
+                    or (c >= min_c and c <= max_c)
+                    or (c >= min_C and c <= max_C)
+                )
+                and (ssb[init + 1] == Byte(ord("x")) or (i - init - 2) < 4)
+            ):
+                i += 1
+            # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
+            # print("complete span is:", ss[init:i])
+            var value: UInt32 = 0
+            for ii in range(i - init - 2):
+                var _ord = ssb[i - ii - 1]
+                var _rtv: Byte
+                if _ord >= min_n and _ord <= max_n:
+                    _rtv = _ord - min_n
+                elif _ord >= min_c and _ord <= max_c:
+                    _rtv = 10 + _ord - min_c
+                elif _ord >= min_C and _ord <= max_C:
+                    _rtv = 10 + _ord - min_C
+                else:
+                    os.abort("NOT ABLE TO PARSE {} pattern!".format(ss[init:i]))
+
+                value += UInt32(_rtv) * UInt32(16**ii)
+            codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
         # print("[[i]] codepoint parsed!!: ", codepoint)
         # ss = ss[:init] + String(codepoint) + ss[i:]
         # print("string now will be partitioned in 3 parts: {}".format(ss[:init]), String(codepoint), ss[i:], sep=" <> ")
-        ss = ss[:init] + String(codepoint) + ss[i:]
+        ss = ss[:init] + codepoint + ss[i:]
         ssb = ss.as_bytes()
+        search_base += init + 1
 
-    while (esc := ss.find("\\")) != -1 and (ss[byte=esc + 1]):
+    var last_esc = -1
+    while (esc := ss.find("\\", last_esc + 1)) != -1:
+        last_esc = esc
+
+        if (jump := ss.find("\n", esc + 1)) == -1 or not ss[
+            esc + 1 : jump
+        ].isspace():
+            continue
+
+        esc += 1
+
+        while esc < len(ss) and ss[byte=esc].isspace[True]():
+            esc += 1
+
+        ss = ss[:last_esc] + ss[esc:]
+        # ssb = ss.as_bytes()
+
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):
@@ -393,15 +424,18 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             return String('{"type": "string", "value": "', ss, '"}')
         if inner.isa[self.String]():
             var s = inner[self.String]
-            var ss = (
-                s.removeprefix("\n")
+            # print(">> unformatted:", s)
+            var ss = parse_string_escape(s)
+            # print("escape parsing done!")
+            ss = (
+                ss.removeprefix("\n")
                 # .strip(" \n")
                 # .removesuffix("\\")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
                 .replace("\r", "\\r")
             )
-            ss = parse_string_escape(ss)
+            # ss = parse_string_escape(ss)
             return String('{"type": "string", "value": "', ss, '"}')
         elif inner.isa[self.Integer]():
             return String(

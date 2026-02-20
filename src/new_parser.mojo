@@ -39,15 +39,15 @@ fn parse_multiline_string[
 ](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
     idx += 3
     var value_init = idx
+    idx += 3
 
     while (
         data[idx] != quote_type
         or data[idx - 1] != quote_type
         or data[idx - 2] != quote_type
+        or data[idx - 3] == Escape
     ):
         idx += 1
-        if data[idx] == quote_type and data[idx - 1] == Escape:
-            idx += 1
 
     # When it stopped, the value already have two quotes, remove them from value
     return data[value_init : idx - 2]
