@@ -7,8 +7,8 @@ from collections.dict import _DictEntryIter
 from hashlib import Hasher
 
 # TYPES
-comptime StringRef[o: ImmutOrigin] = StringSlice[o]
-comptime StringLit[o: ImmutOrigin] = Span[Byte, o]
+# comptime StringRef[o: ImmutOrigin] = StringSlice[o]
+# comptime StringLit[o: ImmutOrigin] = Span[Byte, o]
 comptime Integer = Int
 comptime Float = Float64
 comptime Boolean = Bool
@@ -16,12 +16,12 @@ comptime Boolean = Bool
 comptime Opaque[o: MutOrigin] = OpaquePointer[o]
 comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
 comptime OpaqueTable[o: ImmutOrigin] = Dict[
-    TableKey[o], Opaque[MutExternalOrigin]
+    StringRef[o], Opaque[MutExternalOrigin]
 ]
 
 comptime AnyTomlType[o: ImmutOrigin] = Variant[
     StringRef[o],
-    StringLit[o],
+    # StringLit[o],
     Integer,
     Float,
     NoneType,
@@ -32,14 +32,51 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
-@fieldwise_init
-struct TableKey[origin: ImmutOrigin](KeyElement):
+struct StringRef[origin: ImmutOrigin](KeyElement):
     var is_literal: Bool
+    var is_multiline: Bool
     """This doesn't mean it's a literal String, it just mean that it a
     string literal or it's a String but not with a scape in any place.
     If there is a scape, then it requires modification,
     so it's not literal on that sense."""
     var value: Span[Byte, Self.origin]
+
+    fn __init__(
+        out self,
+        value: Span[Byte, Self.origin],
+        *,
+        literal: Bool,
+        multiline: Bool,
+    ):
+        self.value = value
+        self.is_literal = literal
+        self.is_multiline = multiline
+
+    fn __eq__(self, other: Self) -> Bool:
+        return self.calc_value() == other.calc_value()
+        # return self.is_literal == other.is_literal and self.value == other.value
+
+    fn __hash__[H: Hasher](self, mut h: H):
+        # h.update(self.is_literal)
+        # h._update_with_bytes(self.value)
+        h.update(self.calc_value())
+
+    fn as_pure_slice(self) -> StringSlice[Self.origin]:
+        return StringSlice(unsafe_from_utf8=self.value)
+
+    fn calc_value(self) -> String:
+        var s = self.as_pure_slice().removeprefix("\n")
+        var ss: String
+        if self.is_literal:
+            ss = s.replace("\\", "\\\\").replace('"', '\\"')
+        else:
+            ss = parse_string_escape(s)
+            # if self.is_multiline:
+            #     ss = ss.replace('"', '\\"').replace('""', '\\"\\"')
+
+        ss = ss.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
+
+        return ss
 
 
 struct CollectionType[_v: __mlir_type.`!kgen.string`](
@@ -152,10 +189,6 @@ struct TomlTableIter[
         return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
 
 
-fn string_replace(s: StringSlice) -> String:
-    return s.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
-
-
 fn parse_string_escape(v: StringSlice) -> String:
     var ss = String(v)
     var ssb = ss.as_bytes()
@@ -164,6 +197,7 @@ fn parse_string_escape(v: StringSlice) -> String:
     while (
         ((init := ss.find("\\x", search_base)) != -1)
         or ((init := ss.find("\\u", search_base)) != -1)
+        or ((init := ss.find("\\U", search_base)) != -1)
         or ((init := ss.find("\\e", search_base)) != -1)
     ) and (init - search_base == 0 or ssb[init - 1] != Byte(ord("\\"))):
         comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
@@ -190,7 +224,11 @@ fn parse_string_escape(v: StringSlice) -> String:
                     or (c >= min_c and c <= max_c)
                     or (c >= min_C and c <= max_C)
                 )
-                and (ssb[init + 1] == Byte(ord("x")) or (i - init - 2) < 4)
+                and (
+                    ssb[init + 1] == Byte(ord("x"))
+                    or (ssb[init + 1] == Byte(ord("u")) and (i - init - 2) < 4)
+                    or (ssb[init + 1] == Byte(ord("U")) and (i - init - 2) < 8)
+                )
             ):
                 i += 1
             # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
@@ -221,9 +259,7 @@ fn parse_string_escape(v: StringSlice) -> String:
     while (esc := ss.find("\\", last_esc + 1)) != -1:
         last_esc = esc
 
-        if (jump := ss.find("\n", esc + 1)) == -1 or not ss[
-            esc + 1 : jump
-        ].isspace():
+        if not ss[byte = esc + 1].isspace():
             continue
 
         esc += 1
@@ -234,6 +270,15 @@ fn parse_string_escape(v: StringSlice) -> String:
         ss = ss[:last_esc] + ss[esc:]
         # ssb = ss.as_bytes()
 
+    last_qte = -1
+    # print("Before quote replace:", ss)
+    while (qte := ss.find('"', last_qte + 1)) != -1:
+        last_qte = qte
+        if ss[byte = qte - 1] == "\\":
+            continue
+
+        last_qte += 1
+        ss = ss[:qte] + "\\" + ss[qte:]
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):
@@ -243,21 +288,21 @@ fn parse_string_escape(v: StringSlice) -> String:
 
 struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime String = StringRef[Self.o]
-    comptime StringLiteral = StringLit[Self.o]
+    # comptime StringLiteral = StringLit[Self.o]
     comptime Integer = Integer
     comptime Float = Float
     comptime NaN = NoneType
     comptime Boolean = Boolean
 
     comptime Array = List[Self]
-    comptime Table = Dict[TableKey[Self.o], Self]
+    comptime Table = Dict[StringRef[Self.o], Self]
 
     # Store a list of addesses.
     comptime OpaqueArray = OpaqueArray
     comptime OpaqueTable = OpaqueTable[Self.o]
     comptime RefArray[o: ImmutOrigin] = List[TomlRef[Self.o, o]]
     comptime RefTable[o: ImmutOrigin] = Dict[
-        TableKey[Self.o], TomlRef[Self.o, o]
+        StringRef[Self.o], TomlRef[Self.o, o]
     ]
 
     # Iterable
@@ -326,7 +371,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
     # ==== Access inner values using methods ====
 
-    fn string(ref self) -> Self.String:
+    fn string(ref self) -> ref[self.inner] Self.String:
         return self.inner[Self.String]
 
     fn integer(ref self) -> Self.Integer:
@@ -376,7 +421,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             for ptrs in self.as_opaque_array():
                 if (
                     ptrs.bitcast[Self]()[].isa[Self.String]()
-                    and ptrs.bitcast[Self]()[].string() == v
+                    and ptrs.bitcast[Self]()[].string().calc_value() == v
                 ):
                     return True
             return False
@@ -405,10 +450,10 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         return TomlTableIter(self.inner[Self.OpaqueTable])
 
     fn __init__(out self, *, var string: Self.String):
-        self.inner = string
+        self.inner = string^
 
-    fn __init__(out self, *, var string_literal: Self.StringLiteral):
-        self.inner = string_literal
+    # fn __init__(out self, *, var string_literal: Self.StringLiteral):
+    #     self.inner = string_literal
 
     fn __init__(out self, *, var integer: Self.Integer):
         self.inner = integer
@@ -443,30 +488,22 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     fn __repr__(self) -> String:
         ref inner = self.inner
 
-        if inner.isa[self.StringLiteral]():
-            var s = StringSlice(unsafe_from_utf8=inner[self.StringLiteral])
-            var ss = string_replace(s.removeprefix("\n").replace("\\", "\\\\"))
-            return String('{"type": "string", "value": "', ss, '"}')
-
+        # if inner.isa[self.StringLiteral]():
+        #     var s = TableKey(is_literal=True, value=inner[self.StringLiteral])
+        #     return String('{"type": "string", "value": "', s.calc_value(), '"}')
         if inner.isa[self.String]():
-            var s = inner[self.String]
-            # print(">> unformatted:", s)
-            # print("escape parsing done!")
-            var ss = string_replace(parse_string_escape(s).removeprefix("\n"))
-            # ss = parse_string_escape(ss)
-            return String('{"type": "string", "value": "', ss, '"}')
+            ref s = inner[self.String]
+            return String('{"type": "string", "value": "', s.calc_value(), '"}')
         elif inner.isa[self.Integer]():
-            return String(
-                '{"type": "integer", "value": "', inner[self.Integer], '"}'
-            )
+            var intg = inner[self.Integer]
+            return String('{"type": "integer", "value": "', intg, '"}')
         elif inner.isa[self.Float]():
-            # var repr = "inf" if inner[self.Float] == self.Float.MAX else String(
-            #     inner[self.Float]
-            # )
             var v = inner[self.Float]
             var final: String
             if v == self.Float.MAX:
                 final = "inf"
+            elif v == self.Float.MIN:
+                final = "-inf"
             elif v - self.Float(Int(v)) == 0.0:
                 final = String(Int(v))
             else:
@@ -480,34 +517,21 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
             var values = ", ".join(
-                [Self.from_addr(addr).__repr__() for addr in array]
+                [repr(Self.from_addr(addr)) for addr in array]
             )
             return String("[", values, "]")
 
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
-            var s = String("{")
-            for i, kv in enumerate(table.items()):
-                ref k = kv.key
-                ref v = kv.value
-
-                if i != 0:
-                    s += ", "
-
-                var key_repr: String
-                var ps = StringSlice(unsafe_from_utf8=k.value)
-                if k.is_literal:
-                    key_repr = string_replace(
-                        ps.removeprefix("\n").replace("\\", "\\\\")
+            var content = ", ".join(
+                [
+                    '"{}": {}'.format(
+                        kv.key.calc_value(), repr(Self.from_addr(kv.value))
                     )
-                else:
-                    key_repr = string_replace(
-                        parse_string_escape(ps).removeprefix("\n")
-                    )
-
-                s += "{}: {}".format(key_repr, Self.from_addr(v).__repr__())
-            s += "}"
-            return s
+                    for kv in table.items()
+                ]
+            )
+            return String("{", content, "}")
         else:
             os.abort("type to repr not identified")
 

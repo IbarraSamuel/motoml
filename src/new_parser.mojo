@@ -49,6 +49,11 @@ fn parse_multiline_string[
     ):
         idx += 1
 
+    # move two if there is a end like: """""
+    if len(data) > idx + 1 and data[idx + 1] == quote_type:
+        idx += 1
+    if len(data) > idx + 1 and data[idx + 1] == quote_type:
+        idx += 1
     # When it stopped, the value already have two quotes, remove them from value
     return data[value_init : idx - 2]
 
@@ -198,22 +203,31 @@ fn string_to_type[
         idx += 1
 
     # TODO: Change this. For now let's use this one:
-    var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
+    var k = data[v_init:idx]
+    # var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
     # Roll back one step because we finalized all time in the next item
     idx -= 1
     if flt:
         try:
-            var vi = atof(v)
+            var vi = atof(StringSlice(unsafe_from_utf8=k))
             return toml.TomlType[data.origin](float=vi)
         except:
-            raise ("should be a float but it's not a float: {}.".format(v))
+            raise (
+                "should be a float but it's not a float: {}.".format(
+                    StringSlice(unsafe_from_utf8=k)
+                )
+            )
 
     else:
         try:
-            var vi = atol(v)
+            var vi = atol(StringSlice(unsafe_from_utf8=k))
             return toml.TomlType[data.origin](integer=vi)
         except:
-            raise ("should be a int but it's not a integer: {}".format(v))
+            raise (
+                "should be a int but it's not a integer: {}".format(
+                    StringSlice(unsafe_from_utf8=k)
+                )
+            )
 
 
 fn parse_value[
@@ -227,23 +241,27 @@ fn parse_value[
             # print("value is a triple double quote string")
             var s = parse_multiline_string[DoubleQuote](data, idx)
             return toml.TomlType[data.origin](
-                string=StringSlice(unsafe_from_utf8=s)
+                string=toml.StringRef(s, literal=False, multiline=True)
             )
         else:
             # print("value is double quote string")
             var s = parse_quoted_string[DoubleQuote](data, idx)
             return toml.TomlType[data.origin](
-                string=StringSlice(unsafe_from_utf8=s)
+                string=toml.StringRef(s, literal=False, multiline=False)
             )
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
             # print("value is a triple single quote string")
             var s = parse_multiline_string[SingleQuote](data, idx)
-            return toml.TomlType[data.origin](string_literal=s)
+            return toml.TomlType[data.origin](
+                string=toml.StringRef(s, literal=True, multiline=True)
+            )
         else:
             # print("value is single quote string")
             var s = parse_quoted_string[SingleQuote](data, idx)
-            return toml.TomlType[data.origin](string_literal=s)
+            return toml.TomlType[data.origin](
+                string=toml.StringRef(s, literal=True, multiline=False)
+            )
     elif data[idx] == SquareBracketOpen:
         idx += 1
         # print("parsing inline array...")
@@ -261,7 +279,7 @@ fn parse_value[
 fn get_container_ref[
     o: ImmutOrigin, //, log: Bool = False
 ](
-    keys: Span[toml.TableKey[o]],
+    keys: Span[toml.StringRef[o]],
     mut base: toml.TomlType[keys.T.origin].OpaqueTable,
     *,
     var default: toml.TomlType[o],  # it's any container-like
@@ -337,8 +355,8 @@ fn get_container_ref[
 fn parse_keys[
     o: ImmutOrigin, //, close_char: Byte
 ](
-    data: Span[Byte, o], mut idx: Int, var key_base: List[toml.TableKey[o]]
-) -> List[toml.TableKey[o]]:
+    data: Span[Byte, o], mut idx: Int, var key_base: List[toml.StringRef[o]]
+) -> List[toml.StringRef[o]]:
     """
     In a case we have a.b.c we expect to get back (a.b.c, c), no quotes included.
     This should be able to work on either inline key/values, multiline or nested. eg:
@@ -349,28 +367,30 @@ fn parse_keys[
     Just give back total vs specific approach.
     """
     var key_init = idx
-    var key: Optional[toml.TableKey[o]] = {}
+    var key: Optional[toml.StringRef[o]] = {}
 
     while (chr := data[idx]) != close_char and idx < len(data):
         if chr == SingleQuote:
             var k = parse_quoted_string[SingleQuote](data, idx)
-            key = toml.TableKey(is_literal=True, value=k)
+            key = toml.StringRef(k, literal=True, multiline=False)
             idx += 1
             continue
         elif chr == DoubleQuote:
             var k = parse_quoted_string[DoubleQuote](data, idx)
-            var is_literal = Escape not in k
-            key = toml.TableKey(is_literal=is_literal, value=k)
+            # var is_literal = Escape not in k
+            key = toml.StringRef(k, literal=False, multiline=False)
             idx += 1
             continue
         elif not key and (chr == Space or chr == Tab):
             var k = data[key_init:idx]
-            key = toml.TableKey(is_literal=False, value=k)
+            key = toml.StringRef(k, literal=False, multiline=False)
             skip[Space, Tab](data, idx)
             continue
         elif chr == Period:
             if not key:
-                key = toml.TableKey(is_literal=False, value=data[key_init:idx])
+                key = toml.StringRef(
+                    data[key_init:idx], literal=False, multiline=False
+                )
 
             # store the next level in the key_base list
             key_base.append(key.unsafe_take())
@@ -384,7 +404,7 @@ fn parse_keys[
         idx += 1
 
     if not key:
-        key = toml.TableKey(is_literal=False, value=data[key_init:idx])
+        key = toml.StringRef(data[key_init:idx], literal=False, multiline=False)
 
     var k = key.unsafe_take()
     key_base.append(k^)
@@ -406,7 +426,7 @@ fn parse_kv_pairs[
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
-        var key_base = List[toml.TableKey[data.origin]]()
+        var key_base = List[toml.StringRef[data.origin]]()
 
         comptime if log:
             print("Parsing inline keys...")
@@ -447,7 +467,7 @@ fn parse_kv_pairs[
 
 fn parse_multiline_keys(
     data: Span[mut=False, Byte], mut idx: Int
-) raises -> List[toml.TableKey[data.origin]]:
+) raises -> List[toml.StringRef[data.origin]]:
     """Assume where are on the position to start parsing the multiline key.
     But please skip spaces and tabs.
     """
@@ -495,7 +515,9 @@ fn skip_blanks_and_comments(data: Span[Byte], mut idx: Int):
         stop_at[NewLine](data, idx)
 
 
-fn tp_eq[o: ImmutOrigin](v: Tuple[toml.TableKey[o], toml.TableKey[o]]) -> Bool:
+fn tp_eq[
+    o: ImmutOrigin
+](v: Tuple[toml.StringRef[o], toml.StringRef[o]]) -> Bool:
     # TODO: Evaluate if need to parse string in this stage
     return v[0] == v[1]
 
@@ -573,10 +595,10 @@ fn parse_multiline_collections[
     # Assume current container is a table where I need to push each kv found
     var contexts: List[
         Tuple[
-            List[toml.TableKey[data.origin]],
+            List[toml.StringRef[data.origin]],
             Pointer[toml.TomlType[data.origin].OpaqueTable, origin_of(base)],
         ]
-    ] = [(List[toml.TableKey[data.origin]](), Pointer(to=base))]
+    ] = [(List[toml.StringRef[data.origin]](), Pointer(to=base))]
 
     while idx < len(data):
         var is_array = data[idx + 1] == SquareBracketOpen
@@ -729,7 +751,7 @@ fn parse_multiline_collections[
             print("Current base repr:", _repr_dict(base))
 
 
-fn _repr_keys[o: ImmutOrigin](v: Span[toml.TableKey[o]]) -> String:
+fn _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o]]) -> String:
     var r = ".".join([StringSlice(unsafe_from_utf8=k.value) for k in v])
     return r
 
@@ -747,7 +769,7 @@ fn _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
 
 fn parse_toml_raises[
     *, log: Bool = False
-](content: StringSlice,) raises -> toml.TomlType[content.origin]:
+](content: StringSlice) raises -> toml.TomlType[content.origin]:
     var data = content.as_bytes()
 
     var idx = 0
@@ -762,65 +784,6 @@ fn parse_toml_raises[
 
     comptime if log:
         print("end parsing initial kv pairs...")
-
-    # Here we are at end of file or start of a table or table list
-    # print("parsing tables...")
-    # var last_base = Pointer(to=base)
-    # var last_keys = List[Span[Byte, data.origin]]()
-
-    # NOTES:
-    # 1. Do not store base. Calculate base using the last keys values.
-    # 2. Assume all nested values will be a location of an array point.
-    # 3. in cases like a list of lists
-    # [[a]]
-    # [[a.b]]
-    #     [a.b.c]
-    #         d = "val0"
-    # [[a.b]]
-    #     [a.b.c]
-    #         d = "val1"
-    #
-    # 0. Calculate key path and container type
-    # 1. Create the container within base where key => a and type => array
-    # 2. Keep this context open for next operations
-    # 2. Create an entry within the list and store a default table in it
-    # 3. parse
-    #
-    # 0. Calculate key path and container type
-    # 2. if the key path is defined within the current context,
-    # 2.
-    # 1. parse key
-    #
-    # How to go up and down in contexts.
-    # 1. Each contexts holds the base keys used for them
-    # 2. When the key is readed and the type is defined, we should be able to go up and down.
-    # 3. Then, each context should be able to return the keys that bring it out (when the context is closed)
-    # 4. After the context entry, the outer context should check the key list retrieved, if it's not a subset, it should keep bubbling up
-    # 5. If its in it's current context, parse the value on it.
-    # 6. Use UnsafePointer to move the value using tuple notation. so context should return tuple, not a key only.
-    #
-    #
-    # 1. Check if is basable. For that:
-    # * should be an array, so keep base only if you are in an array.
-    # * Store keys only. You already know you only store keys of array locations.
-    #
-    # 2. Check if it's subset. For that:
-    # * Check that current parsed keys
-    # a is a last_keys candidate but not a nested attr
-    # a.b is a last_keys candidate and a nested attr
-    # a.b.c is a nested attr
-
-    # For table-related collections, you should have the placeholder on the key,
-    # to just insert the parsed table in there.
-    # For array-related, you should return a reference to the list index, to just put
-    # the parsed value in there. By default, you can just use a empty table.
-
-    # comptime if log:
-    #     print(
-    #         "starting multiline parsing on row: `{}...`".format(
-    #             StringSlice(unsafe_from_utf8=data[idx : idx + 30])
-    #         )
-    #     )
 
     parse_multiline_collections[log=log](data, idx, base)
 

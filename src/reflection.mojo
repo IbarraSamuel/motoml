@@ -3,7 +3,7 @@ TODO: Add Variant Support
 TODO: Make it a single implementation.
 """
 
-from .toml_types import TomlType, AnyTomlType, TableKey
+from .toml_types import TomlType, AnyTomlType, StringRef
 from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from builtin.rebind import downcast
 from reflection import (
@@ -152,7 +152,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
     # ========= Check if the object is initializable before initializing it ===========
 
-    var key_list = List[Optional[TableKey[toml.o]]](capacity=field_count)
+    var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
 
     @parameter
     for fi in range(field_count):
@@ -163,7 +163,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
         comptime TYPE = field_types[fi]
 
         for k in toml_tb.keys():
-            if NAME == StringSlice(unsafe_from_utf8=k.value):
+            if NAME == k.calc_value():
                 key_list.append(k.copy())
                 break
         else:
@@ -293,7 +293,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Check if the object is initializable before initializing it ===========
 
-    var key_list = List[Optional[TableKey[toml.o]]](capacity=field_count)
+    var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
 
     @parameter
     for fi in range(field_count):
@@ -304,7 +304,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         comptime TYPE = field_types[fi]
 
         for k in toml_tb.keys():
-            if NAME == StringSlice(unsafe_from_utf8=k.value):
+            if NAME == k.calc_value():
                 key_list.append(k.copy())
                 break
         else:
