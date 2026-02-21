@@ -30,15 +30,25 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     OpaqueTable[o],
 ]
 
+comptime CharToByte[c: StringLiteral] = Byte(ord(c))
+
 
 # Table key needs to be pre-process because could be changed by unicode escapes
 struct StringRef[origin: ImmutOrigin](KeyElement):
+    comptime CommonEscape: Variadic.ValuesOfType[
+        Tuple[String, String]
+    ] = Variadic.values[
+        ("\b", "\\b"),
+        ("\t", "\\t"),
+        ("\n", "\\n"),
+        ("\f", "\\f"),
+        ("\r", "\\r"),
+    ]
+    comptime BackSlash = "\\"
+    comptime DoubleQuote = '"'
+
     var is_literal: Bool
     var is_multiline: Bool
-    """This doesn't mean it's a literal String, it just mean that it a
-    string literal or it's a String but not with a scape in any place.
-    If there is a scape, then it requires modification,
-    so it's not literal on that sense."""
     var value: Span[Byte, Self.origin]
 
     fn __init__(
@@ -57,25 +67,23 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
         # return self.is_literal == other.is_literal and self.value == other.value
 
     fn __hash__[H: Hasher](self, mut h: H):
-        # h.update(self.is_literal)
-        # h._update_with_bytes(self.value)
         h.update(self.calc_value())
 
     fn as_pure_slice(self) -> StringSlice[Self.origin]:
         return StringSlice(unsafe_from_utf8=self.value)
 
     fn calc_value(self) -> String:
-        var s = self.as_pure_slice().removeprefix("\n")
+        var s = String(self.as_pure_slice().removeprefix("\n"))
+
         var ss: String
         if self.is_literal:
-            ss = s.replace("\\", "\\\\").replace('"', '\\"')
+            ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         else:
             ss = parse_string_escape(s)
-            # if self.is_multiline:
-            #     ss = ss.replace('"', '\\"').replace('""', '\\"\\"')
 
-        ss = ss.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
-
+        comptime for i in range(Variadic.size(Self.CommonEscape)):
+            comptime Pair: Tuple[String, String] = Self.CommonEscape[i]
+            ss = ss.replace(Pair[0], Pair[1])
         return ss
 
 
@@ -199,7 +207,7 @@ fn parse_string_escape(v: StringSlice) -> String:
         or ((init := ss.find("\\u", search_base)) != -1)
         or ((init := ss.find("\\U", search_base)) != -1)
         or ((init := ss.find("\\e", search_base)) != -1)
-    ) and (init - search_base == 0 or ssb[init - 1] != Byte(ord("\\"))):
+    ) and (init == 0 or ssb[init - 1] != Byte(ord("\\"))):
         comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
         comptime (min_c, max_c) = Byte(ord("a")), Byte(ord("f"))
         comptime (min_C, max_C) = Byte(ord("A")), Byte(ord("F"))
@@ -216,6 +224,7 @@ fn parse_string_escape(v: StringSlice) -> String:
             else:
                 codepoint = "\\u001b"
 
+            search_base += 1
         else:
             while (
                 i < len(ss)
@@ -225,7 +234,7 @@ fn parse_string_escape(v: StringSlice) -> String:
                     or (c >= min_C and c <= max_C)
                 )
                 and (
-                    ssb[init + 1] == Byte(ord("x"))
+                    (ssb[init + 1] == Byte(ord("x")) and (i - init - 2) < 2)
                     or (ssb[init + 1] == Byte(ord("u")) and (i - init - 2) < 4)
                     or (ssb[init + 1] == Byte(ord("U")) and (i - init - 2) < 8)
                 )
@@ -247,13 +256,39 @@ fn parse_string_escape(v: StringSlice) -> String:
                     os.abort("NOT ABLE TO PARSE {} pattern!".format(ss[init:i]))
 
                 value += UInt32(_rtv) * UInt32(16**ii)
-            codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
+
+            if value == 8:
+                codepoint = "\b"
+            elif value == 9:
+                codepoint = "\t"
+            elif value == 10:
+                codepoint = "\n"
+            elif value == 12:
+                codepoint = "\f"
+            elif value == 13:
+                codepoint = "\r"
+            elif value == 14:
+                codepoint = "\f"
+            elif value == 27:
+                codepoint = "\\e"
+            elif value >= 0 and value <= 8:
+                codepoint = "\\u000{}".format(value)
+                search_base += 1
+            elif value >= 10 and value <= 15:
+                codepoint = hex(value, prefix="\\u000")
+                search_base += 1
+            elif value >= 16 and value <= 31:
+                codepoint = hex(value, prefix="\\u00")
+                search_base += 1
+            else:
+                codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
         # print("[[i]] codepoint parsed!!: ", codepoint)
         # ss = ss[:init] + String(codepoint) + ss[i:]
         # print("string now will be partitioned in 3 parts: {}".format(ss[:init]), String(codepoint), ss[i:], sep=" <> ")
         ss = ss[:init] + codepoint + ss[i:]
         ssb = ss.as_bytes()
-        search_base += init + 1
+        # should be handled distinct if you replace things up
+        # search_base += init + 1
 
     var last_esc = -1
     while (esc := ss.find("\\", last_esc + 1)) != -1:
