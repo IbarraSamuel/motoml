@@ -171,7 +171,7 @@ struct TomlTableIter[
     ]
     comptime IteratorType[origin: Origin]: Iterator = Self
     comptime Toml = TomlType[Self.data]
-    var pointer: _DictEntryIter[
+    var dict_iter: _DictEntryIter[
         mut=False,
         K = Self.Toml.OpaqueTable.K,
         V = Self.Toml.OpaqueTable.V,
@@ -181,9 +181,9 @@ struct TomlTableIter[
 
     fn __init__(
         out self: TomlTableIter[Self.data, origin_of(v)],
-        ref[Self.toml] v: Self.Toml.OpaqueTable,
+        v: Self.Toml.OpaqueTable,
     ):
-        self.pointer = v.items()
+        self.dict_iter = v.items()
 
     fn __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
         return self.copy()
@@ -191,7 +191,7 @@ struct TomlTableIter[
     fn __next__(
         mut self,
     ) raises StopIteration -> Self.Element:
-        ref kv = next(self.pointer)
+        ref kv = next(self.dict_iter)
 
         ref toml_value = kv.value.bitcast[Self.Toml]()[]
         return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
