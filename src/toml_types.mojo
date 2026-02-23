@@ -75,8 +75,10 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
     fn calc_value(self) -> String:
         var s = String(self.as_pure_slice().removeprefix("\n"))
 
+        # var ss = parse_string_escape(s) if not self.is_literal else s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         var ss: String
         if self.is_literal:
+            # print("Is literal: -> ", s)
             ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         else:
             ss = parse_string_escape(s)
@@ -211,11 +213,22 @@ fn parse_string_escape(v: StringSlice) -> String:
         comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
         comptime (min_c, max_c) = Byte(ord("a")), Byte(ord("f"))
         comptime (min_C, max_C) = Byte(ord("A")), Byte(ord("F"))
-        # print("new hex found!")
+        # print(
+        #     "new replacement found at: {} and init: {}".format(
+        #         init, ss[init:].replace("\n", "\\n")
+        #     )
+        # )
+        if ssb[init + 1] == Byte(ord("U")):
+            print(
+                "checking on U on poisition:",
+                init,
+                "and span: '{}'".format(ss[init:]),
+            )
         var i = init + 2
         # print("char is:", ss, "with \\x found at:", init, "and char: '{}'".format(ss[byte=i]), end=" ")
         var codepoint: String
         if ssb[init + 1] == Byte(ord("e")):
+            # print("found \\e at {} under char: {}".format(init, ss))
             if (mloc := ss.find("m", init + 3)) != -1 and ssb[init + 2] == Byte(
                 ord("[")
             ):
@@ -270,7 +283,8 @@ fn parse_string_escape(v: StringSlice) -> String:
             elif value == 14:
                 codepoint = "\f"
             elif value == 27:
-                codepoint = "\\e"
+                codepoint = "\\u001b"
+                search_base += 1
             elif value >= 0 and value <= 8:
                 codepoint = "\\u000{}".format(value)
                 search_base += 1
@@ -278,6 +292,9 @@ fn parse_string_escape(v: StringSlice) -> String:
                 codepoint = hex(value, prefix="\\u000")
                 search_base += 1
             elif value >= 16 and value <= 31:
+                codepoint = hex(value, prefix="\\u00")
+                search_base += 1
+            elif value == 127:
                 codepoint = hex(value, prefix="\\u00")
                 search_base += 1
             else:
@@ -294,6 +311,13 @@ fn parse_string_escape(v: StringSlice) -> String:
     while (esc := ss.find("\\", last_esc + 1)) != -1:
         last_esc = esc
 
+        # if The scape character is escaped
+        if ss[byte = esc + 1] == "\\":
+            # Don't use this or the next escaped character
+            last_esc += 1
+            continue
+
+        # if the next value is not identified as a "space"
         if not ss[byte = esc + 1].isspace():
             continue
 
