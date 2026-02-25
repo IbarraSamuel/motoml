@@ -449,7 +449,8 @@ fn parse_string_escape(v: StringSlice) -> String:
         while esc_count <= qte - 1 and ss[byte = qte - 1 - esc_count] == "\\":
             esc_count += 1
 
-        if esc_count % 2 == 0 or esc_count != 0:
+        # print("for string: '{}' esc count:".format(ss), esc_count)
+        if esc_count != 0 and esc_count % 2 != 0:
             continue
 
         last_qte += 1
