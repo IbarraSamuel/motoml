@@ -206,8 +206,20 @@ fn _find_escapes[
 ](ssb: Span[Byte], offset: Int) -> Tuple[Byte, Int, Span[Byte, ssb.origin]]:
     for i, b in enumerate(ssb[offset:]):
         var ii = i + offset
-        if b != Byte(ord("\\")) or (ii != 0 and ssb[ii - 1] == Byte(ord("\\"))):
+        if b != Byte(ord("\\")):
             continue
+
+        backslash_count = 1
+        while backslash_count <= ii and ssb[ii - backslash_count] == Byte(
+            ord("\\")
+        ):
+            backslash_count += 1
+
+        if backslash_count % 2 == 0:
+            continue
+
+        # if ii != 0 and ssb[ii - 1] == Byte(ord("\\")):
+        #     continue
 
         var c = ssb[ii + 1]
         comptime for ci in range(Variadic.size(chars)):
@@ -294,6 +306,8 @@ fn parse_string_escape(v: StringSlice) -> String:
                 codepoint = hex(value, prefix="\\u000")
             elif value >= 16 and value <= 31:
                 codepoint = hex(value, prefix="\\u00")
+            elif value == 92:  # Is a backslash
+                codepoint = "\\\\"
             elif value == 127:
                 codepoint = hex(value, prefix="\\u00")
             else:
@@ -430,7 +444,12 @@ fn parse_string_escape(v: StringSlice) -> String:
     # print("Before quote replace:", ss)
     while (qte := ss.find('"', last_qte + 1)) != -1:
         last_qte = qte
-        if ss[byte = qte - 1] == "\\":
+
+        var esc_count = 0
+        while esc_count <= qte - 1 and ss[byte = qte - 1 - esc_count] == "\\":
+            esc_count += 1
+
+        if esc_count % 2 == 0 or esc_count != 0:
             continue
 
         last_qte += 1

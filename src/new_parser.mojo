@@ -64,7 +64,7 @@ fn parse_quoted_string[
     # print(
     #     "parsing quoted string from span: `",
     #     StringSlice(unsafe_from_utf8=data[idx : idx + 39]),
-    #     "`",
+    #     "...`",
     #     sep="",
     # )
     idx += 1
@@ -72,8 +72,14 @@ fn parse_quoted_string[
 
     while data[idx] != quote_type:
         idx += 1
-        if data[idx] == quote_type and data[idx - 1] == Escape:
-            idx += 1
+
+        if data[idx] == quote_type:
+            var n_esc = 0
+            while data[idx - n_esc - 1] == Escape:
+                n_esc += 1
+
+            if n_esc % 2 != 0:
+                idx += 1
 
     # print("span from: `", value_init, "` ,`", idx, "`", sep="")
     # print(
