@@ -73,7 +73,9 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
         return StringSlice(unsafe_from_utf8=self.value)
 
     fn calc_value(self) -> String:
+        # print("original string: `{}`".format(self.as_pure_slice()))
         var s = String(self.as_pure_slice().removeprefix("\n"))
+        # print("stirng whitout prefix: `{}`".format(s))
 
         # var ss = parse_string_escape(s) if not self.is_literal else s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         var ss: String
@@ -199,76 +201,78 @@ struct TomlTableIter[
         return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
 
 
+fn _find_escapes[
+    *chars: Tuple[Byte, Int]
+](ssb: Span[Byte], offset: Int) -> Tuple[Byte, Int, Span[Byte, ssb.origin]]:
+    for i, b in enumerate(ssb[offset:]):
+        var ii = i + offset
+        if b != Byte(ord("\\")) or (ii != 0 and ssb[ii - 1] == Byte(ord("\\"))):
+            continue
+
+        var c = ssb[ii + 1]
+        comptime for ci in range(Variadic.size(chars)):
+            comptime char, span_len = chars[ci]
+            if c == char:
+                comptime if char == Byte(ord("e")):
+                    return char, ii, {}
+                else:
+                    var sp = ssb[ii + 2 : ii + 2 + span_len]
+                    return char, ii, sp
+
+    return Byte(), -1, {}
+
+
+# from time import sleep
+
+
 fn parse_string_escape(v: StringSlice) -> String:
     var ss = String(v)
+    # print("parsing string escape for s:", ss)
     var ssb = ss.as_bytes()
-    var search_base = 0
-    # is a \x but is not \\x
-    while (
-        ((init := ss.find("\\x", search_base)) != -1)
-        or ((init := ss.find("\\u", search_base)) != -1)
-        or ((init := ss.find("\\U", search_base)) != -1)
-        or ((init := ss.find("\\e", search_base)) != -1)
-    ) and (init == 0 or ssb[init - 1] != Byte(ord("\\"))):
+
+    comptime fesc = _find_escapes[
+        (Byte(ord("x")), 2),
+        (Byte(ord("u")), 4),
+        (Byte(ord("U")), 8),
+        (Byte(ord("e")), -1),
+    ]
+    # var search_base = 0
+    var char, init, spn = fesc(ssb, 0)
+
+    while init != -1:
+        # sleep(0.5)
         comptime (min_n, max_n) = Byte(ord("0")), Byte(ord("9"))
         comptime (min_c, max_c) = Byte(ord("a")), Byte(ord("f"))
         comptime (min_C, max_C) = Byte(ord("A")), Byte(ord("F"))
         # print(
-        #     "new replacement found at: {} and init: {}".format(
-        #         init, ss[init:].replace("\n", "\\n")
+        #     "new replacement found for {} on `{}` at: {} and init on: {}"
+        #     .format(
+        #         Codepoint(char),
+        #         StringSlice(unsafe_from_utf8=ssb).replace("\f", "\\f"),
+        #         # .replace("\n", "\\n"),
+        #         init,
+        #         StringSlice(unsafe_from_utf8=ssb[init:]).replace("\f", "\\f"),
+        #         # .replace("\n", "\\n"),
         #     )
         # )
-        if ssb[init + 1] == Byte(ord("U")):
-            print(
-                "checking on U on poisition:",
-                init,
-                "and span: '{}'".format(ss[init:]),
-            )
-        var i = init + 2
-        # print("char is:", ss, "with \\x found at:", init, "and char: '{}'".format(ss[byte=i]), end=" ")
+
+        var i = init + 2 + len(spn)
         var codepoint: String
-        if ssb[init + 1] == Byte(ord("e")):
-            # print("found \\e at {} under char: {}".format(init, ss))
-            if (mloc := ss.find("m", init + 3)) != -1 and ssb[init + 2] == Byte(
-                ord("[")
-            ):
-                i = mloc + 1
-                codepoint = ""
-            else:
-                codepoint = "\\u001b"
+        var nc = ssb[i]
 
-            search_base += 1
-        else:
-            while (
-                i < len(ss)
-                and (
-                    ((c := ssb[i]) >= min_n and c <= max_n)
-                    or (c >= min_c and c <= max_c)
-                    or (c >= min_C and c <= max_C)
-                )
-                and (
-                    (ssb[init + 1] == Byte(ord("x")) and (i - init - 2) < 2)
-                    or (ssb[init + 1] == Byte(ord("u")) and (i - init - 2) < 4)
-                    or (ssb[init + 1] == Byte(ord("U")) and (i - init - 2) < 8)
-                )
-            ):
-                i += 1
-            # print("and end (not inclusive) at idx:", i, "with char(prev): '{}'".format(ss[byte=i - 1]))
-            # print("complete span is:", ss[init:i])
+        if len(spn) > 0:
             var value: UInt32 = 0
-            for ii in range(i - init - 2):
-                var _ord = ssb[i - ii - 1]
-                var _rtv: Byte
-                if _ord >= min_n and _ord <= max_n:
-                    _rtv = _ord - min_n
-                elif _ord >= min_c and _ord <= max_c:
-                    _rtv = 10 + _ord - min_c
-                elif _ord >= min_C and _ord <= max_C:
-                    _rtv = 10 + _ord - min_C
+            for ii, byte in enumerate(reversed(spn)):
+                var rtv: Byte
+                if min_n <= byte and byte <= max_n:
+                    rtv = byte - min_n
+                elif min_C <= byte and byte <= max_C:
+                    rtv = 10 + byte - min_C
+                elif min_c <= byte and byte <= max_c:
+                    rtv = 10 + byte - min_c
                 else:
-                    os.abort("NOT ABLE TO PARSE {} pattern!".format(ss[init:i]))
-
-                value += UInt32(_rtv) * UInt32(16**ii)
+                    os.abort("Span doesn't contain a valid hex value")
+                value += UInt32(rtv) * UInt32(16**ii)
 
             if value == 8:
                 codepoint = "\b"
@@ -284,29 +288,122 @@ fn parse_string_escape(v: StringSlice) -> String:
                 codepoint = "\f"
             elif value == 27:
                 codepoint = "\\u001b"
-                search_base += 1
             elif value >= 0 and value <= 8:
                 codepoint = "\\u000{}".format(value)
-                search_base += 1
             elif value >= 10 and value <= 15:
                 codepoint = hex(value, prefix="\\u000")
-                search_base += 1
             elif value >= 16 and value <= 31:
                 codepoint = hex(value, prefix="\\u00")
-                search_base += 1
             elif value == 127:
                 codepoint = hex(value, prefix="\\u00")
-                search_base += 1
             else:
                 codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
+
+        elif char == Byte(ord("e")):
+            # print("found \\e at {} under char: {}".format(init, ss))
+            if nc == Byte(ord("[")):
+                for bi, b in enumerate(ssb[i + 1 :]):
+                    if b == Byte(ord("m")):
+                        i += bi + 1
+                        break
+                else:
+                    os.abort(
+                        "\\e scape found, and [ found but not found m at the"
+                        " end."
+                    )
+                codepoint = ""
+            else:
+                codepoint = "\\u001b"
+        else:
+            os.abort("error! value not found")
+        # else:
+        #     while (
+        #         i < len(ssb)
+        #         and (
+        #             (nc >= min_n and nc <= max_n)
+        #             or (nc >= min_c and nc <= max_c)
+        #             or (nc >= min_C and nc <= max_C)
+        #         )
+        #         and (
+        #             (char == Byte(ord("x")) and (i - init - 2) < 2)
+        #             or (char == Byte(ord("u")) and (i - init - 2) < 4)
+        #             or (char == Byte(ord("U")) and (i - init - 2) < 8)
+        #         )
+        #     ):
+        #         i += 1
+
+        #     var value: UInt32 = 0
+        #     for ii in range(i - init - 2):
+        #         var _ord = ssb[i - ii - 1]
+        #         var _rtv: Byte
+        #         if _ord >= min_n and _ord <= max_n:
+        #             _rtv = _ord - min_n
+        #         elif (_ord >= min_c and _ord <= max_c) or (
+        #             _ord >= min_C and _ord <= max_C
+        #         ):
+        #             _rtv = 10 + _ord - min_C
+        #         else:
+        #             os.abort(
+        #                 "NOT ABLE TO PARSE {} pattern!".format(
+        #                     StringSlice(unsafe_from_utf8=ssb[init:i])
+        #                 )
+        #             )
+
+        #         value += UInt32(_rtv) * UInt32(16**ii)
+
+        # if value == 8:
+        #     codepoint = "\b"
+        # elif value == 9:
+        #     codepoint = "\t"
+        # elif value == 10:
+        #     codepoint = "\n"
+        # elif value == 12:
+        #     codepoint = "\f"
+        # elif value == 13:
+        #     codepoint = "\r"
+        # elif value == 14:
+        #     codepoint = "\f"
+        # elif value == 27:
+        #     codepoint = "\\u001b"
+        #     # search_base += 1
+        # elif value >= 0 and value <= 8:
+        #     codepoint = "\\u000{}".format(value)
+        #     # search_base += 1
+        # elif value >= 10 and value <= 15:
+        #     codepoint = hex(value, prefix="\\u000")
+        #     # search_base += 1
+        # elif value >= 16 and value <= 31:
+        #     codepoint = hex(value, prefix="\\u00")
+        #     # search_base += 1
+        # elif value == 127:
+        #     codepoint = hex(value, prefix="\\u00")
+        #     # search_base += 1
+        # else:
+        #     codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
         # print("[[i]] codepoint parsed!!: ", codepoint)
         # ss = ss[:init] + String(codepoint) + ss[i:]
         # print("string now will be partitioned in 3 parts: {}".format(ss[:init]), String(codepoint), ss[i:], sep=" <> ")
-        ss = ss[:init] + codepoint + ss[i:]
+        # print(
+        #     "Codepoint to insert is:",
+        #     codepoint,
+        #     "from value: `{}`".format(
+        #         StringSlice(unsafe_from_utf8=ssb[init:i])
+        #     ),
+        # )
+        ss = (
+            StringSlice(unsafe_from_utf8=ssb[:init])
+            + codepoint
+            + StringSlice(unsafe_from_utf8=ssb[i:])
+        )
         ssb = ss.as_bytes()
         # should be handled distinct if you replace things up
         # search_base += init + 1
 
+        char, init, spn = fesc(ssb, init + 1)
+        # x, u, U, e = _find_escapes(ssb[search_base:])
+        # init = x if x != -1 else u if u != -1 else U if U != -1 else e
+
+    # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = -1
     while (esc := ss.find("\\", last_esc + 1)) != -1:
         last_esc = esc
