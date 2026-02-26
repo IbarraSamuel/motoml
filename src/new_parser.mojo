@@ -35,7 +35,7 @@ comptime Escape = Byte(ord("\\"))
 
 
 fn parse_multiline_string[
-    quote_type: Byte
+    quote_type: Byte, *, ignore_escape: Bool
 ](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
     idx += 3
     var value_init = idx
@@ -45,11 +45,14 @@ fn parse_multiline_string[
         data[idx] != quote_type
         or data[idx - 1] != quote_type
         or data[idx - 2] != quote_type
-        or data[idx - 3] == Escape
+        or (data[idx - 3] == Escape and not ignore_escape)
     ):
         idx += 1
 
     # move two if there is a end like: """""
+    # comptime if ignore_escape:
+    #     return data[value_init : idx - 2]
+
     if len(data) > idx + 1 and data[idx + 1] == quote_type:
         idx += 1
     if len(data) > idx + 1 and data[idx + 1] == quote_type:
@@ -59,35 +62,23 @@ fn parse_multiline_string[
 
 
 fn parse_quoted_string[
-    quote_type: Byte
+    quote_type: Byte, *, ignore_escape: Bool
 ](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
-    # print(
-    #     "parsing quoted string from span: `",
-    #     StringSlice(unsafe_from_utf8=data[idx : idx + 39]),
-    #     "...`",
-    #     sep="",
-    # )
     idx += 1
     var value_init = idx
 
     while data[idx] != quote_type:
         idx += 1
 
-        if data[idx] == quote_type:
-            var n_esc = 0
-            while data[idx - n_esc - 1] == Escape:
-                n_esc += 1
+        comptime if not ignore_escape:
+            if data[idx] == quote_type:
+                var n_esc = 0
+                while data[idx - n_esc - 1] == Escape:
+                    n_esc += 1
 
-            if n_esc % 2 != 0:
-                idx += 1
+                if n_esc % 2 != 0:
+                    idx += 1
 
-    # print("span from: `", value_init, "` ,`", idx, "`", sep="")
-    # print(
-    #     "span: `",
-    #     StringSlice(unsafe_from_utf8=data[value_init:idx]),
-    #     "`",
-    #     sep="",
-    # )
     return data[value_init:idx]
 
 
@@ -245,26 +236,34 @@ fn parse_value[
     if data[idx] == DoubleQuote:
         if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
             # print("value is a triple double quote string")
-            var s = parse_multiline_string[DoubleQuote](data, idx)
+            var s = parse_multiline_string[DoubleQuote, ignore_escape=False](
+                data, idx
+            )
             return toml.TomlType[data.origin](
                 string=toml.StringRef(s, literal=False, multiline=True)
             )
         else:
             # print("value is double quote string")
-            var s = parse_quoted_string[DoubleQuote](data, idx)
+            var s = parse_quoted_string[DoubleQuote, ignore_escape=False](
+                data, idx
+            )
             return toml.TomlType[data.origin](
                 string=toml.StringRef(s, literal=False, multiline=False)
             )
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
             # print("value is a triple single quote string")
-            var s = parse_multiline_string[SingleQuote](data, idx)
+            var s = parse_multiline_string[SingleQuote, ignore_escape=True](
+                data, idx
+            )
             return toml.TomlType[data.origin](
                 string=toml.StringRef(s, literal=True, multiline=True)
             )
         else:
             # print("value is single quote string")
-            var s = parse_quoted_string[SingleQuote](data, idx)
+            var s = parse_quoted_string[SingleQuote, ignore_escape=True](
+                data, idx
+            )
             return toml.TomlType[data.origin](
                 string=toml.StringRef(s, literal=True, multiline=False)
             )
@@ -377,12 +376,16 @@ fn parse_keys[
 
     while (chr := data[idx]) != close_char and idx < len(data):
         if chr == SingleQuote:
-            var k = parse_quoted_string[SingleQuote](data, idx)
+            var k = parse_quoted_string[SingleQuote, ignore_escape=True](
+                data, idx
+            )
             key = toml.StringRef(k, literal=True, multiline=False)
             idx += 1
             continue
         elif chr == DoubleQuote:
-            var k = parse_quoted_string[DoubleQuote](data, idx)
+            var k = parse_quoted_string[DoubleQuote, ignore_escape=False](
+                data, idx
+            )
             # var is_literal = Escape not in k
             key = toml.StringRef(k, literal=False, multiline=False)
             idx += 1
