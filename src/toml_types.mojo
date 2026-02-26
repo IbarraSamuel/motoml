@@ -19,6 +19,8 @@ comptime OpaqueTable[o: ImmutOrigin] = Dict[
     StringRef[o], Opaque[MutExternalOrigin]
 ]
 
+# TODO: Add new time types
+
 comptime AnyTomlType[o: ImmutOrigin] = Variant[
     StringRef[o],
     # StringLit[o],
@@ -91,31 +93,31 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
         return ss
 
 
-struct CollectionType[_v: __mlir_type.`!kgen.string`](
-    Equatable, TrivialRegisterPassable
-):
-    comptime inner = StringLiteral[Self._v]()
+# struct CollectionType[_v: __mlir_type.`!kgen.string`](
+#     Equatable, TrivialRegisterPassable
+# ):
+#     comptime inner = StringLiteral[Self._v]()
 
-    @implicit
-    fn __init__(out self: CollectionType[v.value], v: type_of("table")):
-        pass
+#     @implicit
+#     fn __init__(out self: CollectionType[v.value], v: type_of("table")):
+#         pass
 
-    @implicit
-    fn __init__(out self: CollectionType[v.value], v: type_of("array")):
-        pass
+#     @implicit
+#     fn __init__(out self: CollectionType[v.value], v: type_of("array")):
+#         pass
 
-    @implicit
-    fn __init__(out self: CollectionType[v.value], v: type_of("plain")):
-        pass
+#     @implicit
+#     fn __init__(out self: CollectionType[v.value], v: type_of("plain")):
+#         pass
 
-    fn __eq__(self, other: Self) -> Bool:
-        return True
+#     fn __eq__(self, other: Self) -> Bool:
+#         return True
 
-    fn __eq__(self, other: CollectionType[...]) -> Bool:
-        return self.inner == other.inner
+#     fn __eq__(self, other: CollectionType[...]) -> Bool:
+#         return self.inner == other.inner
 
-    # fn write_to(self, mut w: Some[Writer]):
-    #     w.write(self.inner)
+# fn write_to(self, mut w: Some[Writer]):
+#     w.write(self.inner)
 
 
 struct TomlRef[data: ImmutOrigin, toml: ImmutOrigin](
@@ -631,6 +633,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     # fn __init__(out self, *, var string_literal: Self.StringLiteral):
     #     self.inner = string_literal
 
+    # TODO: Add new time types
     fn __init__(out self, *, var integer: Self.Integer):
         self.inner = integer
 
@@ -708,6 +711,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 ]
             )
             return String("{", content, "}")
+            # TODO: Add new time types
         else:
             os.abort("type to repr not identified")
 

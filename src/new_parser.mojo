@@ -82,15 +82,6 @@ fn parse_quoted_string[
     return data[value_init:idx]
 
 
-fn parse_inline_table(
-    data: Span[mut=False, Byte], mut idx: Int
-) raises -> toml.TomlType[data.origin].OpaqueTable:
-    skip_blanks_and_comments(data, idx)
-    return parse_kv_pairs[separator=Comma, end_char=CurlyBracketClose](
-        data, idx
-    )
-
-
 fn parse_inline_array(
     data: Span[mut=False, Byte], mut idx: Int
 ) raises -> toml.TomlType[data.origin]:
@@ -158,6 +149,9 @@ fn string_to_type[
     elif data[idx : idx + 3] == "inf".as_bytes():
         idx += 2
         return toml.TomlType[data.origin](float=Float64.MAX)
+    elif data[idx : idx + 4] == "-inf".as_bytes():
+        idx += 3
+        return toml.TomlType[data.origin](float=Float64.MIN)
     var v_init = idx
 
     # Parse floats
@@ -174,6 +168,7 @@ fn string_to_type[
     # to agg later on the decimals
     var init = idx
 
+    # TODO: Add new dtypes
     while (
         idx < len(data)
         and data[idx] != end_char
@@ -275,7 +270,11 @@ fn parse_value[
     elif data[idx] == CurlyBracketOpen:
         idx += 1
         # print("parsing inline table...")
-        return toml.TomlType[data.origin](table=parse_inline_table(data, idx))
+        skip_blanks_and_comments(data, idx)
+        var inline_tb = parse_kv_pairs[
+            separator=Comma, end_char=CurlyBracketClose
+        ](data, idx)
+        return toml.TomlType[data.origin](table=inline_tb^)
         # print("last multiline table codepoint parsed is:", Codepoint(data[idx]))
     else:
         return string_to_type[end_char](data, idx)
