@@ -10,11 +10,13 @@ struct Date(TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     fn from_string(v: StringSlice) raises -> Self:
-        var year = Int(v[:4].strip("0"))
-        var month = Int(v[5:7].strip("0"))
-        var day = Int(v[8:10].strip("0"))
+        var year_s = Int(v[:4].removeprefix("0"))
+        # var year = 0 if len(year_s) == 0 else Int(year_s)
 
-        return {year, month, day}
+        var month = Int(v[5:7].removeprefix("0"))
+        var day = Int(v[8:10].removeprefix("0"))
+
+        return {year_s, month, day}
 
     fn write_to(self, mut w: Some[Writer]):
         _align[4](self.year, w)
@@ -43,10 +45,12 @@ struct Offset(Equatable, TrivialRegisterPassable, Writable):
         else:
             raise "sign not found for offset"
 
-        var hour = Int(v[1:3].strip("0"))
-        var minute = Int(v[4:6].strip("0"))
+        var hour_s = Int(v[1:3].removeprefix("0"))
+        # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
+        var minute_s = Int(v[4:6].removeprefix("0"))
+        # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
 
-        return {hour, minute, positive}
+        return {hour_s, minute_s, positive}
 
     fn write_to(self, mut w: Some[Writer]):
         if self == Offset.utc:
@@ -55,7 +59,7 @@ struct Offset(Equatable, TrivialRegisterPassable, Writable):
 
         w.write("+" if self.positive else "-")
         _align[2](self.hour, w)
-        w.write("-")
+        w.write(":")
         _align[2](self.minute, w)
 
 
@@ -68,23 +72,28 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     fn from_string(v: StringSlice) raises -> Self:
-        var hour = Int(v[:2].strip("0"))
-        var minute = Int(v[3:5].strip("0"))
+        var hour_s = Int(v[0:2].removeprefix("0"))
+        # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
+        var minute_s = Int(v[3:5].removeprefix("0"))
+        # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
 
         if len(v) == 5:
-            return {hour, minute, 0.0}
+            return {hour_s, minute_s, 0.0}
 
-        var second_s = v[6:] if v[byte=6] != StringSlice("0") else v[7:]
-        var second = Float64(second_s)
+        # var second_s = v[6:]. if v[byte=6] != StringSlice("0") else v[7:]
+        var second = Float64(v[6:].removeprefix("0"))
 
-        return {hour, minute, second}
+        return {hour_s, minute_s, second}
 
     fn write_to(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
-        w.write("-")
+        w.write(":")
         _align[2](self.minute, w)
-        w.write("-")
-        _align[2](self.second, w)
+        w.write(":")
+        if self.second - Float64(Int(self.second)) == 0:
+            _align[2](Int(self.second), w)
+        else:
+            _align[2](self.second, w)
 
 
 @fieldwise_init

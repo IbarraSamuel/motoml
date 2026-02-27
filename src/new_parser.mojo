@@ -263,25 +263,25 @@ fn string_to_type[
     idx -= 1
     var v_slice = StringSlice(unsafe_from_utf8=v_span)
     # Roll back one step because we finalized all time in the next item
-    print("Value is:", v_slice)
+    # print("Value is:", v_slice)
 
     if datetime_split != -1 or Byte(ord("T")) in v_span:
-        print("parsing datetime")
+        # print("parsing datetime")
         var dt = toml.DateTime.from_string(v_slice)
         return toml.TomlType[data.origin](datetime=dt)
 
     elif dashes == 2 and len(v_span) == 10:
-        print("parsing date")
+        # print("parsing date")
         var date = toml.Date.from_string(v_slice)
         return toml.TomlType[data.origin](date=date)
 
     elif colons > 0:
-        print("psrgin time")
+        # print("psrgin time")
         var time = toml.Time.from_string(v_slice)
         return toml.TomlType[data.origin](time=time)
 
     elif is_ascii_digit:
-        print("parsing int")
+        # print("parsing int")
         return toml.TomlType[data.origin](
             integer=atol(
                 v_slice.replace("_", ""),
@@ -296,7 +296,7 @@ fn string_to_type[
         .is_ascii_digit()
         and v_slice[dot + 1 :].replace("_", "").is_ascii_digit()
     ):
-        print("parsgin float")
+        # print("parsgin float")
         return toml.TomlType[data.origin](float=atof(v_slice.replace("_", "")))
 
     raise ("Could not find a type for value: `{}`".format(v_slice))
