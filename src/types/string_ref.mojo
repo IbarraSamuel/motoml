@@ -191,8 +191,8 @@ fn parse_string_escape(v: StringSlice) -> String:
     # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = 0
     while (esc := ss.find("\\", last_esc)) != -1:
-        print("escape found:...")
-        print("raw value is: `{}`".format(ss))
+        # print("escape found:...")
+        # print("raw value is: `{}`".format(ss))
         last_esc = esc
 
         # if The scape character is escaped
@@ -206,13 +206,13 @@ fn parse_string_escape(v: StringSlice) -> String:
         if not ss[byte = esc + 1].isspace():
             # if it's a scape, skip by 2
             last_esc += 1 + Int(ss[byte = esc + 1] == "\\")
-            print("Next value after escape is not a space, skipping...")
+            # print("Next value after escape is not a space, skipping...")
             continue
 
         esc += 1
 
         while esc < len(ss) and ss[byte=esc].isspace[True]():
-            print("Skipping...")
+            # print("Skipping...")
             esc += 1
 
         ss = ss[:last_esc] + ss[esc:]

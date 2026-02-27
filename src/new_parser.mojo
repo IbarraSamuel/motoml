@@ -222,13 +222,16 @@ fn string_to_type[
     var is_ascii_digit: Bool = True
     var is_neg = data[idx] == neg
     var is_pos = data[idx] == pos
+
     var is_hex = data[idx] == lower and (
         data[idx + 1] == Byte(ord("x")) or data[idx + 1] == Byte(ord("X"))
     )
     var is_bin = data[idx] == lower and (
         data[idx + 1] == Byte(ord("b")) or data[idx + 1] == Byte(ord("B"))
     )
-    # var is_bin = data[idx : idx + 1] == "0".as_bytes()
+    var is_oct = data[idx] == lower and (
+        data[idx + 1] == Byte(ord("o")) or data[idx + 1] == Byte(ord("O"))
+    )
 
     while (
         idx < len(data)
@@ -259,20 +262,20 @@ fn string_to_type[
                 idx == v_init
                 and (is_pos or is_neg))
             )
-            or (idx == v_init + 1 and (is_hex or is_bin))
+            or (idx == v_init + 1 and (is_hex or is_bin or is_oct))
         
 
         idx += 1
-        if data[idx] == Space and lower <= data[idx + 1] <= upper:
+        if idx < len(data) and data[idx] == Space and lower <= data[idx + 1] <= upper:
             datetime_split = idx
             idx += 1
 
     var v_span = data[v_init:idx]
-    idx -= 1
     var v_slice = StringSlice(unsafe_from_utf8=v_span)
     # Roll back one step because we finalized all time in the next item
     # print("Value is:", v_slice)
 
+    idx -= 1
     if (
         datetime_split != -1
         or Byte(ord("T")) in v_span
@@ -292,13 +295,13 @@ fn string_to_type[
         var time = toml.Time.from_string(v_slice)
         return toml.TomlType[data.origin](time=time)
 
-    elif is_ascii_digit:
+    elif is_ascii_digit or is_hex or is_bin or is_oct:
         # print("parsing int")
-        var v = v_slice[2 if is_hex or is_bin else 0 :].replace("_", "")
+        var v = v_slice[2 if is_hex or is_bin or is_oct else 0 :].replace("_", "")
         return toml.TomlType[data.origin](
             integer=atol(
                 v,
-                base=16 if is_hex else 2 if is_bin else 10,
+                base=16 if is_hex else 8 if is_oct else 2 if is_bin else 10,
             )
         )
 
@@ -308,8 +311,7 @@ fn string_to_type[
         .replace("_", "")
         .is_ascii_digit()
         and v_slice[dot + 1 :].replace("_", "").is_ascii_digit()
-    ):
-        # print("parsgin float")
+    ) or "e" in v_slice or "E" in v_slice:
         return toml.TomlType[data.origin](float=atof(v_slice.replace("_", "")))
 
     raise ("Could not find a type for value: `{}`".format(v_slice))
