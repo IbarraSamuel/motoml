@@ -37,8 +37,11 @@ comptime Escape = Byte(ord("\\"))
 fn parse_multiline_string[
     quote_type: Byte, *, ignore_escape: Bool
 ](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
+    # Go inside the multiline
     idx += 3
+    # put first value as the value_init
     var value_init = idx
+    # Move +2 to be about to the end of closing in case it's empty
     idx += 2
 
     while (
@@ -219,8 +222,12 @@ fn string_to_type[
     var is_ascii_digit: Bool = True
     var is_neg = data[idx] == neg
     var is_pos = data[idx] == pos
-    var is_hex = data[idx : idx + 1] == "0x".as_bytes()
-    var is_bin = data[idx : idx + 1] == "0b".as_bytes()
+    var is_hex = data[idx] == lower and (
+        data[idx + 1] == Byte(ord("x")) or data[idx + 1] == Byte(ord("X"))
+    )
+    var is_bin = data[idx] == lower and (
+        data[idx + 1] == Byte(ord("b")) or data[idx + 1] == Byte(ord("B"))
+    )
     # var is_bin = data[idx : idx + 1] == "0".as_bytes()
 
     while (
@@ -250,9 +257,10 @@ fn string_to_type[
             or data[idx] == Byte(ord("_"))
             or (
                 idx == v_init
-                and (data[idx] == Byte(ord("+")) or data[idx] == Byte(ord("-")))
+                and (is_pos or is_neg))
             )
-        )
+            or (idx == v_init + 1 and (is_hex or is_bin))
+        
 
         idx += 1
         if data[idx] == Space and lower <= data[idx + 1] <= upper:
@@ -265,7 +273,11 @@ fn string_to_type[
     # Roll back one step because we finalized all time in the next item
     # print("Value is:", v_slice)
 
-    if datetime_split != -1 or Byte(ord("T")) in v_span:
+    if (
+        datetime_split != -1
+        or Byte(ord("T")) in v_span
+        or Byte(ord("t")) in v_span
+    ):
         # print("parsing datetime")
         var dt = toml.DateTime.from_string(v_slice)
         return toml.TomlType[data.origin](datetime=dt)
@@ -282,9 +294,10 @@ fn string_to_type[
 
     elif is_ascii_digit:
         # print("parsing int")
+        var v = v_slice[2 if is_hex or is_bin else 0 :].replace("_", "")
         return toml.TomlType[data.origin](
             integer=atol(
-                v_slice.replace("_", ""),
+                v,
                 base=16 if is_hex else 2 if is_bin else 10,
             )
         )
