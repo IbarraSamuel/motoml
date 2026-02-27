@@ -7,11 +7,14 @@ from collections.dict import _DictEntryIter
 from hashlib import Hasher
 
 from .types.string_ref import StringRef
+from .types.tempo import Date, DateTime, Time
 
 # TYPES
 comptime Integer = Int
 comptime Float = Float64
 comptime Boolean = Bool
+# comptime OffsetDateTime = DateTime[WithOffset=True]
+# comptime LocalDateTime = DateTime[WithOffset=False]
 
 comptime Opaque[o: MutOrigin] = OpaquePointer[o]
 comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
@@ -27,6 +30,12 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     Float,
     NoneType,
     Boolean,
+    Date,
+    Time,
+    DateTime,
+    # OffsetDateTime,
+    # LocalDateTime,
+    Time,
     OpaqueArray,
     OpaqueTable[o],
 ]
@@ -122,7 +131,9 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     comptime Float = Float
     comptime NaN = NoneType
     comptime Boolean = Boolean
-
+    comptime Date = Date
+    comptime Time = Time
+    comptime DateTime = DateTime
     comptime Array = List[Self]
     comptime Table = Dict[StringRef[Self.o], Self]
 
@@ -256,8 +267,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             return False
         elif self.isa[Self.Table]():
             for i in self.as_opaque_table():
-                # TODO: Handle modified string cases
-                if StringSlice(unsafe_from_utf8=i.value) == v:
+                if i.calc_value() == v:
                     return True
             return False
         return False
@@ -284,7 +294,6 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     # fn __init__(out self, *, var string_literal: Self.StringLiteral):
     #     self.inner = string_literal
 
-    # TODO: Add new time types
     fn __init__(out self, *, var integer: Self.Integer):
         self.inner = integer
 
@@ -296,6 +305,15 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
     fn __init__(out self, *, var boolean: Self.Boolean):
         self.inner = boolean
+
+    fn __init__(out self, *, var date: Self.Date):
+        self.inner = date
+
+    fn __init__(out self, *, var time: Self.Time):
+        self.inner = time
+
+    fn __init__(out self, *, var datetime: Self.DateTime):
+        self.inner = datetime
 
     fn __init__(out self, *, var array: Self.OpaqueArray):
         self.inner = array^
@@ -344,6 +362,16 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         elif inner.isa[self.Boolean]():
             var value = "true" if inner[self.Boolean] else "false"
             return String('{"type": "bool", "value": "', value, '"}')
+        elif inner.isa[self.DateTime]():
+            var dt = inner[self.DateTime]
+            var nm = "datetime-local" if dt.is_local else "datetime"
+            return String('{"type": "', nm, '", "value": "', dt, '"}')
+        elif inner.isa[self.Date]():
+            var date = inner[self.Date]
+            return String('{"type": "date-local", "value": "', date, '"}')
+        elif inner.isa[self.Time]():
+            var time = inner[self.Time]
+            return String('{"type": "time-local", "value": "', time, '"}')
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
             var values = ", ".join(
@@ -362,6 +390,5 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 ]
             )
             return String("{", content, "}")
-            # TODO: Add new time types
         else:
             os.abort("type to repr not identified")

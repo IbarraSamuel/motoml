@@ -39,7 +39,7 @@ fn parse_multiline_string[
 ](data: Span[Byte], mut idx: Int) -> Span[Byte, data.origin]:
     idx += 3
     var value_init = idx
-    idx += 3
+    idx += 2
 
     while (
         data[idx] != quote_type
@@ -129,9 +129,13 @@ fn string_to_type[
 ]:
     """Returns end of value + 1."""
     # print("parsing value at idx: ", idx)
-    comptime lower, upper = Byte(ord("0")), Byte(ord("9"))
-    comptime INT_AGG, DEC_AGG = 10.0, 0.1
-    comptime neg, pos = Byte(ord("-")), Byte(ord("+"))
+    # print(
+    #     "value starts with: `{}...`".format(
+    #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
+    #     )
+    # )
+    # comptime INT_AGG, DEC_AGG = 10.0, 0.1
+    # comptime neg, pos = Byte(ord("-")), Byte(ord("+"))
     # var all_is_digit = True
     # var has_period = False
 
@@ -146,80 +150,182 @@ fn string_to_type[
     elif data[idx : idx + 3] == "nan".as_bytes():
         idx += 2
         return toml.TomlType[data.origin](none=None)
+    elif data[idx : idx + 4] == "+nan".as_bytes():
+        idx += 3
+        return toml.TomlType[data.origin](none=None)
+    elif data[idx : idx + 4] == "-nan".as_bytes():
+        idx += 3
+        return toml.TomlType[data.origin](none=None)
     elif data[idx : idx + 3] == "inf".as_bytes():
         idx += 2
+        return toml.TomlType[data.origin](float=Float64.MAX)
+    elif data[idx : idx + 4] == "+inf".as_bytes():
+        idx += 3
         return toml.TomlType[data.origin](float=Float64.MAX)
     elif data[idx : idx + 4] == "-inf".as_bytes():
         idx += 3
         return toml.TomlType[data.origin](float=Float64.MIN)
+
     var v_init = idx
 
-    # Parse floats
-    var sign = 1.0
-    if data[idx] == neg:
-        sign = -1.0
-        idx += 1
-    elif data[idx] == pos:
-        idx += 1
+    # # Parse floats
+    # var sign = 1.0
+    # if data[idx] == neg:
+    #     sign = -1.0
+    #     idx += 1
+    # elif data[idx] == pos:
+    #     idx += 1
 
-    var num = 0.0 * sign
-    var flt = False
+    # var num = 0.0 * sign
+    # var flt = False
 
-    # to agg later on the decimals
-    var init = idx
+    # # to agg later on the decimals
+    # var init = idx
 
-    # TODO: Add new dtypes
+    # while (
+    #     idx < len(data)
+    #     and data[idx] != end_char
+    #     and data[idx] != NewLine
+    #     and data[idx] != Space
+    #     and data[idx] != Comma
+    # ):
+    #     var c = data[idx]
+    #     if c < lower or c > upper:
+    #         if c == Period and not flt:
+    #             flt = True
+    #             init = idx
+    #             idx += 1
+    #             continue
+
+    #         raise ("value is not a numeric value. It's another dtype")
+
+    #     var cc = Float64(c - lower)
+    #     num = (
+    #         num * 10
+    #         + sign * cc if not flt else num
+    #         + sign * cc * 0.1 ** (idx - init)
+    #     )
+    #     idx += 1
+
+    comptime lower = Byte(ord("0"))
+    comptime upper = Byte(ord("9"))
+
+    comptime neg = Byte(ord("-"))
+    comptime pos = Byte(ord("+"))
+
+    var datetime_split: Int = -1
+    var dashes: Int = 0
+    var colons: Int = 0
+    var is_ascii_digit: Bool = True
+    var is_neg = data[idx] == neg
+    var is_pos = data[idx] == pos
+    var is_hex = data[idx : idx + 1] == "0x".as_bytes()
+    var is_bin = data[idx : idx + 1] == "0b".as_bytes()
+    # var is_bin = data[idx : idx + 1] == "0".as_bytes()
+
     while (
         idx < len(data)
         and data[idx] != end_char
+        and data[idx] != Comment
         and data[idx] != NewLine
         and data[idx] != Space
         and data[idx] != Comma
+        and data[idx] != Tab
     ):
-        var c = data[idx]
-        if c < lower or c > upper:
-            if c == Period and not flt:
-                flt = True
-                init = idx
-                idx += 1
-                continue
-
-            raise ("value is not a numeric value. It's another dtype")
-
-        var cc = Float64(c - lower)
-        num = (
-            num * 10
-            + sign * cc if not flt else num
-            + sign * cc * 0.1 ** (idx - init)
+        dashes += Int(data[idx] == neg)
+        colons += Int(data[idx] == Byte(ord(":")))
+        # print(
+        #     "char:",
+        #     Codepoint(data[idx]),
+        #     "and byte:",
+        #     data[idx],
+        #     "has flags:",
+        #     lower <= data[idx] <= upper,
+        #     "to say if it's between 0 and 9 or ",
+        #     data[idx] == Byte(ord("_")),
+        #     "to say if it's an underscore",
+        # )
+        is_ascii_digit &= (
+            lower <= data[idx] <= upper
+            or data[idx] == Byte(ord("_"))
+            or (
+                idx == v_init
+                and (data[idx] == Byte(ord("+")) or data[idx] == Byte(ord("-")))
+            )
         )
+
         idx += 1
+        if data[idx] == Space and lower <= data[idx + 1] <= upper:
+            datetime_split = idx
+            idx += 1
 
-    # TODO: Change this. For now let's use this one:
-    var k = data[v_init:idx]
-    # var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
-    # Roll back one step because we finalized all time in the next item
+    var v_span = data[v_init:idx]
     idx -= 1
-    if flt:
-        try:
-            var vi = atof(StringSlice(unsafe_from_utf8=k))
-            return toml.TomlType[data.origin](float=vi)
-        except:
-            raise (
-                "should be a float but it's not a float: {}.".format(
-                    StringSlice(unsafe_from_utf8=k)
-                )
-            )
+    var v_slice = StringSlice(unsafe_from_utf8=v_span)
+    # Roll back one step because we finalized all time in the next item
+    print("Value is:", v_slice)
 
-    else:
-        try:
-            var vi = atol(StringSlice(unsafe_from_utf8=k))
-            return toml.TomlType[data.origin](integer=vi)
-        except:
-            raise (
-                "should be a int but it's not a integer: {}".format(
-                    StringSlice(unsafe_from_utf8=k)
-                )
+    if datetime_split != -1 or Byte(ord("T")) in v_span:
+        print("parsing datetime")
+        var dt = toml.DateTime.from_string(v_slice)
+        return toml.TomlType[data.origin](datetime=dt)
+
+    elif dashes == 2 and len(v_span) == 10:
+        print("parsing date")
+        var date = toml.Date.from_string(v_slice)
+        return toml.TomlType[data.origin](date=date)
+
+    elif colons > 0:
+        print("psrgin time")
+        var time = toml.Time.from_string(v_slice)
+        return toml.TomlType[data.origin](time=time)
+
+    elif is_ascii_digit:
+        print("parsing int")
+        return toml.TomlType[data.origin](
+            integer=atol(
+                v_slice.replace("_", ""),
+                base=16 if is_hex else 2 if is_bin else 10,
             )
+        )
+
+    elif (
+        (dot := v_slice.find(".")) != -1
+        and v_slice[Int(is_neg or is_pos) : dot]
+        .replace("_", "")
+        .is_ascii_digit()
+        and v_slice[dot + 1 :].replace("_", "").is_ascii_digit()
+    ):
+        print("parsgin float")
+        return toml.TomlType[data.origin](float=atof(v_slice.replace("_", "")))
+
+    raise ("Could not find a type for value: `{}`".format(v_slice))
+
+    # var k = data[v_init:idx]
+    # # var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
+    # # Roll back one step because we finalized all time in the next item
+    # idx -= 1
+    # if flt:
+    #     try:
+    #         var vi = atof(StringSlice(unsafe_from_utf8=k))
+    #         return toml.TomlType[data.origin](float=vi)
+    #     except:
+    #         raise (
+    #             "should be a float but it's not a float: {}.".format(
+    #                 StringSlice(unsafe_from_utf8=k)
+    #             )
+    #         )
+
+    # else:
+    #     try:
+    #         var vi = atol(StringSlice(unsafe_from_utf8=k))
+    #         return toml.TomlType[data.origin](integer=vi)
+    #     except:
+    #         raise (
+    #             "should be a int but it's not a integer: {}".format(
+    #                 StringSlice(unsafe_from_utf8=k)
+    #             )
+    #         )
 
 
 fn parse_value[
