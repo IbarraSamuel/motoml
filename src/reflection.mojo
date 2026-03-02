@@ -103,14 +103,12 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
         MATCH_LEN <= 1
     ), "1 or 0 types within AnyTomlType matches type T"
 
-    @parameter
-    if MATCH_LEN == 1:  # One type matches with T
+    comptime if MATCH_LEN == 1:  # One type matches with T
         return toml.inner.take[T]()
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
-    @parameter
-    if get_base_type_name[T]() == "List":
+    comptime if get_base_type_name[T]() == "List":
         if not toml.inner.isa[toml.OpaqueArray]():
             return Error("Type is a list but toml value is not a list.")
 
@@ -154,8 +152,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
     var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
 
-    @parameter
-    for fi in range(field_count):
+    comptime for fi in range(field_count):
         comptime assert conforms_to(
             field_types[fi], Movable
         ), "Each type Ti of the struct T should be Movable."
@@ -167,9 +164,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
                 key_list.append(k.copy())
                 break
         else:
-
-            @parameter
-            if get_base_type_name[TYPE]() != "Optional":
+            comptime if get_base_type_name[TYPE]() != "Optional":
                 return Error(
                     "A field needed on the struct is not available on the toml"
                     " table, and such field is not optional."
@@ -185,8 +180,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     )
     var struct_ptr = UnsafePointer(to=inner_obj).bitcast[Byte]()
 
-    @parameter
-    for fi in range(field_count):
+    comptime for fi in range(field_count):
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[
             fi
@@ -196,8 +190,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
         var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]
 
-        @parameter
-        if get_base_type_name[TYPE]() == "Optional":
+        comptime if get_base_type_name[TYPE]() == "Optional":
             comptime Inner = downcast[TYPE, Iterator].Element
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None
@@ -244,14 +237,12 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         MATCH_LEN <= 1
     ), "1 or 0 types within AnyTomlType matches type T"
 
-    @parameter
-    if MATCH_LEN == 1:  # One type matches with T
+    comptime if MATCH_LEN == 1:  # One type matches with T
         return toml.inner.take[T]()
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
-    @parameter
-    if get_base_type_name[T]() == "List":
+    comptime if get_base_type_name[T]() == "List":
         if not toml.inner.isa[toml.OpaqueArray]():
             raise "Type is a list but toml value is not a list."
 
@@ -295,8 +286,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
 
-    @parameter
-    for fi in range(field_count):
+    comptime for fi in range(field_count):
         comptime assert conforms_to(
             field_types[fi], Movable
         ), "Each type Ti of the struct T should be Movable."
@@ -308,9 +298,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
                 key_list.append(k.copy())
                 break
         else:
-
-            @parameter
-            if get_base_type_name[TYPE]() != "Optional":
+            comptime if get_base_type_name[TYPE]() != "Optional":
                 raise "A field needed on the struct is not available on the toml table, and such field is not optional."
 
             key_list.append(None)
@@ -323,8 +311,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     )
     var struct_ptr = UnsafePointer(to=inner_obj).bitcast[Byte]()
 
-    @parameter
-    for fi in range(field_count):
+    comptime for fi in range(field_count):
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[
             fi
@@ -334,8 +321,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]
 
-        @parameter
-        if get_base_type_name[TYPE]() == "Optional":
+        comptime if get_base_type_name[TYPE]() == "Optional":
             comptime Inner = downcast[TYPE, Iterator].Element
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None
@@ -374,15 +360,13 @@ fn _destroy_obj[
     comptime assert is_struct_type[T](), "we can only destroy structs."
     comptime field_types = struct_field_types[T]()
 
-    @parameter
-    for fi in range(initialized_fields):
+    comptime for fi in range(initialized_fields):
         comptime FT = field_types[fi]
         comptime FO = offset_of[T, index=fi]()
 
         var field_ptr = UnsafePointer(to=obj).bitcast[Byte]() + FO
 
-        @parameter
-        if conforms_to(FT, ImplicitlyDestructible):
+        comptime if conforms_to(FT, ImplicitlyDestructible):
             field_ptr.bitcast[
                 downcast[FT, ImplicitlyDestructible]
             ]().destroy_pointee()

@@ -5,6 +5,8 @@ from reflection import get_type_name
 from utils import Variant
 from collections.dict import _DictEntryIter
 from hashlib import Hasher
+from utils.numerics import FPUtils
+from builtin._format_float import _to_decimal
 
 from .types.string_ref import StringRef
 from .types.tempo import Date, DateTime, Time
@@ -162,8 +164,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
     var inner: AnyTomlType[Self.o]
 
     fn isa[T: AnyType](self) -> Bool:
-        @parameter
-        if _type_is_eq[T, Self.Array]():
+        comptime if _type_is_eq[T, Self.Array]():
             return self.inner.isa[Self.OpaqueArray]()
         elif _type_is_eq[T, Self.Table]():
             return self.inner.isa[Self.OpaqueTable]()
@@ -348,12 +349,25 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         elif inner.isa[self.Float]():
             var v = inner[self.Float]
             var final: String
-            if v == self.Float.MAX:
-                final = "inf"
-            elif v == self.Float.MIN:
-                final = "-inf"
-            elif v - self.Float(Int(v)) == 0.0:
+            comptime sc_not: Float64 = 1e6
+            if v < 1e6 and (v - self.Float(Int(v)) == 0.0):
                 final = String(Int(v))
+            elif v >= 1e6 and v < 1e16:
+                # Force Scientific Notation
+                var sig = FPUtils.get_mantissa_uint(v)
+                var exp = FPUtils.get_exponent_biased(v)
+                _to_decimal[v.dtype](sig, exp)
+                print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
+                var vv = v * 10**10
+                var sci = String(vv)
+                var e_loc = sci.find("e")
+                try:
+                    exp_s = Int(sci[e_loc + 1:])
+                except e:
+                    from os import abort
+                    abort(String(e))
+
+                final = sci[:e_loc] + 
             else:
                 final = String(v)
             return String('{"type": "float", "value": "', final, '"}')
