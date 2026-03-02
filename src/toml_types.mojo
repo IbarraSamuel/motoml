@@ -349,7 +349,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         elif inner.isa[self.Float]():
             var v = inner[self.Float]
             var final: String
-            comptime sc_not: Float64 = 1e6
+            # comptime sc_not: Float64 = 1e6
             if v < 1e6 and (v - self.Float(Int(v)) == 0.0):
                 final = String(Int(v))
             elif v >= 1e6 and v < 1e16:
@@ -357,17 +357,23 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 var sig = FPUtils.get_mantissa_uint(v)
                 var exp = FPUtils.get_exponent_biased(v)
                 _to_decimal[v.dtype](sig, exp)
-                print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
+                # print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
                 var vv = v * 10**10
                 var sci = String(vv)
                 var e_loc = sci.find("e")
                 try:
-                    exp_s = Int(sci[e_loc + 1:])
+                    exp_s = Int(sci[e_loc + 1 :])
                 except e:
                     from os import abort
+
                     abort(String(e))
 
-                final = sci[:e_loc] + 
+                # print(String(exp_s - 10))
+                final = (
+                    sci[: e_loc + 2]
+                    + ("0" if exp_s < 20 else "")
+                    + String(exp_s - 10)
+                )
             else:
                 final = String(v)
             return String('{"type": "float", "value": "', final, '"}')

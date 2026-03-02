@@ -99,8 +99,7 @@ fn main() raises:
 
     var suite = TestSuite()
 
-    @parameter
-    for li in range(len(files_to_test)):
+    comptime for li in range(len(files_to_test)):
         comptime fpath = files_to_test[li]
         comptime root_fpath = StaticString(
             "[{}]: tests/toml_files/{}".format(li, fpath)
