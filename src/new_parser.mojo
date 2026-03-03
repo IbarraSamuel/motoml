@@ -574,7 +574,7 @@ fn parse_kv_pairs[
         var v = parse_value[end_char](data, idx)
 
         comptime if log:
-            print("inline value -> '", v.__repr__(), "'", sep="")
+            print("inline value -> '", v, "'", sep="")
             print("Getting container ref...")
         idx += 1
 
@@ -758,11 +758,10 @@ fn parse_multiline_collections[
         comptime if log:
             print(
                 {
-                    StringSlice(unsafe_from_utf8=kv.key.value): toml.TomlType[
+                    StringSlice(unsafe_from_utf8=kv.key.value): String(toml.TomlType[
                         data.origin
                     ]
-                    .from_addr(kv.value)
-                    .__repr__()
+                    .from_addr(kv.value))
                     for kv in values.items()
                 }
             )
@@ -823,9 +822,9 @@ fn parse_multiline_collections[
                 [
                     "{}: {}".format(
                         StringSlice(unsafe_from_utf8=kv.key.value),
-                        kv.value.bitcast[
+                        String(kv.value.bitcast[
                             toml.TomlType[data.origin]
-                        ]()[].__repr__(),
+                        ]()[]),
                     )
                     for kv in values.items()
                 ],
@@ -889,7 +888,7 @@ fn _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
     var r = [
         "{}: {}".format(
             StringSlice(unsafe_from_utf8=kv.key.value),
-            kv.value.bitcast[toml.TomlType[o]]()[].__repr__(),
+            String(kv.value.bitcast[toml.TomlType[o]]()[]),
         )
         for kv in v.items()
     ]
@@ -934,4 +933,4 @@ fn toml_to_tagged_json[
     *, log: Bool = False
 ](content: StringSlice[...]) raises -> String:
     var toml_values = parse_toml_raises[log=log](content)
-    return toml_values.__repr__()
+    return String(toml_values)

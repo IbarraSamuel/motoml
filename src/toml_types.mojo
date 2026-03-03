@@ -126,7 +126,7 @@ struct TomlTableIter[
         return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
 
 
-struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
+struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
     comptime String = StringRef[Self.o]
     # comptime StringLiteral = StringLit[Self.o]
     comptime Integer = Integer
@@ -262,7 +262,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             for ptrs in self.as_opaque_array():
                 if (
                     ptrs.bitcast[Self]()[].isa[Self.String]()
-                    and ptrs.bitcast[Self]()[].string().calc_value() == v
+                    and ptrs.bitcast[Self]()[].string() == v
                 ):
                     return True
             return False
@@ -334,7 +334,7 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
             for v in table.values():
                 v.free()
 
-    fn __repr__(self) -> String:
+    fn write_to(self, mut w: Some[Writer]):
         ref inner = self.inner
 
         # if inner.isa[self.StringLiteral]():
@@ -342,10 +342,12 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
         #     return String('{"type": "string", "value": "', s.calc_value(), '"}')
         if inner.isa[self.String]():
             ref s = inner[self.String]
-            return String('{"type": "string", "value": "', s.calc_value(), '"}')
+            return w.write(
+                '{"type": "string", "value": "', s.calc_value(), '"}'
+            )
         elif inner.isa[self.Integer]():
             var intg = inner[self.Integer]
-            return String('{"type": "integer", "value": "', intg, '"}')
+            return w.write('{"type": "integer", "value": "', intg, '"}')
         elif inner.isa[self.Float]():
             var v = inner[self.Float]
             var final: String
@@ -376,28 +378,28 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                 )
             else:
                 final = String(v)
-            return String('{"type": "float", "value": "', final, '"}')
+            return w.write('{"type": "float", "value": "', final, '"}')
         elif inner.isa[self.NaN]():
-            return String('{"type": "float", "value": "nan"}')
+            return w.write('{"type": "float", "value": "nan"}')
         elif inner.isa[self.Boolean]():
             var value = "true" if inner[self.Boolean] else "false"
-            return String('{"type": "bool", "value": "', value, '"}')
+            return w.write('{"type": "bool", "value": "', value, '"}')
         elif inner.isa[self.DateTime]():
             var dt = inner[self.DateTime]
             var nm = "datetime-local" if dt.is_local else "datetime"
-            return String('{"type": "', nm, '", "value": "', dt, '"}')
+            return w.write('{"type": "', nm, '", "value": "', dt, '"}')
         elif inner.isa[self.Date]():
             var date = inner[self.Date]
-            return String('{"type": "date-local", "value": "', date, '"}')
+            return w.write('{"type": "date-local", "value": "', date, '"}')
         elif inner.isa[self.Time]():
             var time = inner[self.Time]
-            return String('{"type": "time-local", "value": "', time, '"}')
+            return w.write('{"type": "time-local", "value": "', time, '"}')
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
             var values = ", ".join(
                 [repr(Self.from_addr(addr)) for addr in array]
             )
-            return String("[", values, "]")
+            return w.write("[", values, "]")
 
         elif inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
@@ -409,6 +411,6 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
                     for kv in table.items()
                 ]
             )
-            return String("{", content, "}")
+            return w.write("{", content, "}")
         else:
             os.abort("type to repr not identified")
