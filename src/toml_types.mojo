@@ -7,6 +7,7 @@ from collections.dict import _DictEntryIter
 from hashlib import Hasher
 from utils.numerics import FPUtils
 from builtin._format_float import _to_decimal
+from python import ConvertibleToPython, PythonObject
 
 from .types.string_ref import StringRef
 from .types.tempo import Date, DateTime, Time
@@ -126,7 +127,9 @@ struct TomlTableIter[
         return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
 
 
-struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
+struct TomlType[o: ImmutOrigin](
+    ConvertibleToPython, Copyable, Iterable, Writable
+):
     comptime String = StringRef[Self.o]
     # comptime StringLiteral = StringLit[Self.o]
     comptime Integer = Integer
@@ -326,13 +329,16 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Writable):
         ref inner = self.inner
 
         if inner.isa[self.OpaqueArray]():
-            ref array = inner[self.OpaqueArray]
-            for addr in array:
-                addr.free()
+            var array = inner.take[self.OpaqueArray]()
+            for _ in range(len(array)):
+                array.pop().destroy_pointee()
         elif inner.isa[self.OpaqueTable]():
-            ref table = inner[self.OpaqueTable]
-            for v in table.values():
-                v.free()
+            var table = inner.take[self.OpaqueTable]()
+            for v in table.take_items():
+                v.value.destroy_pointee()
+
+    fn to_python_object(var self) raises -> PythonObject:
+        return PythonObject("TomlType is a text for now...")
 
     fn write_to(self, mut w: Some[Writer]):
         ref inner = self.inner

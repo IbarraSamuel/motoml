@@ -34,11 +34,18 @@ motoml = { path = "." }
 # tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
 
 [tasks]
+# run parser live getting data from stdin
 parser = { cmd = "mojo tests/stdin_parser.mojo" }
 
+# Test tasks
 test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
 test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
 test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests" }
 tests = { depends-on = ["test-reflection", "test-comptime-parser", "test-parser"] }
+
+# Build tasks
+build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"
+build = { cmd = "mojo build stdin_parser.mojo", cwd = "tests" }
+package = "mojo package src/ -o motoml.mojopkg"
 
 # TODO: CHECK DOCS
