@@ -212,8 +212,8 @@ struct TomlType[o: ImmutOrigin](Copyable, Iterable, Representable):
 
     # ==== Access inner values using methods ====
 
-    fn string(ref self) -> ref[self.inner] Self.String:
-        return self.inner[Self.String]
+    fn string(ref self) -> String:
+        return self.inner[Self.String].calc_value()
 
     fn integer(ref self) -> Self.Integer:
         return self.inner[Self.Integer]
