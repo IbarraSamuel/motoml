@@ -1,17 +1,19 @@
-from builtin.variadics import Variadic
-from reflection import (
+from std.reflection import (
     get_function_name,
     get_type_name,
     call_location,
     SourceLocation,
 )
-from builtin.rebind import trait_downcast
-from testing.suite import (
+from std.testing.suite import (
     TestReport,
     TestResult,
     TestSuiteReport,
 )
-from time import perf_counter_ns
+from std.algorithm import parallelize
+from std.time import perf_counter_ns
+from std.runtime.asyncrt import TaskGroup
+
+from std.python import PythonObject, Python
 
 
 @fieldwise_init
@@ -41,8 +43,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
         comptime size = Variadic.size(Self.ts)
         var reports = List[TestReport](capacity=size)
 
-        @parameter
-        for i in range(size):
+        comptime for i in range(size):
             comptime full_nm = get_type_name[Self.ts[i]]()
             var name = full_nm[full_nm.find("().") + 3 : full_nm.find(", {}")]
             var error: Optional[Error] = None
@@ -73,31 +74,42 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
 
 @fieldwise_init
 @explicit_destroy("run() or abandon() the TestSuite")
-struct TestSuite(Movable):
-    var tests: List[Tuple[StaticString, fn() raises]]
+struct PyTestSuite(Movable):
+    var tests: List[Tuple[StaticString, fn(PythonObject) raises]]
     var location: SourceLocation
 
     fn __init__(
-        out self: TestSuite[], location: Optional[SourceLocation] = None
+        out self: PyTestSuite, location: Optional[SourceLocation] = None
     ):
         self.tests = {}
         self.location = location.or_else(call_location())
 
-    fn test[func: fn() raises](mut self, name: Optional[StaticString] = None):
+    fn test[
+        func: fn(PythonObject) raises
+    ](mut self, name: Optional[StaticString] = None):
         self.tests.append((name.or_else(get_function_name[func]()), func))
 
     fn abandon(deinit self):
         pass
 
     fn run(deinit self) raises:
-        var size = len(self.tests)
-        var reports = List[TestReport](capacity=size)
+        # var size = len(self.tests)
+        # var dummy_report = TestReport(
+        #     name={},
+        #     duration_ns={},
+        #     result=TestResult.FAIL,
+        #     error={},
+        # )
+        # var reports = List[TestReport](length=size, fill=dummy_report)
+        var reports = List[TestReport](capacity=len(self.tests))
+        # var tg = TaskGroup()
+        var json = Python.import_module("json")
 
         for name, test in self.tests:
             var error: Optional[Error] = None
             var start = perf_counter_ns()
             try:
-                test()
+                test(json)
             except e:
                 error = {e^}
             var duration = perf_counter_ns() - start
@@ -110,6 +122,11 @@ struct TestSuite(Movable):
             )
             reports.append(report^)
 
+        # parallelize[test_n](len(reports))
+        # for ti in range(len(reports)):
+        #     tg.create_task(test_n(ti))
+
+        # tg.wait()
         var report = TestSuiteReport(reports=reports^, location=self.location)
 
         if report.failures > 0:

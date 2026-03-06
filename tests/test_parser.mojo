@@ -1,10 +1,10 @@
 from motoml.new_parser import parse_toml, toml_to_tagged_json
-from test_suite import TestSuite
+from test_suite import PyTestSuite
 from files_to_test import TOML_FILES
-from pathlib import Path
-from reflection import call_location
-from python import PythonObject, Python
-from testing import assert_equal, assert_true
+from std.pathlib import Path
+from std.reflection import call_location
+from std.python import PythonObject
+from std.testing import assert_equal, assert_true
 
 
 # def sorting(py: PythonObject, item: PythonObject) -> PythonObject:
@@ -41,7 +41,7 @@ from testing import assert_equal, assert_true
 #         return item
 
 
-fn file_test[strpath: StaticString]() raises:
+fn file_test[strpath: StaticString](json: PythonObject) raises:
     var file = toml_files() / strpath
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not (file.exists() and exp_file.exists()):
@@ -51,16 +51,14 @@ fn file_test[strpath: StaticString]() raises:
     var json_result = toml_to_tagged_json(content)
     var exp_result = exp_file.read_text()
 
-    var json = Python.import_module("json")
-
     try:
-        py_obj = PythonObject(exp_result)
+        py_obj = exp_result.to_python_object()
         py_expected = json.loads(py_obj)
     except:
         raise "[TESTCASE ERR]"
 
     try:
-        r_obj = PythonObject(json_result)
+        r_obj = json_result.to_python_object()
     except:
         raise "[Python Interop Error] Failed to convert json result to python object. {}".format(
             json_result
@@ -97,7 +95,7 @@ fn filter_files(files: StaticString) -> List[StaticString]:
 fn main() raises:
     comptime files_to_test = filter_files(TOML_FILES)
 
-    var suite = TestSuite()
+    var suite = PyTestSuite()
 
     comptime for li in range(len(files_to_test)):
         comptime fpath = files_to_test[li]

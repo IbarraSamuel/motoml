@@ -1,13 +1,13 @@
-import os
-from builtin.rebind import downcast
-from sys.intrinsics import likely, _type_is_eq
-from reflection import get_type_name
-from utils import Variant
-from collections.dict import _DictEntryIter
-from hashlib import Hasher
-from utils.numerics import FPUtils
-from builtin._format_float import _to_decimal
-from python import ConvertibleToPython, PythonObject
+import std.os
+from std.builtin.rebind import downcast
+from std.sys.intrinsics import likely, _type_is_eq
+from std.reflection import get_type_name
+from std.utils import Variant
+from std.collections.dict import _DictEntryIter
+from std.hashlib import Hasher
+from std.utils.numerics import FPUtils
+from std.builtin._format_float import _to_decimal
+from std.python import ConvertibleToPython, PythonObject
 
 from .types.string_ref import StringRef
 from .types.tempo import Date, DateTime, Time
@@ -21,9 +21,7 @@ comptime Boolean = Bool
 
 comptime Opaque[o: MutOrigin] = OpaquePointer[o]
 comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
-comptime OpaqueTable[o: ImmutOrigin] = Dict[
-    StringRef[o], Opaque[MutExternalOrigin]
-]
+comptime OpaqueTable[o: ImmutOrigin] = Dict[String, Opaque[MutExternalOrigin]]
 
 # TODO: Add new time types
 
@@ -94,24 +92,22 @@ struct TomlListIter[
 
 struct TomlTableIter[
     data: ImmutOrigin,
-    toml: ImmutOrigin,
+    toml: Origin,
 ](ImplicitlyCopyable, Iterable, Iterator):
-    comptime Element = Tuple[
-        StringSlice[Self.data], TomlRef[Self.data, ImmutExternalOrigin]
-    ]
+    comptime Element = Tuple[String, TomlRef[Self.data, MutExternalOrigin]]
     comptime IteratorType[origin: Origin]: Iterator = Self
     comptime Toml = TomlType[Self.data]
     var dict_iter: _DictEntryIter[
-        mut=False,
-        K = Self.Toml.OpaqueTable.K,
-        V = Self.Toml.OpaqueTable.V,
-        H = Self.Toml.OpaqueTable.H,
-        origin = Self.toml,
+        mut=Self.toml.mut,
+        K=Self.Toml.OpaqueTable.K,
+        V=Self.Toml.OpaqueTable.V,
+        H=Self.Toml.OpaqueTable.H,
+        origin=Self.toml,
     ]
 
     fn __init__(
         out self: TomlTableIter[Self.data, origin_of(v)],
-        v: Self.Toml.OpaqueTable,
+        ref v: Self.Toml.OpaqueTable,
     ):
         self.dict_iter = v.items()
 
@@ -124,7 +120,7 @@ struct TomlTableIter[
         ref kv = next(self.dict_iter)
 
         ref toml_value = kv.value.bitcast[Self.Toml]()[]
-        return StringSlice(unsafe_from_utf8=kv.key.value), TomlRef(toml_value)
+        return kv.key, TomlRef(toml_value)
 
 
 struct TomlType[o: ImmutOrigin](
@@ -139,16 +135,17 @@ struct TomlType[o: ImmutOrigin](
     comptime Date = Date
     comptime Time = Time
     comptime DateTime = DateTime
-    comptime Array = List[Self]
-    comptime Table = Dict[StringRef[Self.o], Self]
 
     # Store a list of addesses.
     comptime OpaqueArray = OpaqueArray
     comptime OpaqueTable = OpaqueTable[Self.o]
+
     comptime RefArray[o: ImmutOrigin] = List[TomlRef[Self.o, o]]
-    comptime RefTable[o: ImmutOrigin] = Dict[
-        StringRef[Self.o], TomlRef[Self.o, o]
-    ]
+    comptime RefTable[o: ImmutOrigin] = Dict[String, TomlRef[Self.o, o]]
+
+    # For ease of use of the type
+    comptime Array = List[Self]
+    comptime Table = Dict[String, Self]
 
     # Iterable
     comptime IteratorType[
@@ -161,7 +158,7 @@ struct TomlType[o: ImmutOrigin](
             to=self.inner[Self.OpaqueArray]
         ).unsafe_origin_cast[origin_of(self)]()[]
 
-        return TomlListIter[toml = origin_of(self), data = Self.o](array)
+        return TomlListIter[toml=origin_of(self), data=Self.o](array)
 
     # Runtime
     var inner: AnyTomlType[Self.o]
@@ -248,7 +245,7 @@ struct TomlType[o: ImmutOrigin](
     fn table(self) -> Self.RefTable[origin_of(self.inner)]:
         """Points to self, because external origin it's managed by self."""
         return {
-            kv.key.copy(): TomlRef[Self.o, origin_of(self.inner)](
+            kv.key: TomlRef[Self.o, origin_of(self.inner)](
                 Self.from_addr(kv.value)
             )
             for kv in self.inner[Self.OpaqueTable].items()
@@ -271,7 +268,7 @@ struct TomlType[o: ImmutOrigin](
             return False
         elif self.isa[Self.Table]():
             for i in self.as_opaque_table():
-                if i.calc_value() == v:
+                if i == v:
                     return True
             return False
         return False
@@ -282,7 +279,7 @@ struct TomlType[o: ImmutOrigin](
         ref table = self.inner[Self.OpaqueTable]
 
         for kv in table.items():
-            if StringSlice(unsafe_from_utf8=kv.key.value) == key:
+            if kv.key == key:
                 return Self.from_addr(kv.value)
 
         os.abort("key not found in toml")
@@ -290,7 +287,7 @@ struct TomlType[o: ImmutOrigin](
         # os.abort(String("Key '", key, "' not found in TOML table."))
 
     fn items(ref self) -> TomlTableIter[Self.o, origin_of(self.inner)]:
-        return TomlTableIter(self.inner[Self.OpaqueTable])
+        return TomlTableIter[data=Self.o](self.inner[Self.OpaqueTable])
 
     fn __init__(out self, *, var string: Self.String):
         self.inner = string^
@@ -372,7 +369,7 @@ struct TomlType[o: ImmutOrigin](
                 try:
                     exp_s = Int(sci[e_loc + 1 :])
                 except e:
-                    from os import abort
+                    from std.os import abort
 
                     abort(String(e))
 
@@ -403,7 +400,7 @@ struct TomlType[o: ImmutOrigin](
         elif inner.isa[self.OpaqueArray]():
             ref array = inner[self.OpaqueArray]
             var values = ", ".join(
-                [repr(Self.from_addr(addr)) for addr in array]
+                [String(Self.from_addr(addr)) for addr in array]
             )
             return w.write("[", values, "]")
 
@@ -411,12 +408,10 @@ struct TomlType[o: ImmutOrigin](
             ref table = inner[self.OpaqueTable]
             var content = ", ".join(
                 [
-                    '"{}": {}'.format(
-                        kv.key.calc_value(), repr(Self.from_addr(kv.value))
-                    )
+                    String(t'"{kv.key}": {Self.from_addr(kv.value)}')
                     for kv in table.items()
                 ]
             )
             return w.write("{", content, "}")
         else:
-            os.abort("type to repr not identified")
+            os.abort("type to write not identified")

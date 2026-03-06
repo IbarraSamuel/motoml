@@ -4,9 +4,9 @@ TODO: Make it a single implementation.
 """
 
 from .toml_types import TomlType, AnyTomlType, StringRef
-from sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
-from builtin.rebind import downcast
-from reflection import (
+from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
+from std.builtin.rebind import downcast
+from std.reflection import (
     is_struct_type,
     struct_field_names,
     struct_field_count,
@@ -18,8 +18,8 @@ from reflection import (
 )
 
 
-from utils import Variant
-from os import abort
+from std.utils import Variant
+from std.os import abort
 
 
 @explicit_destroy("The Result must be consumed.")
@@ -150,7 +150,7 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
     # ========= Check if the object is initializable before initializing it ===========
 
-    var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
+    var key_list = List[Optional[StaticString]](capacity=field_count)
 
     comptime for fi in range(field_count):
         comptime assert conforms_to(
@@ -159,10 +159,8 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
 
-        for k in toml_tb.keys():
-            if NAME == k.calc_value():
-                key_list.append(k.copy())
-                break
+        if NAME in toml_tb:
+            key_list.append(NAME)
         else:
             comptime if get_base_type_name[TYPE]() != "Optional":
                 return Error(
@@ -284,7 +282,7 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Check if the object is initializable before initializing it ===========
 
-    var key_list = List[Optional[StringRef[toml.o]]](capacity=field_count)
+    var key_list = List[Optional[StaticString]](capacity=field_count)
 
     comptime for fi in range(field_count):
         comptime assert conforms_to(
@@ -293,10 +291,8 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
 
-        for k in toml_tb.keys():
-            if NAME == k.calc_value():
-                key_list.append(k.copy())
-                break
+        if NAME in toml_tb:
+            key_list.append(NAME)
         else:
             comptime if get_base_type_name[TYPE]() != "Optional":
                 raise "A field needed on the struct is not available on the toml table, and such field is not optional."
@@ -378,7 +374,7 @@ fn _destroy_obj[
             # NOTE: This can cause infinite loop? check if there are movable types with not Implicit Destruction.
             _destroy_obj(field_obj)
         else:
-            from os import abort
+            from std.os import abort
 
             __mlir_op.`lit.ownership.mark_destroyed`(
                 __get_mvalue_as_litref(obj)

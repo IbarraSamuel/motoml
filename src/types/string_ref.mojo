@@ -1,5 +1,5 @@
-from hashlib import Hasher
-from os import abort
+from std.hashlib import Hasher
+from std.os import abort
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
@@ -18,16 +18,16 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
 
     var is_literal: Bool
     var is_multiline: Bool
-    var value: Span[Byte, Self.origin]
+    var data: Span[Byte, Self.origin]
 
     fn __init__(
         out self,
-        value: Span[Byte, Self.origin],
+        data: Span[Byte, Self.origin],
         *,
         literal: Bool,
         multiline: Bool,
     ):
-        self.value = value
+        self.data = data
         self.is_literal = literal
         self.is_multiline = multiline
 
@@ -39,7 +39,7 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
         h.update(self.calc_value())
 
     fn as_pure_slice(self) -> StringSlice[Self.origin]:
-        return StringSlice(unsafe_from_utf8=self.value)
+        return StringSlice(unsafe_from_utf8=self.data)
 
     fn calc_value(self) -> String:
         # print("original string: `{}`".format(self.as_pure_slice()))
@@ -61,8 +61,8 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
 
 
 fn _find_escapes[
-    *chars: Tuple[Byte, Int]
-](ssb: Span[Byte], offset: Int) -> Tuple[Byte, Int, Span[Byte, ssb.origin]]:
+    o: ImmutOrigin, //, *chars: Tuple[Byte, Int]
+](ssb: Span[Byte, o], offset: Int) -> Tuple[Byte, Int, Span[Byte, o]]:
     for i, b in enumerate(ssb[offset:]):
         var ii = i + offset
         if b != Byte(ord("\\")):
@@ -99,6 +99,7 @@ fn parse_string_escape(v: StringSlice) -> String:
     var ssb = ss.as_bytes()
 
     comptime fesc = _find_escapes[
+        o=origin_of(ss),
         (Byte(ord("x")), 2),
         (Byte(ord("u")), 4),
         (Byte(ord("U")), 8),
@@ -203,9 +204,9 @@ fn parse_string_escape(v: StringSlice) -> String:
         #     continue
 
         # if the next value is not identified as a "space"
-        if not ss[byte = esc + 1].isspace():
+        if not ss[byte=esc + 1].isspace():
             # if it's a scape, skip by 2
-            last_esc += 1 + Int(ss[byte = esc + 1] == "\\")
+            last_esc += 1 + Int(ss[byte=esc + 1] == "\\")
             # print("Next value after escape is not a space, skipping...")
             continue
 
@@ -224,7 +225,7 @@ fn parse_string_escape(v: StringSlice) -> String:
         last_qte = qte
 
         var esc_count = 0
-        while esc_count <= qte - 1 and ss[byte = qte - 1 - esc_count] == "\\":
+        while esc_count <= qte - 1 and ss[byte=qte - 1 - esc_count] == "\\":
             esc_count += 1
 
         # print("for string: '{}' esc count:".format(ss), esc_count)

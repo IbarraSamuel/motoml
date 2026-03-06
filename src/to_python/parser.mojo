@@ -1,10 +1,6 @@
-from os import abort
-from python import PythonObject
-from python import Python
-
-# from python._cpython import GILReleased
-# from runtime.asyncrt import TaskGroup as TG
-from python.bindings import PythonModuleBuilder
+from std.os import abort
+from std.python import PythonObject, Python
+from std.python.bindings import PythonModuleBuilder
 
 from ..new_parser import parse_toml_raises
 
