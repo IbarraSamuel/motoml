@@ -79,10 +79,9 @@ struct Result[T: Movable](Boolable):
             return None
         return self^.unsafe_take_value()
 
-    fn or_else(
-        deinit self,
-        var default: downcast[Self.T, ImplicitlyDestructible & Movable],
-    ) -> Self.T where conforms_to(Self.T, ImplicitlyDestructible):
+    fn or_else[
+        t: Movable & ImplicitlyDestructible, //
+    ](deinit self: Result[t], var default: t) -> t:
         """Take the value or return a default value."""
         if not self:
             return default^
@@ -96,7 +95,9 @@ fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[
         toml_type, T
     ]()
-    comptime TypeMatch = Variadic.filter_types[*TomlTypes, predicate=FilterType]
+    comptime TypeMatch = Variadic.filter_types[
+        T=AnyType, *TomlTypes, predicate=FilterType
+    ]
     comptime MATCH_LEN = Variadic.size(TypeMatch)
 
     comptime assert (
@@ -228,7 +229,9 @@ fn toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[
         toml_type, T
     ]()
-    comptime TypeMatch = Variadic.filter_types[*TomlTypes, predicate=FilterType]
+    comptime TypeMatch = Variadic.filter_types[
+        T=AnyType, *TomlTypes, predicate=FilterType
+    ]
     comptime MATCH_LEN = Variadic.size(TypeMatch)
 
     comptime assert (

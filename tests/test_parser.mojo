@@ -70,12 +70,10 @@ fn file_test[strpath: StaticString](json: PythonObject) raises:
             r_obj
         )
 
-    try:
-        assert_true(py_result == py_expected)
-    except:
-        var str_res = String(py_result)
-        var exp_res = String(py_expected)
-        assert_equal(str_res, exp_res)
+    # try:
+    #     assert_true(py_result == py_expected)
+    # except:
+    assert_equal(py_result, py_expected)
 
 
 @always_inline

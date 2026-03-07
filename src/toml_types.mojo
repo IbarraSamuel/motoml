@@ -34,8 +34,6 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     Date,
     Time,
     DateTime,
-    # OffsetDateTime,
-    # LocalDateTime,
     Time,
     OpaqueArray,
     OpaqueTable[o],
@@ -147,6 +145,9 @@ struct TomlType[o: ImmutOrigin](
     comptime Array = List[Self]
     comptime Table = Dict[String, Self]
 
+    # Runtime
+    var inner: AnyTomlType[Self.o]
+
     # Iterable
     comptime IteratorType[
         mut: Bool, //, origin: Origin[mut=mut]
@@ -159,9 +160,6 @@ struct TomlType[o: ImmutOrigin](
         ).unsafe_origin_cast[origin_of(self)]()[]
 
         return TomlListIter[toml=origin_of(self), data=Self.o](array)
-
-    # Runtime
-    var inner: AnyTomlType[Self.o]
 
     fn isa[T: AnyType](self) -> Bool:
         comptime if _type_is_eq[T, Self.Array]():
@@ -355,32 +353,32 @@ struct TomlType[o: ImmutOrigin](
             var v = inner[self.Float]
             var final: String
             # comptime sc_not: Float64 = 1e6
-            if v < 1e6 and (v - self.Float(Int(v)) == 0.0):
-                final = String(Int(v))
-            elif v >= 1e6 and v < 1e16:
-                # Force Scientific Notation
-                var sig = FPUtils.get_mantissa_uint(v)
-                var exp = FPUtils.get_exponent_biased(v)
-                _to_decimal[v.dtype](sig, exp)
-                # print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
-                var vv = v * 10**10
-                var sci = String(vv)
-                var e_loc = sci.find("e")
-                try:
-                    exp_s = Int(sci[e_loc + 1 :])
-                except e:
-                    from std.os import abort
+            # if v < 1e6 and (v - self.Float(Int(v)) == 0.0):
+            #     final = String(Int(v))
+            # elif v >= 1e6 and v < 1e15:
+            #     # Force Scientific Notation
+            #     var sig = FPUtils.get_mantissa_uint(v)
+            #     var exp = FPUtils.get_exponent_biased(v)
+            #     _to_decimal[v.dtype](sig, exp)
+            #     # print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
+            #     var vv = v * 10**10
+            #     var sci = String(vv)
+            #     var e_loc = sci.find("e")
+            #     try:
+            #         exp_s = Int(sci[e_loc + 1 :])
+            #     except e:
+            #         from std.os import abort
 
-                    abort(String(e))
+            #         abort(String(e))
 
-                # print(String(exp_s - 10))
-                final = (
-                    sci[: e_loc + 2]
-                    + ("0" if exp_s < 20 else "")
-                    + String(exp_s - 10)
-                )
-            else:
-                final = String(v)
+            #     # print(String(exp_s - 10))
+            #     final = (
+            #         sci[: e_loc + 2]
+            #         + ("0" if exp_s < 20 else "")
+            #         + String(exp_s - 10)
+            #     )
+            # else:
+            final = String(v)
             return w.write('{"type": "float", "value": "', final, '"}')
         elif inner.isa[self.NaN]():
             return w.write('{"type": "float", "value": "nan"}')
