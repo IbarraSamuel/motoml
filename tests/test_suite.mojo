@@ -76,7 +76,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
 @fieldwise_init
 @explicit_destroy("run() or abandon() the TestSuite")
 struct PyTestSuite(Movable):
-    var tests: List[Tuple[StaticString, fn(Python) raises]]
+    var tests: List[Tuple[String, fn(Python) raises]]
     var location: SourceLocation
 
     @always_inline
@@ -86,9 +86,7 @@ struct PyTestSuite(Movable):
         self.tests = {}
         self.location = location.or_else(call_location())
 
-    fn test[
-        func: fn(Python) raises
-    ](mut self, name: Optional[StaticString] = None):
+    fn test[func: fn(Python) raises](mut self, name: Optional[String] = None):
         self.tests.append((name.or_else(get_function_name[func]()), func))
 
     fn abandon(deinit self):

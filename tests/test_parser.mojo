@@ -4,7 +4,7 @@ from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location
 from std.python import Python, PythonObject
-from std.testing import assert_equal, assert_true
+from std.testing import assert_equal, assert_true, assert_raises
 
 
 def translate_json_to_types(
@@ -40,7 +40,8 @@ def translate_json_to_types(
         return json
 
 
-fn file_test[strpath: StaticString](py: Python) raises:
+def file_test[testno: Int](py: Python) raises:
+    var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not (file.exists() and exp_file.exists()):
@@ -77,30 +78,43 @@ fn file_test[strpath: StaticString](py: Python) raises:
         assert_equal(String(py_result), String(py_expected))
 
 
+def file_test_raises[testno: Int](py: Python) raises:
+    var strpath = StaticString(TOML_FILES).splitlines()[testno]
+    var file = toml_files() / strpath
+    print(t"file: {file}")
+    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
+    if not (file.exists() and exp_file.exists()):
+        raise "one file not exists: " + String(file) + " or " + String(exp_file)
+    var content = file.read_text()
+
+    with assert_raises():
+        var json_result = toml_to_tagged_json(content)
+
+
 @always_inline
 fn toml_files() -> Path:
     var loc = call_location().file_name
     return Path(loc[: loc.rfind("/")]) / "toml_files"
 
 
-fn filter_files(files: StaticString) -> List[StaticString]:
-    return [
-        f
-        for f in files.splitlines()
-        if (f.startswith("valid") and f.endswith(".toml"))
-    ]
+fn only_toml_files(values: StaticString) -> List[Int]:
+    return [i for i, f in enumerate(values.splitlines()) if f.endswith(".toml")]
 
 
 fn main() raises:
-    comptime files_to_test = filter_files(TOML_FILES)
-
+    comptime only_toml = only_toml_files(TOML_FILES)
+    var files = StaticString(TOML_FILES).splitlines()
     var suite = PyTestSuite()
 
-    comptime for li in range(len(files_to_test)):
-        comptime fpath = files_to_test[li]
-        comptime root_fpath = StaticString(
-            "[{}]: tests/toml_files/{}".format(li, fpath)
-        )
-        suite.test[file_test[fpath]](root_fpath)
+    comptime for li in only_toml:
+        var fpath = files[li]
+        var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
+        if fpath.startswith("invalid"):
+            print(t"[invalid] adding test: {fpath}")
+            suite.test[file_test_raises[li]](root_fpath)
+        else:
+            print(t"[valid] adding test: {fpath}")
+            suite.test[file_test[li]](root_fpath)
 
+    print("Running tests...")
     suite^.run()
