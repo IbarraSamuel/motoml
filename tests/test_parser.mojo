@@ -3,57 +3,57 @@ from test_suite import PyTestSuite
 from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location
-from std.python import PythonObject
+from std.python import Python, PythonObject
 from std.testing import assert_equal, assert_true
 
 
-# def sorting(py: PythonObject, item: PythonObject) -> PythonObject:
-#     if py.isinstance(item, py.dict):
-#         sorted_keys = py.sorted(item.keys())
-#         result_dict = py.dict()
-#         for k in sorted_keys:
-#             result_dict[k] = sorting(py, item[k])
-#         return result_dict
-#     if py.isinstance(item, py.list):
-#         lst = py.list()
-#         for x in item:
-#             lst.append(sorting(py, x))
-#         return py.sorted(lst)
-#     else:
-#         return item
+def translate_json_to_types(
+    py: Python, json: PythonObject
+) raises -> PythonObject:
+    if "type" in json and "value" in json and len(json) == 2:
+        var type = json["type"]
+        var str_v = json["value"]
+
+        var value: PythonObject
+        if type == "float":
+            if str_v == "nan":
+                value = py.none()
+            else:
+                value = py.float(str_v)
+        elif type == "integer":
+            value = py.int(str_v)
+        else:
+            value = str_v
+        return {"type": json["type"], "value": value}
+
+    if py.type(json) is py.evaluate("list"):
+        var new_list = py.list()
+        for it in json:
+            new_list.append(translate_json_to_types(py, it))
+        return new_list
+    elif py.type(json) is py.evaluate("dict"):
+        var new_dict = py.dict()
+        for kv in json.items():
+            new_dict[kv[0]] = translate_json_to_types(py, kv[1])
+        return new_dict
+    else:
+        return json
 
 
-# def compare_two_objs(
-#     py: PythonObject, obj1: PythonObject, obj2: PythonObject
-# ) -> PythonObject:
-#     if py.isinstance(item, py.dict):
-#         sorted_keys = py.sorted(item.keys())
-#         result_dict = py.dict()
-#         for k in sorted_keys:
-#             result_dict[k] = sorting(py, item[k])
-#         return result_dict
-#     if py.isinstance(item, py.list):
-#         lst = py.list()
-#         for x in item:
-#             lst.append(sorting(py, x))
-#         return py.sorted(lst)
-#     else:
-#         return item
-
-
-fn file_test[strpath: StaticString](json: PythonObject) raises:
+fn file_test[strpath: StaticString](py: Python) raises:
     var file = toml_files() / strpath
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not (file.exists() and exp_file.exists()):
         raise "one file not exists: " + String(file) + " or " + String(exp_file)
     var content = file.read_text()
-    print("parsing file:", file)
     var json_result = toml_to_tagged_json(content)
     var exp_result = exp_file.read_text()
 
+    var json = py.import_module("json")
     try:
         py_obj = exp_result.to_python_object()
         py_expected = json.loads(py_obj)
+        py_expected = translate_json_to_types(py, py_expected)
     except:
         raise "[TESTCASE ERR]"
 
@@ -65,15 +65,16 @@ fn file_test[strpath: StaticString](json: PythonObject) raises:
         )
     try:
         py_result = json.loads(r_obj)
+        py_result = translate_json_to_types(py, py_result)
     except:
         raise "[OUTPUT ERR] Error parsing json output from parser: {}".format(
             r_obj
         )
 
-    # try:
-    #     assert_true(py_result == py_expected)
-    # except:
-    assert_equal(py_result, py_expected)
+    try:
+        assert_true(py_result == py_expected)
+    except:
+        assert_equal(String(py_result), String(py_expected))
 
 
 @always_inline

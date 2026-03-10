@@ -34,7 +34,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
     ) -> UnifiedTestSuite[
         *Variadic.concat_types[Self.ts, Variadic.types[type_of(other)]]
     ]:
-        return {self.tests.concat((other^,)), self.location}
+        return {self.tests^.concat((other^,)), self.location}
 
     @always_inline("nodebug")
     fn abandon(deinit self):
@@ -61,7 +61,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
                 name=name,
                 duration_ns=duration,
                 result=result,
-                error=error.or_else({}),
+                error=error^.or_else({}),
             )
             reports.append(report^)
 
@@ -76,7 +76,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
 @fieldwise_init
 @explicit_destroy("run() or abandon() the TestSuite")
 struct PyTestSuite(Movable):
-    var tests: List[Tuple[StaticString, fn(PythonObject) raises]]
+    var tests: List[Tuple[StaticString, fn(Python) raises]]
     var location: SourceLocation
 
     @always_inline
@@ -87,7 +87,7 @@ struct PyTestSuite(Movable):
         self.location = location.or_else(call_location())
 
     fn test[
-        func: fn(PythonObject) raises
+        func: fn(Python) raises
     ](mut self, name: Optional[StaticString] = None):
         self.tests.append((name.or_else(get_function_name[func]()), func))
 
@@ -105,13 +105,13 @@ struct PyTestSuite(Movable):
         # var reports = List[TestReport](length=size, fill=dummy_report)
         var reports = List[TestReport](capacity=len(self.tests))
         # var tg = TaskGroup()
-        var json = Python.import_module("json")
+        var py = Python()
 
         for name, test in self.tests:
             var error: Optional[Error] = None
             var start = perf_counter_ns()
             try:
-                test(json)
+                test(py)
             except e:
                 error = {e^}
             var duration = perf_counter_ns() - start
@@ -120,7 +120,7 @@ struct PyTestSuite(Movable):
                 name=name,
                 duration_ns=duration,
                 result=result,
-                error=error.or_else({}),
+                error=error^.or_else({}),
             )
             reports.append(report^)
 
