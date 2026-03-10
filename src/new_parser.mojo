@@ -171,45 +171,6 @@ fn string_to_type[
 
     var v_init = idx
 
-    # # Parse floats
-    # var sign = 1.0
-    # if data[idx] == neg:
-    #     sign = -1.0
-    #     idx += 1
-    # elif data[idx] == pos:
-    #     idx += 1
-
-    # var num = 0.0 * sign
-    # var flt = False
-
-    # # to agg later on the decimals
-    # var init = idx
-
-    # while (
-    #     idx < len(data)
-    #     and data[idx] != end_char
-    #     and data[idx] != NewLine
-    #     and data[idx] != Space
-    #     and data[idx] != Comma
-    # ):
-    #     var c = data[idx]
-    #     if c < lower or c > upper:
-    #         if c == Period and not flt:
-    #             flt = True
-    #             init = idx
-    #             idx += 1
-    #             continue
-
-    #         raise ("value is not a numeric value. It's another dtype")
-
-    #     var cc = Float64(c - lower)
-    #     num = (
-    #         num * 10
-    #         + sign * cc if not flt else num
-    #         + sign * cc * 0.1 ** (idx - init)
-    #     )
-    #     idx += 1
-
     comptime lower = Byte(ord("0"))
     comptime upper = Byte(ord("9"))
 
@@ -244,17 +205,7 @@ fn string_to_type[
     ):
         dashes += Int(data[idx] == neg)
         colons += Int(data[idx] == Byte(ord(":")))
-        # print(
-        #     "char:",
-        #     Codepoint(data[idx]),
-        #     "and byte:",
-        #     data[idx],
-        #     "has flags:",
-        #     lower <= data[idx] <= upper,
-        #     "to say if it's between 0 and 9 or ",
-        #     data[idx] == Byte(ord("_")),
-        #     "to say if it's an underscore",
-        # )
+
         is_ascii_digit &= (
             lower <= data[idx] <= upper
             or data[idx] == Byte(ord("_"))
@@ -316,31 +267,6 @@ fn string_to_type[
 
     raise ("Could not find a type for value: `{}`".format(v_slice))
 
-    # var k = data[v_init:idx]
-    # # var v = StringSlice(unsafe_from_utf8=data[v_init:idx])
-    # # Roll back one step because we finalized all time in the next item
-    # idx -= 1
-    # if flt:
-    #     try:
-    #         var vi = atof(StringSlice(unsafe_from_utf8=k))
-    #         return toml.TomlType[data.origin](float=vi)
-    #     except:
-    #         raise (
-    #             "should be a float but it's not a float: {}.".format(
-    #                 StringSlice(unsafe_from_utf8=k)
-    #             )
-    #         )
-
-    # else:
-    #     try:
-    #         var vi = atol(StringSlice(unsafe_from_utf8=k))
-    #         return toml.TomlType[data.origin](integer=vi)
-    #     except:
-    #         raise (
-    #             "should be a int but it's not a integer: {}".format(
-    #                 StringSlice(unsafe_from_utf8=k)
-    #             )
-    #         )
 
 
 fn parse_value[
