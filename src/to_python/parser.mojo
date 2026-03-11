@@ -2,7 +2,7 @@ from std.os import abort
 from std.python import PythonObject, Python
 from std.python.bindings import PythonModuleBuilder
 
-from ..new_parser import parse_toml_raises
+from ..parser import parse_toml_raises
 
 
 @export

@@ -1,4 +1,4 @@
-from motoml.new_parser import toml_to_tagged_json, parse_toml
+from motoml.parser import toml_to_tagged_json, parse_toml
 from std.io.io import _fdopen
 from std.sys import stdin
 from std.sys.defines import get_defined_bool

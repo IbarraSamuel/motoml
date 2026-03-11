@@ -1,4 +1,4 @@
-from motoml.new_parser import parse_toml, toml_to_tagged_json
+from motoml.parser import parse_toml, toml_to_tagged_json
 from test_suite import PyTestSuite
 from files_to_test import TOML_FILES
 from std.pathlib import Path
@@ -82,9 +82,8 @@ def file_test_raises[testno: Int](py: Python) raises:
     var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
     print(t"file: {file}")
-    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
-    if not (file.exists() and exp_file.exists()):
-        raise "one file not exists: " + String(file) + " or " + String(exp_file)
+    if not file.exists():
+        raise "file not exists: " + String(file)
     var content = file.read_text()
 
     with assert_raises():

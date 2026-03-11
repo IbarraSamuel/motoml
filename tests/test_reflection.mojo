@@ -1,4 +1,4 @@
-from motoml.new_parser import parse_toml
+from motoml.parser import parse_toml
 from motoml.toml_types import TomlType, AnyTomlType
 from motoml.reflection import toml_to_type_raises, toml_to_type
 from std.testing import TestSuite, assert_equal
