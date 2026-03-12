@@ -3,14 +3,14 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
     var month: Int
     var day: Int
 
-    fn __init__(out self, *, year: Int, month: Int, day: Int):
+    def __init__(out self, *, year: Int, month: Int, day: Int):
         self.year = year
         self.month = month
         self.day = day
 
     @always_inline
     @staticmethod
-    fn from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) raises -> Self:
         var year_s = Int(v[:4].removeprefix("0"))
         # var year = 0 if len(year_s) == 0 else Int(year_s)
 
@@ -19,7 +19,7 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
 
         return {year = year_s, month = month, day = day}
 
-    fn write_to(self, mut w: Some[Writer]):
+    def write_to(self, mut w: Some[Writer]):
         _align[4](self.year, w)
         w.write("-")
         _align[2](self.month, w)
@@ -34,17 +34,17 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
 
     comptime utc = Self(hour=0, minute=0, positive=True)
 
-    fn __init__(out self):
+    def __init__(out self):
         self = {hour = 0, minute = 0, positive = True}
 
-    fn __init__(out self, *, hour: Int, minute: Int, positive: Bool):
+    def __init__(out self, *, hour: Int, minute: Int, positive: Bool):
         self.positive = positive
         self.hour = hour
         self.minute = minute
 
     @always_inline
     @staticmethod
-    fn from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) raises -> Self:
         var positive: Bool
         if v[byte=0] == "-":
             positive = False
@@ -60,7 +60,7 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
 
         return {hour = hour_s, minute = minute_s, positive = positive}
 
-    fn write_to(self, mut w: Some[Writer]):
+    def write_to(self, mut w: Some[Writer]):
         if self == Offset.utc:
             w.write("Z")
             return
@@ -76,14 +76,14 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
     var minute: Int
     var second: Float64
 
-    fn __init__(out self, *, hour: Int, minute: Int, second: Float64):
+    def __init__(out self, *, hour: Int, minute: Int, second: Float64):
         self.hour = hour
         self.minute = minute
         self.second = second
 
     @always_inline
     @staticmethod
-    fn from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) raises -> Self:
         var hour_s = Int(v[0:2].removeprefix("0"))
         var minute_s = Int(v[3:5].removeprefix("0"))
 
@@ -93,7 +93,7 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
         var second = Float64(v[6:].removeprefix("0"))
         return {hour = hour_s, minute = minute_s, second = second}
 
-    fn write_to(self, mut w: Some[Writer]):
+    def write_to(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
         w.write(":")
         _align[2](self.minute, w)
@@ -104,7 +104,7 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
             _align[2](self.second, w)
             # _align_fraction[3](self.second, w)
 
-    fn write_to_aligned(self, mut w: Some[Writer]):
+    def write_to_aligned(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
         w.write(":")
         _align[2](self.minute, w)
@@ -127,7 +127,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    fn from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) raises -> Self:
         var split = v.find("T")
         split = v.find("t") if split == -1 else split
         split = v.find(" ") if split == -1 else split
@@ -161,7 +161,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
 
         return {date, time, offset, t_split == len(v)}
 
-    fn write_to(self, mut w: Some[Writer]):
+    def write_to(self, mut w: Some[Writer]):
         w.write(self.date, "T")
         if self.is_local:
             w.write(self.time)
@@ -170,7 +170,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
             w.write(self.offset)
 
 
-fn _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
+def _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
     var padding = 0
     while size > padding + 1 and (10 ** (size - padding - 1)) > Int(n):
         padding += 1
@@ -179,7 +179,7 @@ fn _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
     w.write(n)
 
 
-fn _align_fraction[size: Int](n: Float64, mut w: Some[Writer]):
+def _align_fraction[size: Int](n: Float64, mut w: Some[Writer]):
     var st = String(n)
     var curr_fmt = len(st) - st.find(".") - 1
     for _ in range(max(size - curr_fmt, 0)):

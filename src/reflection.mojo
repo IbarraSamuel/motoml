@@ -27,59 +27,59 @@ struct Result[T: Movable](Boolable, Equatable, Movable, Writable):
     var inner: Variant[Self.T, Error]
 
     @implicit
-    fn __init__(out self, var value: Self.T):
+    def __init__(out self, var value: Self.T):
         self.inner = value^
 
     @implicit
-    fn __init__(out self, var error: Error):
+    def __init__(out self, var error: Error):
         self.inner = error^
 
-    fn __bool__(self) -> Bool:
+    def __bool__(self) -> Bool:
         return self.inner.isa[Self.T]()
 
-    fn ref_value(self) -> ref[self.inner] Self.T:
+    def ref_value(self) -> ref[self.inner] Self.T:
         return self.inner[Self.T]
 
-    fn ref_error(self) -> ref[self.inner] Error:
+    def ref_error(self) -> ref[self.inner] Error:
         return self.inner[Error]
 
     # -- Destroy methods --
 
-    fn destroy(deinit self):
+    def destroy(deinit self):
         """Destroy the result, and not use the value inside."""
         pass
 
     @always_inline
-    fn unsafe_take_value(deinit self) -> Self.T:
+    def unsafe_take_value(deinit self) -> Self.T:
         """Take the value. You must check that there is a value. If not, you will get UB.
         """
         return self.inner.unsafe_take[Self.T]()
 
     @always_inline
-    fn unsafe_take_error(deinit self) -> Error:
+    def unsafe_take_error(deinit self) -> Error:
         """Take the error. You must check that there is an error. If not, you will get UB.
         """
         return self.inner.unsafe_take[Error]()
 
-    fn take_error(deinit self) raises -> Error:
+    def take_error(deinit self) raises -> Error:
         """Take the error or raises otherwise."""
         if self:
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
 
-    fn take_value(deinit self) raises -> Self.T:
+    def take_value(deinit self) raises -> Self.T:
         """Take the value or raises otherwise."""
         if not self:
             raise "Result type has an error, not a value T."
         return self^.unsafe_take_value()
 
-    fn as_optional(deinit self) -> Optional[Self.T]:
+    def as_optional(deinit self) -> Optional[Self.T]:
         """Convert to an Optional type."""
         if not self:
             return None
         return self^.unsafe_take_value()
 
-    fn or_else[
+    def or_else[
         t: Movable & ImplicitlyDestructible, //
     ](deinit self: Result[t], var default: t) -> t:
         """Take the value or return a default value."""
@@ -89,7 +89,7 @@ struct Result[T: Movable](Boolable, Equatable, Movable, Writable):
 
 
 # Result Wrapper
-fn toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
+def toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
     try:
         return toml_to_type_raises[T](toml^)
     except e:

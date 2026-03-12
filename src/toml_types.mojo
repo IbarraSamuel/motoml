@@ -48,19 +48,19 @@ struct TomlRef[data: ImmutOrigin, toml: ImmutOrigin](
     ]
     var pointer: Pointer[Self.Toml, Self.toml]
 
-    fn __init__(out self, ref[Self.toml] v: Self.Toml):
+    def __init__(out self, ref[Self.toml] v: Self.Toml):
         self.pointer = Pointer(to=v)
 
-    fn __getitem__(ref self) -> ref[Self.toml] Self.Toml:
+    def __getitem__(ref self) -> ref[Self.toml] Self.Toml:
         return self.pointer[]
 
-    fn __getitem__(ref self, idx: Int) -> ref[Self.toml] Self.Toml:
+    def __getitem__(ref self, idx: Int) -> ref[Self.toml] Self.Toml:
         return self.pointer[][idx]
 
-    fn __getitem__(ref self, key: StringSlice) -> ref[Self.toml] Self.Toml:
+    def __getitem__(ref self, key: StringSlice) -> ref[Self.toml] Self.Toml:
         return self.pointer[][key]
 
-    fn __iter__(ref self) -> Self.IteratorType[Self.toml]:
+    def __iter__(ref self) -> Self.IteratorType[Self.toml]:
         return self.pointer[].__iter__()
 
 
@@ -72,11 +72,11 @@ struct TomlListIter[
     var pointer: Pointer[Self.Element.OpaqueArray, Self.toml]
     var index: Int
 
-    fn __init__(out self, ref[Self.toml] v: Self.Element.OpaqueArray):
+    def __init__(out self, ref[Self.toml] v: Self.Element.OpaqueArray):
         self.pointer = Pointer(to=v)
         self.index = 0
 
-    fn __next__(
+    def __next__(
         mut self,
     ) raises StopIteration -> ref[Self.toml] Self.Element:
         if self.index >= len(self.pointer[]):
@@ -102,16 +102,16 @@ struct TomlTableIter[
         origin=Self.toml,
     ]
 
-    fn __init__(
+    def __init__(
         out self: TomlTableIter[Self.data, origin_of(v)],
         ref v: Self.Toml.OpaqueTable,
     ):
         self.dict_iter = v.items()
 
-    fn __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
+    def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
         return self.copy()
 
-    fn __next__(
+    def __next__(
         mut self,
     ) raises StopIteration -> Self.Element:
         ref kv = next(self.dict_iter)
@@ -152,7 +152,7 @@ struct TomlType[o: ImmutOrigin](
         mut: Bool, //, origin: Origin[mut=mut]
     ] = TomlListIter[Self.o, origin]
 
-    fn __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
+    def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
         # upcast origin to self.
         ref array = UnsafePointer(
             to=self.inner[Self.OpaqueArray]
@@ -160,7 +160,7 @@ struct TomlType[o: ImmutOrigin](
 
         return TomlListIter[toml=origin_of(self), data=Self.o](array)
 
-    fn isa[T: AnyType](self) -> Bool:
+    def isa[T: AnyType](self) -> Bool:
         comptime if _type_is_eq[T, Self.Array]():
             return self.inner.isa[Self.OpaqueArray]()
         elif _type_is_eq[T, Self.Table]():
@@ -173,73 +173,73 @@ struct TomlType[o: ImmutOrigin](
             return self.inner.isa[T]()
 
     @staticmethod
-    fn from_addr(addr: Opaque) -> ref[addr.origin] Self:
+    def from_addr(addr: Opaque) -> ref[addr.origin] Self:
         return addr.bitcast[Self]()[]
 
     @staticmethod
-    fn take_from_addr(var addr: Opaque[MutExternalOrigin]) -> Self:
+    def take_from_addr(var addr: Opaque[MutExternalOrigin]) -> Self:
         return addr.bitcast[Self]().take_pointee()
 
-    fn move_to_addr(var self) -> Opaque[MutExternalOrigin]:
+    def move_to_addr(var self) -> Opaque[MutExternalOrigin]:
         var ptr = alloc[Self](1)
         ptr.init_pointee_move(self^)
         return ptr.bitcast[NoneType]()
 
-    fn to_addr(mut self) -> Opaque[origin_of(self)]:
+    def to_addr(mut self) -> Opaque[origin_of(self)]:
         return UnsafePointer(to=self).bitcast[NoneType]()
 
     # TODO: Ask to provide capacity, to minimize allocations
     @staticmethod
-    fn new_array(out self: Self):
+    def new_array(out self: Self):
         self = Self(array=Self.OpaqueArray(capacity=32))
 
     @staticmethod
-    fn new_table(out self: Self):
+    def new_table(out self: Self):
         self = Self(table=Self.OpaqueTable(capacity=32))
 
-    fn as_opaque_table(ref self) -> ref[self] Self.OpaqueTable:
+    def as_opaque_table(ref self) -> ref[self] Self.OpaqueTable:
         return UnsafePointer(
             to=self.inner[Self.OpaqueTable]
         ).unsafe_origin_cast[origin_of(self)]()[]
 
-    fn as_opaque_array(ref self) -> ref[self] Self.OpaqueArray:
+    def as_opaque_array(ref self) -> ref[self] Self.OpaqueArray:
         return UnsafePointer(
             to=self.inner[Self.OpaqueArray]
         ).unsafe_origin_cast[origin_of(self)]()[]
 
     # ==== Access inner values using methods ====
 
-    fn string(ref self) -> String:
+    def string(ref self) -> String:
         return self.inner[Self.String].calc_value()
 
-    fn integer(ref self) -> Self.Integer:
+    def integer(ref self) -> Self.Integer:
         return self.inner[Self.Integer]
 
-    fn float(ref self) -> Self.Float:
+    def float(ref self) -> Self.Float:
         return self.inner[Self.Float]
 
-    fn boolean(ref self) -> Self.Boolean:
+    def boolean(ref self) -> Self.Boolean:
         return self.inner[Self.Boolean]
 
-    fn to_array(deinit self) -> Self.Array:
+    def to_array(deinit self) -> Self.Array:
         """Points to self, because external origin it's managed by self."""
         return [Self.take_from_addr(it) for it in self.inner[Self.OpaqueArray]]
 
-    fn to_table(deinit self) -> Self.Table:
+    def to_table(deinit self) -> Self.Table:
         """Points to self, because external origin it's managed by self."""
         return {
             kv.key.copy(): Self.take_from_addr(kv.value)
             for kv in self.inner[Self.OpaqueTable].items()
         }
 
-    fn array(self) -> Self.RefArray[origin_of(self.inner)]:
+    def array(self) -> Self.RefArray[origin_of(self.inner)]:
         """Points to self, because external origin it's managed by self."""
         return [
             TomlRef[Self.o, origin_of(self.inner)](Self.from_addr(it))
             for it in self.inner[Self.OpaqueArray]
         ]
 
-    fn table(self) -> Self.RefTable[origin_of(self.inner)]:
+    def table(self) -> Self.RefTable[origin_of(self.inner)]:
         """Points to self, because external origin it's managed by self."""
         return {
             kv.key: TomlRef[Self.o, origin_of(self.inner)](
@@ -250,10 +250,10 @@ struct TomlType[o: ImmutOrigin](
 
     # For interop with list
 
-    fn __getitem__(ref self, idx: Int) -> ref[self] Self:
+    def __getitem__(ref self, idx: Int) -> ref[self] Self:
         return self.inner[Self.OpaqueArray][idx].bitcast[Self]()[]
 
-    fn __contains__(ref self, v: StringSlice) -> Bool:
+    def __contains__(ref self, v: StringSlice) -> Bool:
         # Only works for arrays and tables
         if self.isa[Self.Array]():
             for ptrs in self.as_opaque_array():
@@ -272,7 +272,7 @@ struct TomlType[o: ImmutOrigin](
 
     # For interop with dict
 
-    fn __getitem__(ref self, key: StringSlice) -> ref[self] Self:
+    def __getitem__(ref self, key: StringSlice) -> ref[self] Self:
         ref table = self.inner[Self.OpaqueTable]
 
         for kv in table.items():
@@ -283,43 +283,43 @@ struct TomlType[o: ImmutOrigin](
         # String(key)
         # os.abort(String("Key '", key, "' not found in TOML table."))
 
-    fn items(ref self) -> TomlTableIter[Self.o, origin_of(self.inner)]:
+    def items(ref self) -> TomlTableIter[Self.o, origin_of(self.inner)]:
         return TomlTableIter[data=Self.o](self.inner[Self.OpaqueTable])
 
-    fn __init__(out self, *, var string: Self.String):
+    def __init__(out self, *, var string: Self.String):
         self.inner = string
 
-    # fn __init__(out self, *, var string_literal: Self.StringLiteral):
+    # def __init__(out self, *, var string_literal: Self.StringLiteral):
     #     self.inner = string_literal
 
-    fn __init__(out self, *, var integer: Self.Integer):
+    def __init__(out self, *, var integer: Self.Integer):
         self.inner = integer
 
-    fn __init__(out self, *, var float: Self.Float):
+    def __init__(out self, *, var float: Self.Float):
         self.inner = float
 
-    fn __init__(out self, *, var none: NoneType):
+    def __init__(out self, *, var none: NoneType):
         self.inner = none
 
-    fn __init__(out self, *, var boolean: Self.Boolean):
+    def __init__(out self, *, var boolean: Self.Boolean):
         self.inner = boolean
 
-    fn __init__(out self, *, var date: Self.Date):
+    def __init__(out self, *, var date: Self.Date):
         self.inner = date
 
-    fn __init__(out self, *, var time: Self.Time):
+    def __init__(out self, *, var time: Self.Time):
         self.inner = time
 
-    fn __init__(out self, *, var datetime: Self.DateTime):
+    def __init__(out self, *, var datetime: Self.DateTime):
         self.inner = datetime
 
-    fn __init__(out self, *, var array: Self.OpaqueArray):
+    def __init__(out self, *, var array: Self.OpaqueArray):
         self.inner = array^
 
-    fn __init__(out self, *, var table: Self.OpaqueTable):
+    def __init__(out self, *, var table: Self.OpaqueTable):
         self.inner = table^
 
-    fn __del__(deinit self):
+    def __del__(deinit self):
         ref inner = self.inner
 
         if inner.isa[self.OpaqueArray]():
@@ -331,10 +331,10 @@ struct TomlType[o: ImmutOrigin](
             for v in table.take_items():
                 v.value.destroy_pointee()
 
-    fn to_python_object(var self) raises -> PythonObject:
+    def to_python_object(var self) raises -> PythonObject:
         return PythonObject("TomlType is a text for now...")
 
-    fn write_to(self, mut w: Some[Writer]):
+    def write_to(self, mut w: Some[Writer]):
         ref inner = self.inner
 
         # if inner.isa[self.StringLiteral]():

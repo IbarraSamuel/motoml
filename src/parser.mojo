@@ -34,7 +34,7 @@ comptime SingleQuote = Byte(ord("'"))
 comptime Escape = Byte(ord("\\"))
 
 
-fn parse_multiline_string[
+def parse_multiline_string[
     quote_type: Byte, *, ignore_escape: Bool
 ](data: Span[Byte, _], mut idx: Int) -> Span[Byte, data.origin]:
     # Go inside the multiline
@@ -64,7 +64,7 @@ fn parse_multiline_string[
     return data[value_init : idx - 2]
 
 
-fn parse_quoted_string[
+def parse_quoted_string[
     quote_type: Byte, *, ignore_escape: Bool
 ](data: Span[Byte, _], mut idx: Int) -> Span[Byte, data.origin]:
     idx += 1
@@ -85,7 +85,7 @@ fn parse_quoted_string[
     return data[value_init:idx]
 
 
-fn parse_inline_array(
+def parse_inline_array(
     data: Span[mut=False, Byte, _], mut idx: Int
 ) raises -> toml.TomlType[data.origin]:
     """Assumes the first char is already within the collection, but could be a space.
@@ -125,7 +125,7 @@ fn parse_inline_array(
     return value^
 
 
-fn string_to_type[
+def string_to_type[
     end_char: Byte
 ](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType[
     data.origin
@@ -269,7 +269,7 @@ fn string_to_type[
 
 
 
-fn parse_value[
+def parse_value[
     end_char: Byte
 ](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType[
     data.origin
@@ -327,7 +327,7 @@ fn parse_value[
         return string_to_type[end_char](data, idx)
 
 
-fn get_container_ref[
+def get_container_ref[
     o: ImmutOrigin, //, log: Bool = False
 ](
     keys: Span[toml.StringRef[o], _],
@@ -374,7 +374,7 @@ fn get_container_ref[
     # return arr[len(arr) - 1].bitcast[toml.TomlType[o]]()[]
 
 
-# fn store_in_container[
+# def store_in_container[
 #     o: Origin, //
 # ](
 #     keys: Span[Span[Byte, o]],
@@ -403,7 +403,7 @@ fn get_container_ref[
 #     last[] = store_obj^
 
 
-fn parse_keys[
+def parse_keys[
     o: ImmutOrigin, //, close_char: Byte
 ](
     data: Span[Byte, o], mut idx: Int, var key_base: List[toml.StringRef[o]]
@@ -466,7 +466,7 @@ fn parse_keys[
     return key_base^
 
 
-fn parse_kv_pairs[
+def parse_kv_pairs[
     separator: Byte, end_char: Byte, *, log: Bool = False
 ](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType[
     data.origin
@@ -520,7 +520,7 @@ fn parse_kv_pairs[
     return table^
 
 
-fn parse_multiline_keys(
+def parse_multiline_keys(
     data: Span[mut=False, Byte, _], mut idx: Int
 ) raises -> List[toml.StringRef[data.origin]]:
     """Assume where are on the position to start parsing the multiline key.
@@ -540,7 +540,7 @@ fn parse_multiline_keys(
 
 
 @always_inline
-fn skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
+def skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
     while idx < len(data):
         comptime for i in range(Variadic.size(chars)):
             comptime c = chars[i]
@@ -551,7 +551,7 @@ fn skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
             return
 
 
-fn stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
+def stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
     while idx < len(data):
         comptime for i in range(Variadic.size(chars)):
             comptime c = chars[i]
@@ -562,7 +562,7 @@ fn stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
 
 
 @always_inline
-fn skip_blanks_and_comments(data: Span[Byte, _], mut idx: Int):
+def skip_blanks_and_comments(data: Span[Byte, _], mut idx: Int):
     while True:
         skip[NewLine, Enter, Space, Tab](data, idx)
         if data[idx] != Comment:
@@ -570,14 +570,14 @@ fn skip_blanks_and_comments(data: Span[Byte, _], mut idx: Int):
         stop_at[NewLine](data, idx)
 
 
-fn tp_eq[
+def tp_eq[
     o: ImmutOrigin
 ](v: Tuple[toml.StringRef[o], toml.StringRef[o]]) -> Bool:
     # TODO: Evaluate if need to parse string in this stage
     return v[0] == v[1]
 
 
-# fn parse_multiline_collections_new[
+# def parse_multiline_collections_new[
 #     *, log: Bool = True
 # ](
 #     data: Span[Byte],
@@ -638,7 +638,7 @@ fn tp_eq[
 #             return
 
 
-fn parse_multiline_collections[
+def parse_multiline_collections[
     *, log: Bool = True
 ](
     data: Span[mut=False, Byte, _],
@@ -805,12 +805,12 @@ fn parse_multiline_collections[
             print("Current base repr:", _repr_dict[data.origin](base))
 
 
-fn _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
+def _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
     var r = ".".join([StringSlice(unsafe_from_utf8=k.data) for k in v])
     return r
 
 
-fn _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
+def _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
     var r = [
         "{}: {}".format(
             kv.key,
@@ -821,7 +821,7 @@ fn _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
     return String(r)
 
 
-fn parse_toml_raises[
+def parse_toml_raises[
     *, log: Bool = False
 ](content: StringSlice) raises -> toml.TomlType[content.origin]:
     var data = content.as_bytes()
@@ -846,7 +846,7 @@ fn parse_toml_raises[
     return toml.TomlType[content.origin](table=base^)
 
 
-fn parse_toml[
+def parse_toml[
     *, log: Bool = False
 ](content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
     try:
@@ -855,7 +855,7 @@ fn parse_toml[
         return None
 
 
-fn toml_to_tagged_json[
+def toml_to_tagged_json[
     *, log: Bool = False
 ](content: StringSlice[...]) raises -> String:
     var toml_values = parse_toml_raises[log=log](content)
