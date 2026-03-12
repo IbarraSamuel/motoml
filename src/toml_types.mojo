@@ -34,7 +34,6 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     Date,
     Time,
     DateTime,
-    Time,
     OpaqueArray,
     OpaqueTable[o],
 ]
@@ -288,7 +287,7 @@ struct TomlType[o: ImmutOrigin](
         return TomlTableIter[data=Self.o](self.inner[Self.OpaqueTable])
 
     fn __init__(out self, *, var string: Self.String):
-        self.inner = string^
+        self.inner = string
 
     # fn __init__(out self, *, var string_literal: Self.StringLiteral):
     #     self.inner = string_literal

@@ -41,7 +41,7 @@ parser = { cmd = "mojo tests/stdin_parser.mojo" }
 test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
 test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
 test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests" }
-tests = { depends-on = ["test-reflection", "test-comptime-parser", "test-parser"] }
+tests = { depends-on = ["test-comptime-parser", "test-reflection", "test-parser"] }
 
 # Build tasks
 build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"

@@ -1,8 +1,12 @@
-@fieldwise_init
-struct Date(TrivialRegisterPassable, Writable):
+struct Date(Equatable, TrivialRegisterPassable, Writable):
     var year: Int
     var month: Int
     var day: Int
+
+    fn __init__(out self, *, year: Int, month: Int, day: Int):
+        self.year = year
+        self.month = month
+        self.day = day
 
     @always_inline
     @staticmethod
@@ -13,7 +17,7 @@ struct Date(TrivialRegisterPassable, Writable):
         var month = Int(v[5:7].removeprefix("0"))
         var day = Int(v[8:10].removeprefix("0"))
 
-        return {year_s, month, day}
+        return {year = year_s, month = month, day = day}
 
     fn write_to(self, mut w: Some[Writer]):
         _align[4](self.year, w)
@@ -23,13 +27,20 @@ struct Date(TrivialRegisterPassable, Writable):
         _align[2](self.day, w)
 
 
-@fieldwise_init
-struct Offset(Equatable, TrivialRegisterPassable, Writable):
+struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
+    var positive: Bool
     var hour: Int
     var minute: Int
-    var positive: Bool
 
-    comptime utc = Self(0, 0, True)
+    comptime utc = Self(hour=0, minute=0, positive=True)
+
+    fn __init__(out self):
+        self = {hour = 0, minute = 0, positive = True}
+
+    fn __init__(out self, *, hour: Int, minute: Int, positive: Bool):
+        self.positive = positive
+        self.hour = hour
+        self.minute = minute
 
     @always_inline
     @staticmethod
@@ -47,7 +58,7 @@ struct Offset(Equatable, TrivialRegisterPassable, Writable):
         var minute_s = Int(v[4:6].removeprefix("0"))
         # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
 
-        return {hour_s, minute_s, positive}
+        return {hour = hour_s, minute = minute_s, positive = positive}
 
     fn write_to(self, mut w: Some[Writer]):
         if self == Offset.utc:
@@ -60,27 +71,27 @@ struct Offset(Equatable, TrivialRegisterPassable, Writable):
         _align[2](self.minute, w)
 
 
-@fieldwise_init
 struct Time(Equatable, TrivialRegisterPassable, Writable):
     var hour: Int
     var minute: Int
     var second: Float64
 
+    fn __init__(out self, *, hour: Int, minute: Int, second: Float64):
+        self.hour = hour
+        self.minute = minute
+        self.second = second
+
     @always_inline
     @staticmethod
     fn from_string(v: StringSlice) raises -> Self:
         var hour_s = Int(v[0:2].removeprefix("0"))
-        # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
         var minute_s = Int(v[3:5].removeprefix("0"))
-        # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
 
         if len(v) == 5:
-            return {hour_s, minute_s, 0.0}
+            return {hour = hour_s, minute = minute_s, second = 0.0}
 
-        # var second_s = v[6:]. if v[byte=6] != StringSlice("0") else v[7:]
         var second = Float64(v[6:].removeprefix("0"))
-
-        return {hour_s, minute_s, second}
+        return {hour = hour_s, minute = minute_s, second = second}
 
     fn write_to(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
@@ -122,7 +133,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         split = v.find(" ") if split == -1 else split
 
         if split == -1:
-            raise "Datetime is not datetime: `{}`".format(v)
+            raise t"Datetime is not datetime: `{v}`"
         var date_s = v[:split]
         # print("date is:", date_s)
 

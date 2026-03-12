@@ -1,5 +1,7 @@
+from std.testing import assert_equal, TestSuite
+
 from motoml.parser import parse_toml
-from testing import assert_equal, TestSuite
+
 
 # TODO: Test nested keys..
 comptime TOML_TYPES = r'''
@@ -34,9 +36,7 @@ second = 2
 some_v = 1
 '''
 
-comptime desired_multiline_string = """
-select * from something
-"""
+comptime desired_multiline_string = "select * from something\\n"
 
 # Parse at compile time
 comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
@@ -61,7 +61,7 @@ comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
 #     assert_true(new_time <= old_time)
 
 
-fn test_all_toml_types() raises:
+def test_all_toml_types() raises:
     # Materialize compile time values.
     var res = materialize[TOML_TYPES_RES]()
     if not res:
@@ -72,5 +72,5 @@ fn test_all_toml_types() raises:
     assert_equal(r["multiline_string"].string(), desired_multiline_string)
 
 
-fn main() raises:
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

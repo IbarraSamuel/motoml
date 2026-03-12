@@ -462,7 +462,7 @@ fn parse_keys[
         key = toml.StringRef(data[key_init:idx], literal=False, multiline=False)
 
     var k = key.unsafe_take()
-    key_base.append(k^)
+    key_base.append(k)
     return key_base^
 
 

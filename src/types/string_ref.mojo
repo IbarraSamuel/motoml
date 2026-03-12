@@ -3,7 +3,9 @@ from std.os import abort
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
-struct StringRef[origin: ImmutOrigin](KeyElement):
+struct StringRef[origin: ImmutOrigin](
+    KeyElement, TrivialRegisterPassable, Writable
+):
     comptime CommonEscape: Variadic.ValuesOfType[
         Tuple[String, String]
     ] = Variadic.values[
@@ -58,6 +60,9 @@ struct StringRef[origin: ImmutOrigin](KeyElement):
             comptime Pair: Tuple[String, String] = Self.CommonEscape[i]
             ss = ss.replace(Pair[0], Pair[1])
         return ss
+
+    fn write_to(self, mut w: Some[Writer]):
+        w.write(self.calc_value())
 
 
 fn _find_escapes[
