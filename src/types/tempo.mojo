@@ -11,11 +11,11 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) raises -> Self:
-        var year_s = Int(v[:4].removeprefix("0"))
+        var year_s = Int(v[byte=:4].removeprefix("0"))
         # var year = 0 if len(year_s) == 0 else Int(year_s)
 
-        var month = Int(v[5:7].removeprefix("0"))
-        var day = Int(v[8:10].removeprefix("0"))
+        var month = Int(v[byte=5:7].removeprefix("0"))
+        var day = Int(v[byte=8:10].removeprefix("0"))
 
         return {year = year_s, month = month, day = day}
 
@@ -53,9 +53,9 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
         else:
             raise "sign not found for offset"
 
-        var hour_s = Int(v[1:3].removeprefix("0"))
+        var hour_s = Int(v[byte=1:3].removeprefix("0"))
         # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
-        var minute_s = Int(v[4:6].removeprefix("0"))
+        var minute_s = Int(v[byte=4:6].removeprefix("0"))
         # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
 
         return {hour = hour_s, minute = minute_s, positive = positive}
@@ -84,13 +84,13 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) raises -> Self:
-        var hour_s = Int(v[0:2].removeprefix("0"))
-        var minute_s = Int(v[3:5].removeprefix("0"))
+        var hour_s = Int(v[byte=0:2].removeprefix("0"))
+        var minute_s = Int(v[byte=3:5].removeprefix("0"))
 
         if len(v) == 5:
             return {hour = hour_s, minute = minute_s, second = 0.0}
 
-        var second = Float64(v[6:].removeprefix("0"))
+        var second = Float64(v[byte=6:].removeprefix("0"))
         return {hour = hour_s, minute = minute_s, second = second}
 
     def write_to(self, mut w: Some[Writer]):
@@ -134,7 +134,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
 
         if split == -1:
             raise t"Datetime is not datetime: `{v}`"
-        var date_s = v[:split]
+        var date_s = v[byte=:split]
         # print("date is:", date_s)
 
         var z = v.find("Z", split)
@@ -146,7 +146,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
             z if z != -1 else neg if neg != -1 else pos if pos != -1 else len(v)
         )
 
-        var time_s = v[split + 1 : t_split]
+        var time_s = v[byte = split + 1 : t_split]
         # print("time is:", time_s)
 
         var date = Date.from_string(date_s)
@@ -156,7 +156,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         # print("offset is:", v[t_split:], "or just a utc value")
         var offset = Offset.utc if t_split == len(
             v
-        ) or z != -1 else Offset.from_string(v[t_split:])
+        ) or z != -1 else Offset.from_string(v[byte=t_split:])
         # print("offset is:", offset)
 
         return {date, time, offset, t_split == len(v)}

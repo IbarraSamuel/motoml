@@ -221,7 +221,7 @@ fn parse_string_escape(v: StringSlice) -> String:
             # print("Skipping...")
             esc += 1
 
-        ss = ss[:last_esc] + ss[esc:]
+        ss = ss[byte=:last_esc] + ss[byte=esc:]
         # ssb = ss.as_bytes()
 
     last_qte = -1
@@ -238,7 +238,7 @@ fn parse_string_escape(v: StringSlice) -> String:
             continue
 
         last_qte += 1
-        ss = ss[:qte] + "\\" + ss[qte:]
+        ss = ss[byte=:qte] + "\\" + ss[byte=qte:]
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):

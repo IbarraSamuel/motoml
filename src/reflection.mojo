@@ -178,11 +178,14 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     var key_list = List[Optional[StaticString]](capacity=field_count)
 
     comptime for fi in range(field_count):
-        comptime assert conforms_to(
-            field_types[fi], Movable
-        ), "Each type Ti of the struct T should be Movable."
-        comptime NAME = field_names[fi]
         comptime TYPE = field_types[fi]
+        comptime NAME = field_names[fi]
+        comptime assert conforms_to(
+            TYPE, Movable
+        ), "Each type Ti of the struct T should be Movable."
+        comptime assert conforms_to(
+            TYPE, ImplicitlyDestructible
+        ), "Each type Ti of the struct T should be Movable."
 
         if NAME in toml_tb:
             key_list.append(NAME)
@@ -202,9 +205,9 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     comptime for fi in range(field_count):
         comptime NAME = field_names[fi]
-        comptime TYPE = field_types[
-            fi
-        ]  # this is already checked on previous iteration.
+        comptime TYPE = downcast[
+            field_types[fi], Movable & ImplicitlyDestructible
+        ]  # already checked
         comptime OFFSET = offset_of[DT, index=fi]()
 
         var field_ptr = struct_ptr + OFFSET

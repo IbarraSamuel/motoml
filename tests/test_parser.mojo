@@ -93,7 +93,7 @@ def file_test_raises[testno: Int](py: Python) raises:
 @always_inline
 fn toml_files() -> Path:
     var loc = call_location().file_name
-    return Path(loc[: loc.rfind("/")]) / "toml_files"
+    return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
 
 
 fn only_toml_files(values: StaticString) -> List[Int]:

@@ -248,7 +248,7 @@ def string_to_type[
 
     elif is_ascii_digit or is_hex or is_bin or is_oct:
         # print("parsing int")
-        var v = v_slice[2 if is_hex or is_bin or is_oct else 0 :].replace("_", "")
+        var v = v_slice[byte=2 if is_hex or is_bin or is_oct else 0 :].replace("_", "")
         return toml.TomlType[data.origin](
             integer=atol(
                 v,
@@ -258,10 +258,10 @@ def string_to_type[
 
     elif (
         (dot := v_slice.find(".")) != -1
-        and v_slice[Int(is_neg or is_pos) : dot]
+        and v_slice[byte=Int(is_neg or is_pos) : dot]
         .replace("_", "")
         .is_ascii_digit()
-        and v_slice[dot + 1 :].replace("_", "").is_ascii_digit()
+        and v_slice[byte=dot + 1 :].replace("_", "").is_ascii_digit()
     ) or "e" in v_slice or "E" in v_slice:
         return toml.TomlType[data.origin](float=atof(v_slice.replace("_", "")))
 
