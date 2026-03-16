@@ -328,7 +328,7 @@ def parse_value[
 
 
 def get_container_ref[
-    o: ImmutOrigin, //, log: Bool = False
+    o: ImmutOrigin #, //, log: Bool = False
 ](
     keys: Span[toml.StringRef[o], _],
     mut base: toml.TomlType[o].OpaqueTable,
@@ -338,11 +338,11 @@ def get_container_ref[
     var is_array = default.inner.isa[toml.TomlType[o].OpaqueArray]()
     var cont = Pointer[origin=MutAnyOrigin](to=base)
     for k in keys[: len(keys) - 1]:
-        comptime if log:
-            print(
-                t"|> k -> '{k.calc_value()}' ",
-                end="",
-            )
+        # comptime if log:
+        #     print(
+        #         t"|> k -> '{k.calc_value()}' ",
+        #         end="",
+        #     )
 
         ref inner_v = cont[].setdefault(
             k.calc_value(),
@@ -356,8 +356,8 @@ def get_container_ref[
 
     ref k = keys[len(keys) - 1]
 
-    comptime if log:
-        print(t"|> k -> '{k.calc_value()}'")
+    # comptime if log:
+    #     print(t"|> k -> '{k.calc_value()}'")
     ref pre_last = cont[]
     var last = pre_last.setdefault(k.calc_value(), default^.move_to_addr()).bitcast[
         toml.TomlType[o]
@@ -467,7 +467,7 @@ def parse_keys[
 
 
 def parse_kv_pairs[
-    separator: Byte, end_char: Byte, *, log: Bool = False
+    separator: Byte, end_char: Byte
 ](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType[
     data.origin
 ].OpaqueTable:
@@ -475,40 +475,40 @@ def parse_kv_pairs[
     End at the last value + 1.
     """
 
-    comptime if log:
-        print("++ kcreate new empty table container")
+    # comptime if log:
+    #     print("++ kcreate new empty table container")
     var table = toml.TomlType[data.origin].OpaqueTable()
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
         var key_base = List[toml.StringRef[data.origin]]()
 
-        comptime if log:
-            print("Parsing inline keys...")
+        # comptime if log:
+        #     print("Parsing inline keys...")
 
         var keys = parse_keys[Equal](data, idx, key_base^)
 
-        comptime if log:
-            print(
-                "inline keys -> <",
-                ",".join([StringSlice(unsafe_from_utf8=k.data) for k in keys]),
-                ">",
-                sep="",
-            )
+        # comptime if log:
+        #     print(
+        #         "inline keys -> <",
+        #         ",".join([StringSlice(unsafe_from_utf8=k.data) for k in keys]),
+        #         ">",
+        #         sep="",
+        #     )
         idx += 1
         skip[Space, Tab](data, idx)
         var v = parse_value[end_char](data, idx)
 
-        comptime if log:
-            print("inline value -> '", v, "'", sep="")
-            print("Getting container ref...")
+        # comptime if log:
+        #     print("inline value -> '", v, "'", sep="")
+        #     print("Getting container ref...")
         idx += 1
 
         _ = get_container_ref[o = data.origin](keys, table, default=v^)
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
-        comptime if log:
-            print("container found and data saved!")
+        # comptime if log:
+        #     print("container found and data saved!")
         stop_at[separator, end_char](data, idx)
         if data[idx] == end_char or idx >= len(data):
             break
@@ -638,9 +638,7 @@ def tp_eq[
 #             return
 
 
-def parse_multiline_collections[
-    *, log: Bool = True
-](
+def parse_multiline_collections(
     data: Span[mut=False, Byte, _],
     mut idx: Int,
     mut base: toml.TomlType[data.origin].OpaqueTable,
@@ -659,38 +657,38 @@ def parse_multiline_collections[
         var is_array = data[idx + 1] == SquareBracketOpen
         idx += 1 + Int(is_array)
 
-        comptime if log:
-            print(
-                "---------- multiline keys[",
-                "array" if is_array else "table",
-                "]------------:",
-            )
+        # comptime if log:
+        #     print(
+        #         "---------- multiline keys[",
+        #         "array" if is_array else "table",
+        #         "]------------:",
+        #     )
         var keys = parse_multiline_keys(data, idx)
 
-        comptime if log:
-            print(
-                "[" * (1 + Int(is_array)),
-                _repr_keys(keys),
-                "]" * (1 + Int(is_array)),
-                sep="",
-            )
+        # comptime if log:
+        #     print(
+        #         "[" * (1 + Int(is_array)),
+        #         _repr_keys(keys),
+        #         "]" * (1 + Int(is_array)),
+        #         sep="",
+        #     )
 
-        comptime if log:
-            print("----------- multiline values -------------:")
-        var values = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](
+        # comptime if log:
+        #     print("----------- multiline values -------------:")
+        var values = parse_kv_pairs[NewLine, SquareBracketOpen](
             data, idx
         )
 
-        comptime if log:
-            print(
-                {
-                    kv.key: String(toml.TomlType[
-                        data.origin
-                    ]
-                    .from_addr(kv.value))
-                    for kv in values.items()
-                }
-            )
+        # comptime if log:
+        #     print(
+        #         {
+        #             kv.key: String(toml.TomlType[
+        #                 data.origin
+        #             ]
+        #             .from_addr(kv.value))
+        #             for kv in values.items()
+        #         }
+        #     )
 
         var def_cont = (
             toml.TomlType[data.origin]
@@ -702,34 +700,35 @@ def parse_multiline_collections[
         var pair = contexts.pop()
         var base_keys, ctx = pair[0][:], pair[1]
 
-        comptime if log:
-            print(" ????? Finding context to store table...")
+        # comptime if log:
+        #     print(" ????? Finding context to store table...")
         while len(contexts) > 0:
-            comptime if log:
-                print(
-                    "compare: `{}` vs `{}`".format(
-                        _repr_keys(base_keys), _repr_keys(keys)
-                    )
-                )
+            # comptime if log:
+            #     print(
+            #         "compare: `{}` vs `{}`".format(
+            #             _repr_keys(base_keys), _repr_keys(keys)
+            #         )
+            #     )
             if len(keys) > len(base_keys) and all(
                 map[tp_eq[data.origin]](zip(base_keys, keys))
             ):
-                comptime if log:
-                    print(
-                        "found that current key is nested on key: `{}`".format(
-                            _repr_keys(base_keys)
-                        ),
-                    )
+                # comptime if log:
+                #     print(
+                #         "found that current key is nested on key: `{}`".format(
+                #             _repr_keys(base_keys)
+                #         ),
+                #     )
                 break
 
             pair = contexts.pop()
             base_keys, ctx = pair[0][:], pair[1]
         else:
-            comptime if log:
-                print(
-                    "using base container (root) with base keys:",
-                    _repr_keys(base_keys),
-                )
+            pass
+            # comptime if log:
+            #     print(
+            #         "using base container (root) with base keys:",
+            #         _repr_keys(base_keys),
+            #     )
 
         # Here we are at the right context
         # var should_be_nested = (
@@ -740,30 +739,30 @@ def parse_multiline_collections[
 
         var rltv_keys = keys[len(base_keys) :]
 
-        comptime if log:
-            print(
-                "[i] Keys used in the current store proc: ->>",
-                _repr_keys(rltv_keys),
-                "with the value to store as:",
-                [
-                    "{}: {}".format(
-                        kv.key,
-                        String(kv.value.bitcast[
-                            toml.TomlType[data.origin]
-                        ]()[]),
-                    )
-                    for kv in values.items()
-                ],
-            )
+        # comptime if log:
+        #     print(
+        #         "[i] Keys used in the current store proc: ->>",
+        #         _repr_keys(rltv_keys),
+        #         "with the value to store as:",
+        #         [
+        #             "{}: {}".format(
+        #                 kv.key,
+        #                 String(kv.value.bitcast[
+        #                     toml.TomlType[data.origin]
+        #                 ]()[]),
+        #             )
+        #             for kv in values.items()
+        #         ],
+        #     )
 
-        comptime if log:
-            print(">> Getting container from ctx...")
+        # comptime if log:
+        #     print(">> Getting container from ctx...")
         var cont = Pointer(
-            to=get_container_ref[log=log](rltv_keys, ctx[], default=def_cont^)
+            to=get_container_ref(rltv_keys, ctx[], default=def_cont^)
         )
 
-        comptime if log:
-            print(">> store value into the container...")
+        # comptime if log:
+        #     print(">> store value into the container...")
 
         if is_array:
             ref arr = cont[].as_opaque_array()
@@ -788,21 +787,21 @@ def parse_multiline_collections[
         #     print("going out...")
         #     return
 
-        comptime if log:
-            print(
-                "append back base. `{}`".format(
-                    _repr_keys(base_keys),
-                )
-            )
+        # comptime if log:
+        #     print(
+        #         "append back base. `{}`".format(
+        #             _repr_keys(base_keys),
+        #         )
+        #     )
         contexts.append(pair^)
 
-        comptime if log:
-            print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
+        # comptime if log:
+        #     print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
         var new_ctx = (keys^, Pointer(to=cont[].as_opaque_table()))
         contexts.append(new_ctx^)
 
-        comptime if log:
-            print("Current base repr:", _repr_dict[data.origin](base))
+        # comptime if log:
+        #     print("Current base repr:", _repr_dict[data.origin](base))
 
 
 def _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
@@ -822,7 +821,7 @@ def _repr_dict[o: ImmutOrigin](v: toml.TomlType[o].OpaqueTable) -> String:
 
 
 def parse_toml_raises[
-    *, log: Bool = False
+    # *, log: Bool = False
 ](content: StringSlice) raises -> toml.TomlType[content.origin]:
     var data = content.as_bytes()
 
@@ -832,31 +831,31 @@ def parse_toml_raises[
     if idx >= len(data):
         return toml.TomlType[content.origin].new_table()
 
-    comptime if log:
-        print("parsing initial kv pairs...")
-    var base = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
+    # comptime if log:
+    #     print("parsing initial kv pairs...")
+    var base = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
 
-    comptime if log:
-        print("end parsing initial kv pairs...")
+    # comptime if log:
+    #     print("end parsing initial kv pairs...")
 
-    parse_multiline_collections[log=log](data, idx, base)
+    parse_multiline_collections(data, idx, base)
 
-    comptime if log:
-        print("done parsing toml!")
+    # comptime if log:
+    #     print("done parsing toml!")
     return toml.TomlType[content.origin](table=base^)
 
 
 def parse_toml[
-    *, log: Bool = False
+    # *, log: Bool = False
 ](content: StringSlice) -> Optional[toml.TomlType[content.origin]]:
     try:
-        return parse_toml_raises[log=log](content)
+        return parse_toml_raises(content)
     except:
         return None
 
 
 def toml_to_tagged_json[
-    *, log: Bool = False
+    # *, log: Bool = False
 ](content: StringSlice[...]) raises -> String:
-    var toml_values = parse_toml_raises[log=log](content)
+    var toml_values = parse_toml_raises(content)
     return String(toml_values)
