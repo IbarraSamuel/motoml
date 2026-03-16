@@ -3,9 +3,7 @@ from std.os import abort
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
-struct StringRef[origin: ImmutOrigin](
-    KeyElement, TrivialRegisterPassable, Writable
-):
+struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     comptime CommonEscape: Variadic.ValuesOfType[
         Tuple[String, String]
     ] = Variadic.values[
@@ -33,13 +31,13 @@ struct StringRef[origin: ImmutOrigin](
         self.is_literal = literal
         self.is_multiline = multiline
 
-    fn __eq__(self, other: Self) -> Bool:
-        try:
-            return self.calc_value() == other.calc_value()
-        except:
-            return False
-        # return self.calc_value() == other.calc_value()
-        # return self.is_literal == other.is_literal and self.value == other.value
+    # fn __eq__(self, other: Self) -> Bool:
+    #     try:
+    #         return self.calc_value() == other.calc_value()
+    #     except:
+    #         return False
+    # return self.calc_value() == other.calc_value()
+    # return self.is_literal == other.is_literal and self.value == other.value
 
     # fn __hash__[H: Hasher](self, mut h: H):
     #     h.update(self.calc_value())
@@ -83,11 +81,11 @@ struct StringRef[origin: ImmutOrigin](
             ss = ss.replace(Pair[0], Pair[1])
         return ss
 
-    fn write_to(self, mut w: Some[Writer]):
-        try:
-            w.write(self.calc_value())
-        except:
-            abort("Bad string in toml.")
+    # fn write_to(self, mut w: Some[Writer]):
+    #     try:
+    #         w.write(self.calc_value())
+    #     except:
+    #         abort("Bad string in toml.")
 
 
 fn _find_escapes[

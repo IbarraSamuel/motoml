@@ -81,7 +81,7 @@ def file_test[testno: Int](py: Python) raises:
 def file_test_raises[testno: Int](py: Python) raises:
     var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
-    print(t"file: {file}")
+    # print(t"file: {file}")
     if not file.exists():
         raise "file not exists: " + String(file)
     var content = file.read_text()
@@ -109,10 +109,10 @@ fn main() raises:
         var fpath = files[li]
         var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
         if fpath.startswith("invalid"):
-            print(t"[invalid] adding test: {fpath}")
+            # print(t"[invalid] adding test: {fpath}")
             suite.test[file_test_raises[li]](root_fpath)
         else:
-            print(t"[valid] adding test: {fpath}")
+            # print(t"[valid] adding test: {fpath}")
             suite.test[file_test[li]](root_fpath)
 
     print("Running tests...")

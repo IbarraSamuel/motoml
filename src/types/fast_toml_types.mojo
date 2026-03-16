@@ -9,8 +9,8 @@ from std.utils.numerics import FPUtils
 from std.builtin._format_float import _to_decimal
 from std.python import ConvertibleToPython, PythonObject
 
-from .types.string_ref import StringRef
-from .types.tempo import Date, DateTime, Time
+from .string_ref import StringRef
+from .tempo import Date, DateTime, Time
 
 # TYPES
 comptime Integer = Int
@@ -210,7 +210,10 @@ struct TomlType[o: ImmutOrigin](
     # ==== Access inner values using methods ====
 
     def string(ref self) -> String:
-        return String(self.inner[Self.String])
+        try:
+            return self.inner[Self.String].calc_value()
+        except:
+            os.abort("Error while parsing Value!")
 
     def integer(ref self) -> Self.Integer:
         return self.inner[Self.Integer]
@@ -338,7 +341,12 @@ struct TomlType[o: ImmutOrigin](
         ref inner = self.inner
         if inner.isa[self.String]():
             ref s = inner[self.String]
-            return w.write('{"type": "string", "value": "', s, '"}')
+            var v: String
+            try:
+                v = s.calc_value()
+            except:
+                os.abort("Unable to parse toml value. Bad toml!")
+            return w.write('{"type": "string", "value": "', v, '"}')
         elif inner.isa[self.Integer]():
             var intg = inner[self.Integer]
             return w.write('{"type": "integer", "value": "', intg, '"}')

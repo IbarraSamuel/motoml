@@ -3,7 +3,7 @@ TODO: Add Variant Support
 TODO: Make it a single implementation.
 """
 
-from .toml_types import TomlType, AnyTomlType, StringRef
+from .types import TomlType, AnyTomlType
 from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from std.builtin.rebind import downcast
 from std.reflection import (
@@ -102,14 +102,14 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     comptime if _type_is_eq_parse_time[T, String]():
         if not toml.inner.isa[toml.String]():
             raise "[TYPE MISMATCH]: Type defined is a String but TomlType is not a String."
-        return rebind_var[T](String(toml.inner[toml.String]))
+        return rebind_var[T](toml.inner[toml.String])
 
-    elif _type_is_eq_parse_time[T, StringSlice[toml.o]]():
-        if not toml.inner.isa[toml.String]():
-            raise "[TYPE MISMATCH]: Type defined is a StringLike but TomlType is not a String."
-        return rebind_var[T](
-            StringSlice(unsafe_from_utf8=toml.inner[toml.String].data)
-        )
+    # elif _type_is_eq_parse_time[T, StringSlice[toml.o]]():
+    #     if not toml.inner.isa[toml.String]():
+    #         raise "[TYPE MISMATCH]: Type defined is a StringLike but TomlType is not a String."
+    #     return rebind_var[T](
+    #         StringSlice(unsafe_from_utf8=toml.inner[toml.String].data)
+    #     )
 
     comptime TomlTypes = type_of(toml.inner).Ts
     comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[
@@ -142,7 +142,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         var lst = List[Elem]()
         ref toml_arr = toml.as_opaque_array()
         while len(toml_arr) > 0:
-            var toml_elem = toml_arr.pop().bitcast[TomlType[toml.o]]()
+            var toml_elem = toml_arr.pop().bitcast[TomlType]()
 
             # parse the toml_elem to the type of the list typed on T
             var e = toml_to_type_raises[Elem](toml_elem.take_pointee())
@@ -219,15 +219,16 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
                 field_ptr.bitcast[Optional[Inner]]()[] = None
             else:
                 var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[
-                    TomlType[toml.o]
+                    TomlType
                 ]()  # we know k exists.
                 field_ptr.bitcast[Optional[Inner]]()[] = toml_to_type_raises[
                     Inner
                 ](toml_value.take_pointee())
         else:
+            # we know k exists.
             var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[
-                TomlType[toml.o]
-            ]()  # we know k exists.
+                TomlType
+            ]()
 
             field_ptr.bitcast[TYPE]()[] = toml_to_type_raises[TYPE](
                 toml_value.take_pointee()
