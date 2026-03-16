@@ -46,7 +46,9 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
 
         comptime for i in range(size):
             comptime full_nm = get_type_name[Self.ts[i]]()
-            var name = full_nm[full_nm.find("().") + 3 : full_nm.find(", {}")]
+            var name = full_nm[
+                byte = full_nm.find("().") + 3 : full_nm.find(", {}")
+            ]
             var error: Optional[Error] = None
             ref test = self.tests[i]
             ref test_fn = trait_downcast[fn() raises unified](test)

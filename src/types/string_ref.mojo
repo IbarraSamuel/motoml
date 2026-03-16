@@ -34,16 +34,38 @@ struct StringRef[origin: ImmutOrigin](
         self.is_multiline = multiline
 
     fn __eq__(self, other: Self) -> Bool:
-        return self.calc_value() == other.calc_value()
+        try:
+            return self.calc_value() == other.calc_value()
+        except:
+            return False
+        # return self.calc_value() == other.calc_value()
         # return self.is_literal == other.is_literal and self.value == other.value
 
-    fn __hash__[H: Hasher](self, mut h: H):
-        h.update(self.calc_value())
+    # fn __hash__[H: Hasher](self, mut h: H):
+    #     h.update(self.calc_value())
 
     fn as_pure_slice(self) -> StringSlice[Self.origin]:
         return StringSlice(unsafe_from_utf8=self.data)
 
-    fn calc_value(self) -> String:
+    # fn calc_value(self) -> String:
+    #     # print("original string: `{}`".format(self.as_pure_slice()))
+    #     var s = String(self.as_pure_slice().removeprefix("\n"))
+    #     # print("stirng whitout prefix: `{}`".format(s))
+
+    #     # var ss = parse_string_escape(s) if not self.is_literal else s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
+    #     var ss: String
+    #     if self.is_literal:
+    #         # print("Is literal: -> ", s)
+    #         ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
+    #     else:
+    #         ss = parse_string_escape(s)
+
+    #     comptime for i in range(Variadic.size(Self.CommonEscape)):
+    #         comptime Pair: Tuple[String, String] = Self.CommonEscape[i]
+    #         ss = ss.replace(Pair[0], Pair[1])
+    #     return ss
+
+    fn calc_value(self) raises -> String:
         # print("original string: `{}`".format(self.as_pure_slice()))
         var s = String(self.as_pure_slice().removeprefix("\n"))
         # print("stirng whitout prefix: `{}`".format(s))
@@ -62,7 +84,10 @@ struct StringRef[origin: ImmutOrigin](
         return ss
 
     fn write_to(self, mut w: Some[Writer]):
-        w.write(self.calc_value())
+        try:
+            w.write(self.calc_value())
+        except:
+            abort("Bad string in toml.")
 
 
 fn _find_escapes[
@@ -98,7 +123,7 @@ fn _find_escapes[
     return Byte(), -1, {}
 
 
-fn parse_string_escape(v: StringSlice) -> String:
+fn parse_string_escape(v: StringSlice) raises -> String:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
     var ssb = ss.as_bytes()
@@ -134,7 +159,7 @@ fn parse_string_escape(v: StringSlice) -> String:
                 elif min_c <= byte and byte <= max_c:
                     rtv = 10 + byte - min_c
                 else:
-                    abort("Span doesn't contain a valid hex value")
+                    raise ("Span doesn't contain a valid hex value")
                 value += UInt32(rtv) * UInt32(16**ii)
 
             if value == 8:
@@ -172,7 +197,7 @@ fn parse_string_escape(v: StringSlice) -> String:
                         i += bi + 1
                         break
                 else:
-                    abort(
+                    raise (
                         "\\e scape found, and [ found but not found m at the"
                         " end."
                     )
@@ -180,7 +205,7 @@ fn parse_string_escape(v: StringSlice) -> String:
             else:
                 codepoint = "\\u001b"
         else:
-            abort("error! value not found")
+            raise ("error! value not found")
         ss = (
             StringSlice(unsafe_from_utf8=ssb[:init])
             + codepoint

@@ -333,8 +333,8 @@ def get_container_ref[
     keys: Span[toml.StringRef[o], _],
     mut base: toml.TomlType[o].OpaqueTable,
     *,
-    var default: toml.TomlType[o],  # it's any container-like
-) -> ref[base] toml.TomlType[o]:
+    var default: toml.TomlType[o],  # it's the leaf. The last container
+) raises -> ref[base] toml.TomlType[o]:
     var is_array = default.inner.isa[toml.TomlType[o].OpaqueArray]()
     var cont = Pointer[origin=MutAnyOrigin](to=base)
     for k in keys[: len(keys) - 1]:
@@ -348,11 +348,14 @@ def get_container_ref[
             k.calc_value(),
             toml.TomlType[o].new_table().move_to_addr(),
         )
-        cont = Pointer(
-            to=inner_v.bitcast[toml.TomlType[o]]()
-            .unsafe_origin_cast[MutAnyOrigin]()[]
-            .inner[toml.TomlType[o].OpaqueTable]
-        )
+        if not inner_v.bitcast[toml.TomlType[o]]()[].inner.isa[toml.TomlType[o].OpaqueTable]():
+            raise "Container should be table, but is not."
+        cont = Pointer[origin=MutAnyOrigin](to=inner_v.bitcast[toml.TomlType[o]]()[].as_opaque_table())
+        # cont = Pointer(
+        #     to=inner_v.bitcast[toml.TomlType[o]]()
+        #     .unsafe_origin_cast[MutAnyOrigin]()[]
+        #     .inner[toml.TomlType[o].OpaqueTable]
+        # )
 
     ref k = keys[len(keys) - 1]
 
@@ -765,6 +768,8 @@ def parse_multiline_collections(
         #     print(">> store value into the container...")
 
         if is_array:
+            if not cont[].inner.isa[toml.TomlType[data.origin].OpaqueArray]():
+                raise "container should be an array, but inner value isn't"
             ref arr = cont[].as_opaque_array()
             arr.append(toml.TomlType[data.origin].new_table().move_to_addr())
             cont = Pointer(
@@ -773,6 +778,8 @@ def parse_multiline_collections(
                 .unsafe_origin_cast[origin_of(base)]()[]
             )
 
+        if not cont[].inner.isa[toml.TomlType[data.origin].OpaqueTable]():
+            raise "container should be a table, but inner value isn't"
         cont[].as_opaque_table().update(values)
 
         # cont = values^

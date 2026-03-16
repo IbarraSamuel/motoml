@@ -210,7 +210,7 @@ struct TomlType[o: ImmutOrigin](
     # ==== Access inner values using methods ====
 
     def string(ref self) -> String:
-        return self.inner[Self.String].calc_value()
+        return String(self.inner[Self.String])
 
     def integer(ref self) -> Self.Integer:
         return self.inner[Self.Integer]
@@ -336,49 +336,15 @@ struct TomlType[o: ImmutOrigin](
 
     def write_to(self, mut w: Some[Writer]):
         ref inner = self.inner
-
-        # if inner.isa[self.StringLiteral]():
-        #     var s = TableKey(is_literal=True, value=inner[self.StringLiteral])
-        #     return String('{"type": "string", "value": "', s.calc_value(), '"}')
         if inner.isa[self.String]():
             ref s = inner[self.String]
-            return w.write(
-                '{"type": "string", "value": "', s.calc_value(), '"}'
-            )
+            return w.write('{"type": "string", "value": "', s, '"}')
         elif inner.isa[self.Integer]():
             var intg = inner[self.Integer]
             return w.write('{"type": "integer", "value": "', intg, '"}')
         elif inner.isa[self.Float]():
-            var v = inner[self.Float]
-            var final: String
-            # comptime sc_not: Float64 = 1e6
-            # if v < 1e6 and (v - self.Float(Int(v)) == 0.0):
-            #     final = String(Int(v))
-            # elif v >= 1e6 and v < 1e15:
-            #     # Force Scientific Notation
-            #     var sig = FPUtils.get_mantissa_uint(v)
-            #     var exp = FPUtils.get_exponent_biased(v)
-            #     _to_decimal[v.dtype](sig, exp)
-            #     # print(t"value is: {v}. exponent biased?: {exp} and sig? {sig}")
-            #     var vv = v * 10**10
-            #     var sci = String(vv)
-            #     var e_loc = sci.find("e")
-            #     try:
-            #         exp_s = Int(sci[e_loc + 1 :])
-            #     except e:
-            #         from std.os import abort
-
-            #         abort(String(e))
-
-            #     # print(String(exp_s - 10))
-            #     final = (
-            #         sci[: e_loc + 2]
-            #         + ("0" if exp_s < 20 else "")
-            #         + String(exp_s - 10)
-            #     )
-            # else:
-            final = String(v)
-            return w.write('{"type": "float", "value": "', final, '"}')
+            var fl = inner[self.Float]
+            return w.write('{"type": "float", "value": "', fl, '"}')
         elif inner.isa[self.NaN]():
             return w.write('{"type": "float", "value": "nan"}')
         elif inner.isa[self.Boolean]():
