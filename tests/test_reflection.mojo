@@ -4,29 +4,29 @@ from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from motoml.types.string_ref import StringRef
 from motoml.types.tempo import Date, DateTime, Time
 from motoml.parser import parse_toml, parse_toml_raises
-from motoml.toml_types import TomlType, AnyTomlType
+from motoml.types import TomlType, AnyTomlType
 from motoml.reflection import toml_to_type_raises
 
 
 @fieldwise_init
-struct Info[o: ImmutOrigin](Movable, Writable):
-    var name: StringSlice[Self.o]
-    var version: StringSlice[Self.o]
+struct Info(Movable, Writable):
+    var name: String
+    var version: String
 
 
 @fieldwise_init
-struct Language[o: ImmutOrigin](Movable, Writable):
-    var info: Info[Self.o]
+struct Language(Movable, Writable):
+    var info: Info
     var current_version: Optional[Float64]
     var stable_version: Optional[Float64]
 
 
 @fieldwise_init
-struct TestBuild[o: ImmutOrigin](Movable, Writable):
-    var name: StringSlice[Self.o]
+struct TestBuild(Movable, Writable):
+    var name: String
     var age: Int
     var other_types: List[Float64]
-    var language: Language[Self.o]
+    var language: Language
 
 
 comptime TOML_CONTENT = """
@@ -42,66 +42,40 @@ name = "mojo"
 version = "0.26.2.0"
 """
 
-
-@fieldwise_init
-struct TestBuild2[o: ImmutOrigin](Movable, Writable):
-    var name: StringSlice[Self.o]
-    var age: Int
-    var other_types: List[Float64]
-    var language: Language2[Self.o]
-
-
-@fieldwise_init
-struct Language2[o: ImmutOrigin](Movable, Writable):
-    # var info: Info[Self.o]
-    var current_version: Optional[Float64]
-    var stable_version: Optional[Float64]
-
-
-comptime TOML_CONTENT_2 = """
-name = "samuel"
-age = 30
-other_types = [1.0, 2.0, 3.0]
-
-[language]
-current_version = 0.26
-stable_version = 2.12
-"""
-
 # comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
 
 fn test_int() raises:
     var init_v = 1
-    var toml_obj = TomlType[origin_of()](integer=init_v)
+    var toml_obj = TomlType(integer=init_v)
     var result = toml_to_type_raises[Int](toml_obj^)
     assert_equal(result, init_v)
 
 
 fn test_float() raises:
     var init_v = 3.14
-    var toml_obj = TomlType[origin_of()](float=init_v)
+    var toml_obj = TomlType(float=init_v)
     var result = toml_to_type_raises[Float64](toml_obj^)
     assert_equal(result, init_v)
 
 
 fn test_bool() raises:
     var init_v = True
-    var toml_obj = TomlType[origin_of()](boolean=init_v)
+    var toml_obj = TomlType(boolean=init_v)
     var result = toml_to_type_raises[Bool](toml_obj^)
     assert_equal(result, init_v)
 
 
 fn test_date() raises:
     var init_v = Date(year=2023, month=2, day=1)
-    var toml_obj = TomlType[origin_of()](date=init_v)
+    var toml_obj = TomlType(date=init_v)
     var result = toml_to_type_raises[Date](toml_obj^)
     assert_equal(result, init_v)
 
 
 fn test_time() raises:
     var init_v = Time(hour=23, minute=1, second=1)
-    var toml_obj = TomlType[origin_of()](time=init_v)
+    var toml_obj = TomlType(time=init_v)
     var result = toml_to_type_raises[Time](toml_obj^)
     assert_equal(result, init_v)
 
@@ -110,50 +84,25 @@ fn test_datetime() raises:
     var date = Date(year=2023, month=2, day=1)
     var time = Time(hour=23, minute=1, second=1)
     var init_v = DateTime(date=date, time=time, offset={}, is_local=True)
-    var toml_obj = TomlType[origin_of()](datetime=init_v)
+    var toml_obj = TomlType(datetime=init_v)
     var result = toml_to_type_raises[DateTime](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_toml_stringref() raises:
-    var init_v = StringRef(
-        "hello world".as_bytes(), literal=True, multiline=False
-    )
-    var toml_obj = TomlType(string=init_v)
-    # NOTE: StringSlice will not provide any std formatting from toml.
-    var result = toml_to_type_raises[StringRef[init_v.origin]](toml_obj^)
-    assert_equal(result, init_v)
-
-
-fn test_string_ref() raises:
-    var init_string = StaticString("hello world")
-    var strref = StringRef(
-        init_string.as_bytes(), literal=True, multiline=False
-    )
-    var toml_obj = TomlType(string=strref)
-    # NOTE: StringSlice will not provide any std formatting from toml.
-    var result = toml_to_type_raises[StringSlice[init_string.origin]](toml_obj^)
-    assert_equal(result, init_string)
-
-
 fn test_string() raises:
     var init_string = "hello world"
-    var strref = StringRef(
-        init_string.as_bytes(), literal=True, multiline=False
-    )
-    var toml_obj = TomlType(string=strref)
+    var toml_obj = TomlType(string=init_string)
     var result = toml_to_type_raises[String](toml_obj^)
     assert_equal(result, init_string)
 
 
 # TODO: Add Variant into this, to be able to store a list of distinct types.
 fn test_float_list() raises:
-    comptime Toml = TomlType[origin_of()]
-    var f = Toml(float=3.12)
-    var f2 = Toml(float=Toml.Float.MAX)
-    var f3 = Toml(float=3e14)
+    var f = TomlType(float=3.12)
+    var f2 = TomlType(float=TomlType.Float.MAX)
+    var f3 = TomlType(float=3e14)
     var l = [f^.move_to_addr(), f2^.move_to_addr(), f3^.move_to_addr()]
-    var toml_list = Toml(array=l^)
+    var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[Float64]](toml_list^)
     assert_equal(result[0], 3.12)
     assert_equal(result[1], Float64.MAX)
@@ -161,12 +110,11 @@ fn test_float_list() raises:
 
 
 fn test_int_list() raises:
-    comptime Toml = TomlType[origin_of()]
-    var f1 = Toml(integer=3)
-    var f2 = Toml(integer=4)
-    var f3 = Toml(integer=5)
+    var f1 = TomlType(integer=3)
+    var f2 = TomlType(integer=4)
+    var f3 = TomlType(integer=5)
     var l = [f1^.move_to_addr(), f2^.move_to_addr(), f3^.move_to_addr()]
-    var toml_list = Toml(array=l^)
+    var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[Int]](toml_list^)
     assert_equal(result[0], 3)
     assert_equal(result[1], 4)
@@ -175,23 +123,18 @@ fn test_int_list() raises:
 
 fn test_string_list() raises:
     var string_v = StringSlice("hello")
-    comptime Toml = TomlType[string_v.origin]
-    var strref0 = StringRef(string_v.as_bytes(), literal=True, multiline=False)
-    var strref1 = StringRef(string_v.as_bytes(), literal=False, multiline=False)
-    var strref2 = StringRef(string_v.as_bytes(), literal=True, multiline=True)
-    var strref3 = StringRef(string_v.as_bytes(), literal=False, multiline=True)
     var l = [
-        Toml(string=strref0).move_to_addr(),
-        Toml(string=strref1).move_to_addr(),
-        Toml(string=strref2).move_to_addr(),
-        Toml(string=strref3).move_to_addr(),
+        TomlType(string=string_v).move_to_addr(),
+        TomlType(string=string_v).move_to_addr(),
+        TomlType(string=string_v).move_to_addr(),
+        TomlType(string=string_v).move_to_addr(),
     ]
-    var toml_list = Toml(array=l^)
+    var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[String]](toml_list^)
-    assert_equal(result[0], strref0.calc_value())
-    assert_equal(result[1], strref1.calc_value())
-    assert_equal(result[2], strref2.calc_value())
-    assert_equal(result[3], strref3.calc_value())
+    assert_equal(result[0], string_v)
+    assert_equal(result[1], string_v)
+    assert_equal(result[2], string_v)
+    assert_equal(result[3], string_v)
 
 
 struct SimpleStruct(Movable):
@@ -278,7 +221,7 @@ fn test_struct_optional() raises:
 
 fn test_nested() raises:
     var toml_obj = parse_toml_raises(TOML_CONTENT)
-    var value = toml_to_type_raises[TestBuild[StaticConstantOrigin]](toml_obj^)
+    var value = toml_to_type_raises[TestBuild](toml_obj^)
 
     assert_equal(value.name, "samuel")
     assert_equal(value.age, 30)
