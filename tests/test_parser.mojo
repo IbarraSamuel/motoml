@@ -1,10 +1,12 @@
 from motoml.parser import parse_toml, toml_to_tagged_json
-from test_suite import PyTestSuite
 from files_to_test import TOML_FILES
 from std.pathlib import Path
-from std.reflection import call_location
+from std.reflection import call_location, SourceLocation
 from std.python import Python, PythonObject
 from std.testing import assert_equal, assert_true, assert_raises
+from std.testing.suite import TestReport, TestResult, TestSuiteReport
+
+from std.time import perf_counter_ns
 
 
 def translate_json_to_types(
@@ -40,8 +42,8 @@ def translate_json_to_types(
         return json
 
 
-def file_test[testno: Int](py: Python) raises:
-    var strpath = StaticString(TOML_FILES).splitlines()[testno]
+def file_test(py: Python, strpath: String) raises:
+    # var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not (file.exists() and exp_file.exists()):
@@ -78,8 +80,8 @@ def file_test[testno: Int](py: Python) raises:
         assert_equal(String(py_result), String(py_expected))
 
 
-def file_test_raises[testno: Int](py: Python) raises:
-    var strpath = StaticString(TOML_FILES).splitlines()[testno]
+def file_test_raises(py: Python, strpath: String) raises:
+    # var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
     # print(t"file: {file}")
     if not file.exists():
@@ -101,19 +103,69 @@ fn only_toml_files(values: StaticString) -> List[Int]:
 
 
 fn main() raises:
-    comptime only_toml = only_toml_files(TOML_FILES)
-    var files = StaticString(TOML_FILES).splitlines()
     var suite = PyTestSuite()
 
-    comptime for li in only_toml:
-        var fpath = files[li]
+    for li, fpath in enumerate(StaticString(TOML_FILES).splitlines()):
+        if not fpath.endswith(".toml"):
+            continue
         var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
-        if fpath.startswith("invalid"):
-            # print(t"[invalid] adding test: {fpath}")
-            suite.test[file_test_raises[li]](root_fpath)
-        else:
-            # print(t"[valid] adding test: {fpath}")
-            suite.test[file_test[li]](root_fpath)
+        suite.test(name=root_fpath, location=fpath)
 
     print("Running tests...")
     suite^.run()
+
+
+@fieldwise_init
+@explicit_destroy("run() or abandon() the TestSuite")
+struct PyTestSuite(Movable):
+    var tests: List[Tuple[String, String]]
+    var location: SourceLocation
+
+    @always_inline
+    fn __init__(
+        out self: PyTestSuite, location: Optional[SourceLocation] = None
+    ):
+        self.tests = {}
+        self.location = location.or_else(call_location())
+
+    fn test(mut self, *, name: String, location: String):
+        self.tests.append((name, location))
+
+    fn abandon(deinit self):
+        pass
+
+    fn run(deinit self) raises:
+        var reports = List[TestReport](capacity=len(self.tests))
+        var py = Python()
+
+        for name, location in self.tests:
+            var error: Optional[Error] = None
+            var start = perf_counter_ns()
+            try:
+                if "invalid" in location:
+                    file_test_raises(py, location)
+                else:
+                    file_test(py, location)
+            except e:
+                error = {e^}
+            var duration = perf_counter_ns() - start
+            var result = TestResult.PASS if not error else TestResult.FAIL
+            var report = TestReport(
+                name=name,
+                duration_ns=duration,
+                result=result,
+                error=error^.or_else({}),
+            )
+            reports.append(report^)
+
+        # parallelize[test_n](len(reports))
+        # for ti in range(len(reports)):
+        #     tg.create_task(test_n(ti))
+
+        # tg.wait()
+        var report = TestSuiteReport(reports=reports^, location=self.location)
+
+        if report.failures > 0:
+            raise Error(report^)
+
+        print(report)
