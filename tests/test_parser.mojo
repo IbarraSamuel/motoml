@@ -42,16 +42,27 @@ def translate_json_to_types(
         return json
 
 
-def file_test(py: Python, strpath: String) raises:
+def file_test(strpath: String) raises:
     # var strpath = StaticString(TOML_FILES).splitlines()[testno]
     var file = toml_files() / strpath
-    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
-    if not (file.exists() and exp_file.exists()):
-        raise "one file not exists: " + String(file) + " or " + String(exp_file)
+    if not file.exists():
+        raise "file not exists: " + String(file)
     var content = file.read_text()
+
+    if "invalid" in strpath:
+        with assert_raises():
+            var json_result = toml_to_tagged_json(content)
+        return
+
     var json_result = toml_to_tagged_json(content)
+
+    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
+    if not exp_file.exists():
+        raise t"json file not exists: {exp_file}"
+
     var exp_result = exp_file.read_text()
 
+    var py = Python()
     var json = py.import_module("json")
     try:
         py_obj = exp_result.to_python_object()
@@ -80,26 +91,10 @@ def file_test(py: Python, strpath: String) raises:
         assert_equal(String(py_result), String(py_expected))
 
 
-def file_test_raises(py: Python, strpath: String) raises:
-    # var strpath = StaticString(TOML_FILES).splitlines()[testno]
-    var file = toml_files() / strpath
-    # print(t"file: {file}")
-    if not file.exists():
-        raise "file not exists: " + String(file)
-    var content = file.read_text()
-
-    with assert_raises():
-        var json_result = toml_to_tagged_json(content)
-
-
 @always_inline
 def toml_files() -> Path:
     var loc = call_location().file_name
     return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
-
-
-def only_toml_files(values: StaticString) -> List[Int]:
-    return [i for i, f in enumerate(values.splitlines()) if f.endswith(".toml")]
 
 
 def main() raises:
@@ -136,16 +131,12 @@ struct PyTestSuite(Movable):
 
     def run(deinit self) raises:
         var reports = List[TestReport](capacity=len(self.tests))
-        var py = Python()
 
         for name, location in self.tests:
             var error: Optional[Error] = None
             var start = perf_counter_ns()
             try:
-                if "invalid" in location:
-                    file_test_raises(py, location)
-                else:
-                    file_test(py, location)
+                file_test(location)
             except e:
                 error = {e^}
             var duration = perf_counter_ns() - start
