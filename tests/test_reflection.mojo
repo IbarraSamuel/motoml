@@ -45,42 +45,42 @@ version = "0.26.2.0"
 # comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
 
-fn test_int() raises:
+def test_int() raises:
     var init_v = 1
     var toml_obj = TomlType(integer=init_v)
     var result = toml_to_type_raises[Int](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_float() raises:
+def test_float() raises:
     var init_v = 3.14
     var toml_obj = TomlType(float=init_v)
     var result = toml_to_type_raises[Float64](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_bool() raises:
+def test_bool() raises:
     var init_v = True
     var toml_obj = TomlType(boolean=init_v)
     var result = toml_to_type_raises[Bool](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_date() raises:
+def test_date() raises:
     var init_v = Date(year=2023, month=2, day=1)
     var toml_obj = TomlType(date=init_v)
     var result = toml_to_type_raises[Date](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_time() raises:
+def test_time() raises:
     var init_v = Time(hour=23, minute=1, second=1)
     var toml_obj = TomlType(time=init_v)
     var result = toml_to_type_raises[Time](toml_obj^)
     assert_equal(result, init_v)
 
 
-fn test_datetime() raises:
+def test_datetime() raises:
     var date = Date(year=2023, month=2, day=1)
     var time = Time(hour=23, minute=1, second=1)
     var init_v = DateTime(date=date, time=time, offset={}, is_local=True)
@@ -89,7 +89,7 @@ fn test_datetime() raises:
     assert_equal(result, init_v)
 
 
-fn test_string() raises:
+def test_string() raises:
     var init_string = "hello world"
     var toml_obj = TomlType(string=init_string)
     var result = toml_to_type_raises[String](toml_obj^)
@@ -97,7 +97,7 @@ fn test_string() raises:
 
 
 # TODO: Add Variant into this, to be able to store a list of distinct types.
-fn test_float_list() raises:
+def test_float_list() raises:
     var f = TomlType(float=3.12)
     var f2 = TomlType(float=TomlType.Float.MAX)
     var f3 = TomlType(float=3e14)
@@ -109,7 +109,7 @@ fn test_float_list() raises:
     assert_equal(result[2], 3e14)
 
 
-fn test_int_list() raises:
+def test_int_list() raises:
     var f1 = TomlType(integer=3)
     var f2 = TomlType(integer=4)
     var f3 = TomlType(integer=5)
@@ -121,7 +121,7 @@ fn test_int_list() raises:
     assert_equal(result[2], 5)
 
 
-fn test_string_list() raises:
+def test_string_list() raises:
     var string_v = StringSlice("hello")
     var l = [
         TomlType(string=string_v).move_to_addr(),
@@ -142,7 +142,7 @@ struct SimpleStruct(Movable):
     var second_value: Float64
 
 
-fn test_simple_struct() raises:
+def test_simple_struct() raises:
     var test_table = """
     first_value = 1
     second_value = 3.1
@@ -175,7 +175,7 @@ struct SimpleTable(Equatable, Movable, Writable):
     var key2: Int
 
 
-fn test_struct_all_types() raises:
+def test_struct_all_types() raises:
     var test_table = """
     integer = 1
     float = 3.1
@@ -208,7 +208,7 @@ struct StructOptional(Movable):
     var value_2: Optional[Int]
 
 
-fn test_struct_optional() raises:
+def test_struct_optional() raises:
     var toml = """
     value_1 = "hello"
     """
@@ -219,7 +219,7 @@ fn test_struct_optional() raises:
     assert_equal(Bool(value.value_2), False)
 
 
-fn test_nested() raises:
+def test_nested() raises:
     var toml_obj = parse_toml_raises(TOML_CONTENT)
     var value = toml_to_type_raises[TestBuild](toml_obj^)
 
@@ -230,7 +230,7 @@ fn test_nested() raises:
     assert_equal(Bool(value.language.stable_version), False)
 
 
-# fn test_toml_to_type() raises:
+# def test_toml_to_type() raises:
 #     var test_int = "val = 1"
 #     var toml_obj = materialize[TOML_OBJ]()
 #     if not toml_obj:
@@ -246,7 +246,7 @@ fn test_nested() raises:
 # assert_equal(Bool(value.language.stable_version), False)
 
 
-# fn test_toml_to_type() raises:
+# def test_toml_to_type() raises:
 #     var toml_obj = materialize[TOML_OBJ]()
 # if not toml_obj:
 #     raise "failed to parse toml object."
@@ -272,5 +272,5 @@ fn test_nested() raises:
 # assert_equal(Bool(value.language.stable_version), False)
 
 
-fn main() raises:
+def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

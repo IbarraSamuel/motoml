@@ -93,16 +93,16 @@ def file_test_raises(py: Python, strpath: String) raises:
 
 
 @always_inline
-fn toml_files() -> Path:
+def toml_files() -> Path:
     var loc = call_location().file_name
     return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
 
 
-fn only_toml_files(values: StaticString) -> List[Int]:
+def only_toml_files(values: StaticString) -> List[Int]:
     return [i for i, f in enumerate(values.splitlines()) if f.endswith(".toml")]
 
 
-fn main() raises:
+def main() raises:
     var suite = PyTestSuite()
 
     for li, fpath in enumerate(StaticString(TOML_FILES).splitlines()):
@@ -122,19 +122,19 @@ struct PyTestSuite(Movable):
     var location: SourceLocation
 
     @always_inline
-    fn __init__(
+    def __init__(
         out self: PyTestSuite, location: Optional[SourceLocation] = None
     ):
         self.tests = {}
         self.location = location.or_else(call_location())
 
-    fn test(mut self, *, name: String, location: String):
+    def test(mut self, *, name: String, location: String):
         self.tests.append((name, location))
 
-    fn abandon(deinit self):
+    def abandon(deinit self):
         pass
 
-    fn run(deinit self) raises:
+    def run(deinit self) raises:
         var reports = List[TestReport](capacity=len(self.tests))
         var py = Python()
 

@@ -20,7 +20,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     var is_multiline: Bool
     var data: Span[Byte, Self.origin]
 
-    fn __init__(
+    def __init__(
         out self,
         data: Span[Byte, Self.origin],
         *,
@@ -42,7 +42,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     # fn __hash__[H: Hasher](self, mut h: H):
     #     h.update(self.calc_value())
 
-    fn as_pure_slice(self) -> StringSlice[Self.origin]:
+    def as_pure_slice(self) -> StringSlice[Self.origin]:
         return StringSlice(unsafe_from_utf8=self.data)
 
     # fn calc_value(self) -> String:
@@ -63,7 +63,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     #         ss = ss.replace(Pair[0], Pair[1])
     #     return ss
 
-    fn calc_value(self) raises -> String:
+    def calc_value(self) raises -> String:
         # print("original string: `{}`".format(self.as_pure_slice()))
         var s = String(self.as_pure_slice().removeprefix("\n"))
         # print("stirng whitout prefix: `{}`".format(s))
@@ -88,7 +88,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     #         abort("Bad string in toml.")
 
 
-fn _find_escapes[
+def _find_escapes[
     o: ImmutOrigin, //, *chars: Tuple[Byte, Int]
 ](ssb: Span[Byte, o], offset: Int) -> Tuple[Byte, Int, Span[Byte, o]]:
     for i, b in enumerate(ssb[offset:]):
@@ -121,7 +121,7 @@ fn _find_escapes[
     return Byte(), -1, {}
 
 
-fn parse_string_escape(v: StringSlice) raises -> String:
+def parse_string_escape(v: StringSlice) raises -> String:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
     var ssb = ss.as_bytes()
