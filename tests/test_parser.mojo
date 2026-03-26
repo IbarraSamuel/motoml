@@ -49,7 +49,7 @@ def file_test(strpath: String) raises:
         raise "file not exists: " + String(file)
     var content = file.read_text()
 
-    if "invalid" in strpath:
+    if "invalid/" in strpath:
         with assert_raises():
             var json_result = toml_to_tagged_json(content)
         return
