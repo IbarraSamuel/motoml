@@ -53,13 +53,13 @@ struct Result[T: Movable](Boolable, Equatable, Movable, Writable):
     def unsafe_take_value(deinit self) -> Self.T:
         """Take the value. You must check that there is a value. If not, you will get UB.
         """
-        return self.inner.unsafe_take[Self.T]()
+        return self.inner^.unsafe_take[Self.T]()
 
     @always_inline
     def unsafe_take_error(deinit self) -> Error:
         """Take the error. You must check that there is an error. If not, you will get UB.
         """
-        return self.inner.unsafe_take[Error]()
+        return self.inner^.unsafe_take[Error]()
 
     def take_error(deinit self) raises -> Error:
         """Take the error or raises otherwise."""
@@ -125,7 +125,8 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     ), "1 or 0 types within AnyTomlType matches type T"
 
     comptime if MATCH_LEN == 1:  # One type matches with T
-        return toml.inner.take[T]()
+        var v = toml.inner^.take[T]()
+        return v^
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 

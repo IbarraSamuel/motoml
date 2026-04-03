@@ -323,14 +323,12 @@ struct TomlType[o: ImmutOrigin](
         self.inner = table^
 
     def __del__(deinit self):
-        ref inner = self.inner
-
-        if inner.isa[self.OpaqueArray]():
-            var array = inner.take[self.OpaqueArray]()
+        if self.inner.isa[self.OpaqueArray]():
+            var array = self.inner^.take[self.OpaqueArray]()
             for _ in range(len(array)):
                 array.pop().destroy_pointee()
-        elif inner.isa[self.OpaqueTable]():
-            var table = inner.take[self.OpaqueTable]()
+        elif self.inner.isa[self.OpaqueTable]():
+            var table = self.inner^.take[self.OpaqueTable]()
             for v in table.take_items():
                 v.value.destroy_pointee()
 
