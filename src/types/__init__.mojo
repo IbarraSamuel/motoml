@@ -166,6 +166,9 @@ struct TomlType(ConvertibleToPython, Copyable, Iterable, Writable):
         else:
             return self.inner.isa[T]()
 
+    def take_inner(deinit self) -> AnyTomlType:
+        return self.inner^
+
     @staticmethod
     def from_addr(addr: Opaque) -> ref[addr.origin] Self:
         return addr.bitcast[Self]()[]

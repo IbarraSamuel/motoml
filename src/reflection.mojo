@@ -23,7 +23,12 @@ from std.os import abort
 
 
 @explicit_destroy("The Result must be consumed.")
-struct Result[T: Movable](Boolable, Equatable, Movable, Writable):
+struct Result[T: Movable](
+    # Boolable,
+    # Equatable,
+    Movable,
+    # Writable,
+):
     var inner: Variant[Self.T, Error]
 
     @implicit
@@ -118,14 +123,14 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     comptime TypeMatch = Variadic.filter_types[
         T=AnyType, *TomlTypes, predicate=FilterType
     ]
-    comptime MATCH_LEN = Variadic.size(TypeMatch)
+    comptime MATCH_LEN = Variadic.size_types[TypeMatch]
 
     comptime assert (
         MATCH_LEN <= 1
     ), "1 or 0 types within AnyTomlType matches type T"
 
     comptime if MATCH_LEN == 1:  # One type matches with T
-        var v = toml.inner^.take[T]()
+        var v = toml^.take_inner().take[T]()
         return v^
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========

@@ -76,7 +76,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
         else:
             ss = parse_string_escape(s)
 
-        comptime for i in range(Variadic.size(Self.CommonEscape)):
+        comptime for i in range(Variadic.size[Self.CommonEscape]):
             comptime Pair: Tuple[String, String] = Self.CommonEscape[i]
             ss = ss.replace(Pair[0], Pair[1])
         return ss
@@ -109,7 +109,7 @@ def _find_escapes[
         #     continue
 
         var c = ssb[ii + 1]
-        comptime for ci in range(Variadic.size(chars)):
+        comptime for ci in range(Variadic.size[chars]):
             comptime char, span_len = chars[ci]
             if c == char:
                 comptime if char == Byte(ord("e")):
