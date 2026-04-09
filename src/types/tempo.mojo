@@ -87,7 +87,7 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
         var hour_s = Int(v[byte=0:2].removeprefix("0"))
         var minute_s = Int(v[byte=3:5].removeprefix("0"))
 
-        if len(v) == 5:
+        if v.byte_length() == 5:
             return {hour = hour_s, minute = minute_s, second = 0.0}
 
         var second = Float64(v[byte=6:].removeprefix("0"))
@@ -143,7 +143,10 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         var pos = v.find("+", split)
 
         var t_split = (
-            z if z != -1 else neg if neg != -1 else pos if pos != -1 else len(v)
+            z if z
+            != -1 else neg if neg
+            != -1 else pos if pos
+            != -1 else v.byte_length()
         )
 
         var time_s = v[byte = split + 1 : t_split]
@@ -154,12 +157,12 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         var time = Time.from_string(time_s)
         # print("time parse complete:", time)
         # print("offset is:", v[t_split:], "or just a utc value")
-        var offset = Offset.utc if t_split == len(
-            v
+        var offset = Offset.utc if t_split == (
+            v.byte_length()
         ) or z != -1 else Offset.from_string(v[byte=t_split:])
         # print("offset is:", offset)
 
-        return {date, time, offset, t_split == len(v)}
+        return {date, time, offset, t_split == v.byte_length()}
 
     def write_to(self, mut w: Some[Writer]):
         w.write(self.date, "T")
@@ -181,6 +184,6 @@ def _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
 
 def _align_fraction[size: Int](n: Float64, mut w: Some[Writer]):
     var st = String(n)
-    var curr_fmt = len(st) - st.find(".") - 1
+    var curr_fmt = st.byte_length() - st.find(".") - 1
     for _ in range(max(size - curr_fmt, 0)):
         w.write("0")

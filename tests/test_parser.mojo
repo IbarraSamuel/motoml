@@ -93,7 +93,7 @@ def file_test(strpath: String) raises:
 
 @always_inline
 def toml_files() -> Path:
-    var loc = call_location().file_name
+    var loc = call_location().file_name()
     return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
 
 

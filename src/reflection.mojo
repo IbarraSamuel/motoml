@@ -123,7 +123,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     comptime TypeMatch = Variadic.filter_types[
         T=AnyType, *TomlTypes, predicate=FilterType
     ]
-    comptime MATCH_LEN = Variadic.size_types[TypeMatch]
+    comptime MATCH_LEN = TypeList[*TypeMatch].size
 
     comptime assert (
         MATCH_LEN <= 1

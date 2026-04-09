@@ -539,8 +539,7 @@ def parse_multiline_keys(
 @always_inline
 def skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
     while idx < len(data):
-        comptime for i in range(Variadic.size[chars]):
-            comptime c = chars[i]
+        comptime for c in ParameterList[*chars]():
             if data[idx] == c:
                 idx += 1
                 break
@@ -550,8 +549,7 @@ def skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
 
 def stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
     while idx < len(data):
-        comptime for i in range(Variadic.size[chars]):
-            comptime c = chars[i]
+        comptime for c in ParameterList[*chars]():
             if data[idx] == c:
                 return
 

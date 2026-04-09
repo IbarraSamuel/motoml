@@ -4,9 +4,7 @@ from std.os import abort
 
 # Table key needs to be pre-process because could be changed by unicode escapes
 struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
-    comptime CommonEscape: Variadic.ValuesOfType[
-        Tuple[String, String]
-    ] = Variadic.values[
+    comptime CommonEscape = [
         ("\b", "\\b"),
         ("\t", "\\t"),
         ("\n", "\\n"),
@@ -76,9 +74,8 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
         else:
             ss = parse_string_escape(s)
 
-        comptime for i in range(Variadic.size[Self.CommonEscape]):
-            comptime Pair: Tuple[String, String] = Self.CommonEscape[i]
-            ss = ss.replace(Pair[0], Pair[1])
+        comptime for f, t in Self.CommonEscape:
+            ss = ss.replace(f, t)
         return ss
 
     # fn write_to(self, mut w: Some[Writer]):
@@ -109,8 +106,7 @@ def _find_escapes[
         #     continue
 
         var c = ssb[ii + 1]
-        comptime for ci in range(Variadic.size[chars]):
-            comptime char, span_len = chars[ci]
+        comptime for char, span_len in ParameterList[*chars]():
             if c == char:
                 comptime if char == Byte(ord("e")):
                     return char, ii, {}
@@ -240,7 +236,7 @@ def parse_string_escape(v: StringSlice) raises -> String:
 
         esc += 1
 
-        while esc < len(ss) and ss[byte=esc].isspace[True]():
+        while esc < ss.byte_length() and ss[byte=esc].isspace[True]():
             # print("Skipping...")
             esc += 1
 
