@@ -116,20 +116,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     #         StringSlice(unsafe_from_utf8=toml.inner[toml.String].data)
     #     )
 
-    comptime TomlTypes = type_of(toml.inner).Ts
-    comptime FilterType[toml_type: AnyType] = _type_is_eq_parse_time[
-        toml_type, T
-    ]()
-    comptime TypeMatch = Variadic.filter_types[
-        T=AnyType, *TomlTypes, predicate=FilterType
-    ]
-    comptime MATCH_LEN = TypeList[*TypeMatch].size
-
-    comptime assert (
-        MATCH_LEN <= 1
-    ), "1 or 0 types within AnyTomlType matches type T"
-
-    comptime if MATCH_LEN == 1:  # One type matches with T
+    comptime if AnyTomlType.Ts.contains[T]():
         var v = toml^.take_inner().take[T]()
         return v^
 

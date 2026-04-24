@@ -106,7 +106,7 @@ def _find_escapes[
         #     continue
 
         var c = ssb[ii + 1]
-        comptime for char, span_len in ParameterList[*chars]():
+        comptime for char, span_len in chars:
             if c == char:
                 comptime if char == Byte(ord("e")):
                     return char, ii, {}

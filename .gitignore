@@ -5,3 +5,4 @@ kgen.trace*
 stdin_parser
 parser
 parser-w-logs
+tests/motoml.mojopkg

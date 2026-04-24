@@ -8,7 +8,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "motoml"
-version = "0.0.3"
+version = "0.0.4"
 description = "TOML Reader for Mojo."
 
 [package.build]
@@ -25,8 +25,6 @@ mojo-compiler = "<=1.0.0"
 
 [dependencies]
 mojo = "*"
-motoml = { path = "." }
-
 
 # [tasks]
 # test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
@@ -38,14 +36,15 @@ motoml = { path = "." }
 parser = { cmd = "mojo tests/stdin_parser.mojo" }
 
 # Test tasks
-test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests" }
-test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests" }
-test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests" }
+test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests", depends-on = ["package", "move-to-test"] }
+test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests", depends-on = ["package", "move-to-test"] }
+test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests", depends-on = ["package", "move-to-test"]  }
 tests = { depends-on = ["test-comptime-parser", "test-reflection", "test-parser"] }
 
 # Build tasks
 build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"
 build = { cmd = "mojo build stdin_parser.mojo", cwd = "tests" }
 package = "mojo package src/ -o motoml.mojopkg"
+move-to-test = "mv motoml.mojopkg tests/"
 
 # TODO: CHECK DOCS
