@@ -29,19 +29,6 @@ struct TestBuild(Movable, Writable):
     var language: Language
 
 
-comptime TOML_CONTENT = """
-name = "samuel"
-age = 30
-other_types = [1.0, 2.0, 3.0]
-
-[language]
-current_version = 0.26
-
-[language.info]
-name = "mojo"
-version = "0.26.2.0"
-"""
-
 # comptime TOML_OBJ = parse_toml(TOML_CONTENT)
 
 
@@ -220,6 +207,16 @@ def test_struct_optional() raises:
 
 
 def test_nested() raises:
+    comptime TOML_CONTENT = """
+    name = "samuel"
+    age = 30
+    other_types = [1.0, 2.0, 3.0]
+       [language]
+    current_version = 0.26
+       [language.info]
+    name = "mojo"
+    version = "0.26.2.0"
+    """
     var toml_obj = parse_toml_raises(TOML_CONTENT)
     var value = toml_to_type_raises[TestBuild](toml_obj^)
 
