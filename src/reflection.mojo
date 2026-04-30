@@ -7,6 +7,8 @@ from .types import TomlType, AnyTomlType
 from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from std.builtin.rebind import downcast
 from std.reflection import (
+    reflect,
+    Reflected,
     is_struct_type,
     struct_field_names,
     struct_field_count,
@@ -103,6 +105,7 @@ def toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
 def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     # Calculate all types that matches the type T within the AnyType type
+    comptime Tr = reflect[T]()
 
     comptime if _type_is_eq_parse_time[T, String]():
         if not toml.inner.isa[toml.String]():
@@ -150,7 +153,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Working with Structs here ===============
 
-    comptime assert is_struct_type[T](), (
+    comptime assert Tr.is_struct(), (
         "T should be a struct because is not a List and is not part of"
         " AnyTomlType Variant."
     )
@@ -159,10 +162,11 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         " safely destroy the struct."
     )
     comptime DT = downcast[T, Movable & ImplicitlyDestructible]
+    comptime DTr = reflect[DT]()
 
-    comptime field_types = struct_field_types[DT]()
-    comptime field_count = struct_field_count[DT]()
-    comptime field_names = struct_field_names[DT]()
+    comptime field_types = DTr.field_types()
+    comptime field_count = DTr.field_count()
+    comptime field_names = DTr.field_names()
 
     ref toml_tb = toml.inner[toml.OpaqueTable]
 
@@ -201,7 +205,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         comptime TYPE = downcast[
             field_types[fi], Movable & ImplicitlyDestructible
         ]  # already checked
-        comptime OFFSET = offset_of[DT, index=fi]()
+        comptime OFFSET = DTr.field_offset[index=fi]()
 
         var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]

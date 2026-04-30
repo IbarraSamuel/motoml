@@ -25,7 +25,7 @@ preview = ["pixi-build"]
 
 [dependencies]
 mojo = "*"
-# motoml = { path = ".." }
+motoml = { path = ".." }
 
 # [tasks]
 # test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
