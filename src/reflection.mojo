@@ -125,7 +125,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
-    comptime if get_base_type_name[T]() == "List":
+    comptime if reflect[T]().base_name() == "List":
         if not toml.inner.isa[toml.OpaqueArray]():
             raise "[TYPE MISMATCH] Type is a list but toml value is not a list."
 
@@ -187,7 +187,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         if NAME in toml_tb:
             key_list.append(NAME)
         else:
-            comptime if get_base_type_name[TYPE]() != "Optional":
+            comptime if reflect[TYPE]().base_name() != "Optional":
                 raise "A field needed on the struct is not available on the toml table, and such field is not optional."
 
             key_list.append(None)
@@ -210,7 +210,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]
 
-        comptime if get_base_type_name[TYPE]() == "Optional":
+        comptime if reflect[TYPE]().base_name() == "Optional":
             comptime Inner = downcast[TYPE, Iterator].Element
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None
