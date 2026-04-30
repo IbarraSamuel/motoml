@@ -215,15 +215,14 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None
             else:
-                var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[
-                    TomlType
-                ]()  # we know k exists.
+                var k = String(key.unsafe_take())
+                var toml_value = toml_tb.pop(k).bitcast[TomlType]()
                 field_ptr.bitcast[Optional[Inner]]()[] = toml_to_type_raises[
                     Inner
                 ](toml_value.take_pointee())
         else:
             # we know k exists.
-            var toml_value = toml_tb.pop(key.unsafe_take(), {}).bitcast[
+            var toml_value = toml_tb.pop(String(key.unsafe_take())).bitcast[
                 TomlType
             ]()
 
