@@ -227,47 +227,5 @@ def test_nested() raises:
     assert_equal(Bool(value.language.stable_version), False)
 
 
-# def test_toml_to_type() raises:
-#     var test_int = "val = 1"
-#     var toml_obj = materialize[TOML_OBJ]()
-#     if not toml_obj:
-#         raise "Failed to parse toml object."
-#     var value = toml_to_type_raises[TestBuild[StaticConstantOrigin]](
-#         toml_obj.take()
-#     )
-
-# assert_equal(value.name, "samuel")
-# assert_equal(value.age, 30)
-# assert_equal(value.language.info.name, "mojo")
-# assert_equal(value.language.current_version.value(), 0.26)
-# assert_equal(Bool(value.language.stable_version), False)
-
-
-# def test_toml_to_type() raises:
-#     var toml_obj = materialize[TOML_OBJ]()
-# if not toml_obj:
-#     raise "failed to parse toml object."
-# var value_or_none = toml_to_type[TestBuild[StaticConstantOrigin]](
-#     toml_obj.take()
-# )
-
-# # in case there is no value, the error will pop up into the test error.
-# var is_some = Bool(value_or_none)
-# try:
-#     assert_equal(is_some, True)
-# except e:
-#     value_or_none^.destroy()
-#     raise e^
-
-# # Cannot fail
-# var value = value_or_none^.value()
-
-# assert_equal(value.name, "samuel")
-# assert_equal(value.age, 30)
-# assert_equal(value.language.info.name, "mojo")
-# assert_equal(value.language.current_version.value(), 0.26)
-# assert_equal(Bool(value.language.stable_version), False)
-
-
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

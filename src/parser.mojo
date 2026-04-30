@@ -466,53 +466,60 @@ def parse_keys[
 
 
 def parse_kv_pairs[
-    separator: Byte, end_char: Byte
+    separator: Byte, end_char: Byte, log: Bool = False,
 ](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType.OpaqueTable:
     """This function expect to be on top of the value to start parsing. So item=1.
     End at the last value + 1.
     """
 
-    # comptime if log:
-    #     print("++ kcreate new empty table container")
+    comptime if log:
+        print("++ kcreate new empty table container")
     var table = toml.TomlType.OpaqueTable()
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
         var key_base = List[toml.StringRef[data.origin]]()
 
-        # comptime if log:
-        #     print("Parsing inline keys...")
+        comptime if log:
+            print("Parsing inline keys...")
 
         var keys = parse_keys[Equal](data, idx, key_base^)
 
-        # comptime if log:
-        #     print(
-        #         "inline keys -> <",
-        #         ",".join([StringSlice(unsafe_from_utf8=k.data) for k in keys]),
-        #         ">",
-        #         sep="",
-        #     )
+        comptime if log:
+            print(
+                "inline keys -> <",
+                ",".join([StringSlice(unsafe_from_utf8=k.data) for k in keys]),
+                ">",
+                sep="",
+            )
         idx += 1
         skip[Space, Tab](data, idx)
         var v = parse_value[end_char](data, idx)
 
-        # comptime if log:
-        #     print("inline value -> '", v, "'", sep="")
-        #     print("Getting container ref...")
+        comptime if log:
+            print("inline value -> '", v, "'", sep="")
+            print("Getting container ref...")
         idx += 1
 
         _ = get_container_ref[o = data.origin](keys, table, default=v^)
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
-        # comptime if log:
-        #     print("container found and data saved!")
+        comptime if log:
+            print("container found and data saved!")
         stop_at[separator, end_char](data, idx)
-        if data[idx] == end_char or idx >= len(data):
+        comptime if log:
+            print(t"Stopped at `{Codepoint(separator)}`, `{Codepoint(end_char)}` or EOF!")
+        if idx >= len(data) or data[idx] == end_char:
             break
-
+        comptime if log:
+            print(t"Skipping `{Codepoint(separator)}` or stop at EOF...")
         # we are at separator
         skip[separator](data, idx)
+        comptime if log:
+            print("Skip blanks and comments...")
         skip_blanks_and_comments(data, idx)
+        comptime if log:
+            print("Parser keep going to next cycle...")
     # _ = get_container_ref[o = data.origin](keys, table, default=v^)
     return table^
 
@@ -537,7 +544,9 @@ def parse_multiline_keys(
 
 
 @always_inline
-def skip[*chars: Byte](data: Span[Byte, _], mut idx: Int):
+def skip[*chars: Byte, log: Bool = False](data: Span[Byte, _], mut idx: Int):
+    comptime if log:
+        print("Starting skip of chars at:", idx)
     while idx < len(data):
         comptime for c in chars:
             if data[idx] == c:
@@ -557,11 +566,15 @@ def stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
 
 
 @always_inline
-def skip_blanks_and_comments(data: Span[Byte, _], mut idx: Int):
+def skip_blanks_and_comments[log: Bool = False](data: Span[Byte, _], mut idx: Int):
+    comptime if log:
+        print("Skip blanks and comments starting at:", idx)
     while True:
-        skip[NewLine, Enter, Space, Tab](data, idx)
-        if data[idx] != Comment:
-            break
+        skip[NewLine, Enter, Space, Tab, log=log](data, idx)
+        comptime if log:
+            print("Done skipping space, enter, tab and newline... Checking if we are on a comment or we are out of idx. Curr idx: ", idx)
+        if idx >= len(data) or data[idx] != Comment:
+            return
         stop_at[NewLine](data, idx)
 
 
@@ -823,7 +836,7 @@ def _repr_dict[o: ImmutOrigin](v: toml.TomlType.OpaqueTable) -> String:
 
 
 def parse_toml_raises[
-    # *, log: Bool = False
+    *, log: Bool = False
 ](content: StringSlice) raises -> toml.TomlType:
     var data = content.as_bytes()
 
@@ -833,17 +846,17 @@ def parse_toml_raises[
     if idx >= len(data):
         return toml.TomlType.new_table()
 
-    # comptime if log:
-    #     print("parsing initial kv pairs...")
-    var base = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
+    comptime if log:
+        print("parsing initial kv pairs...")
+    var base = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
 
-    # comptime if log:
-    #     print("end parsing initial kv pairs...")
+    comptime if log:
+        print("end parsing initial kv pairs...")
 
     parse_multiline_collections(data, idx, base)
 
-    # comptime if log:
-    #     print("done parsing toml!")
+    comptime if log:
+        print("done parsing toml!")
     return toml.TomlType(table=base^)
 
 
