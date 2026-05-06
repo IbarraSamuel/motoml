@@ -1,7 +1,6 @@
 import std.os as os
 from std.builtin.rebind import downcast
 from std.sys.intrinsics import likely, _type_is_eq
-from std.reflection import get_type_name
 from std.utils import Variant
 from std.collections.dict import _DictEntryIter
 from std.hashlib import Hasher
