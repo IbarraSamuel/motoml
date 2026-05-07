@@ -1,4 +1,4 @@
-from motoml.parser import parse_toml, toml_to_tagged_json
+from motoml.parser import parse_toml_raises
 from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location, SourceLocation, source_location
@@ -49,12 +49,13 @@ def toml_single_test(strpath: String) raises -> None:
         raise "file not exists: " + String(file)
     var content = file.read_text()
 
+    print("test readed!")
     if "invalid/" in strpath:
-        # with assert_raises():
-        # var json_result = toml_to_tagged_json(content)
+        with assert_raises():
+            var json_result = parse_toml_raises(content)
         return
 
-    # var json_result = toml_to_tagged_json(content)
+    # var json_result = parse_toml_raises(content)
 
     # var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     # if not exp_file.exists():
