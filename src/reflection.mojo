@@ -91,7 +91,7 @@ def toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
 
 def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     # Calculate all types that matches the type T within the AnyType type
-    comptime Tr = reflect[T]()
+    comptime Tr = reflect[T]
 
     comptime if _type_is_eq_parse_time[T, String]():
         if not toml.inner.isa[toml.String]():
@@ -111,7 +111,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
-    comptime if reflect[T]().base_name() == "List":
+    comptime if reflect[T].base_name() == "List":
         if not toml.inner.isa[toml.OpaqueArray]():
             raise "[TYPE MISMATCH] Type is a list but toml value is not a list."
 
@@ -148,7 +148,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         " safely destroy the struct."
     )
     comptime DT = downcast[T, Movable & ImplicitlyDestructible]
-    comptime DTr = reflect[DT]()
+    comptime DTr = reflect[DT]
 
     comptime field_types = DTr.field_types()
     comptime field_count = DTr.field_count()
@@ -173,7 +173,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         if NAME in toml_tb:
             key_list.append(NAME)
         else:
-            comptime if reflect[TYPE]().base_name() != "Optional":
+            comptime if reflect[TYPE].base_name() != "Optional":
                 raise "A field needed on the struct is not available on the toml table, and such field is not optional."
 
             key_list.append(None)
@@ -196,7 +196,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         var field_ptr = struct_ptr + OFFSET
         var key = key_list[fi]
 
-        comptime if reflect[TYPE]().base_name() == "Optional":
+        comptime if reflect[TYPE].base_name() == "Optional":
             comptime Inner = downcast[TYPE, Iterator].Element
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None

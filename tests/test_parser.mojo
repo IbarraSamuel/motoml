@@ -49,7 +49,7 @@ def toml_single_test(strpath: String) raises -> None:
         raise "file not exists: " + String(file)
     var content = file.read_text()
 
-    print("test readed!")
+    print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
             var json_result = parse_toml_raises(content)
