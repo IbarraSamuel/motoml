@@ -95,7 +95,7 @@ def parse_inline_array(
     var value = toml.TomlType.new_array()
     ref arr = value.as_opaque_array()
 
-    while data[idx] != SquareBracketClose:
+    while idx < len(data) and data[idx] != SquareBracketClose:
         # print(
         #     "parsing array value at idx:",
         #     idx,
@@ -114,7 +114,7 @@ def parse_inline_array(
         skip_blanks_and_comments(data, idx)
 
         stop_at[Comma, SquareBracketClose](data, idx)
-        if data[idx] == SquareBracketClose:
+        if idx >= len(data) or data[idx] == SquareBracketClose:
             break
 
         # we are at a comma
@@ -419,7 +419,8 @@ def parse_keys[
     var key_init = idx
     var key: Optional[toml.StringRef[o]] = {}
 
-    while (chr := data[idx]) != close_char and idx < len(data):
+    while idx < len(data) and data[idx] != close_char:
+        var chr = data[idx]
         if chr == SingleQuote:
             var k = parse_quoted_string[SingleQuote, ignore_escape=True](
                 data, idx

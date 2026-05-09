@@ -52,7 +52,7 @@ def toml_single_test(strpath: String) raises -> None:
     print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var json_result = parse_toml_raises(content)
+            var json_result = parse_toml_raises[log=True](content)
         return
 
     # var json_result = parse_toml_raises(content)
