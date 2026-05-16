@@ -36,7 +36,7 @@ comptime Escape = Byte(ord("\\"))
 
 def parse_multiline_string[
     quote_type: Byte, *, ignore_escape: Bool
-](data: Span[Byte, _], mut idx: Int) -> Span[Byte, data.origin]:
+](data: Span[Byte, _], mut idx: Int) raises -> Span[Byte, data.origin]:
     # Go inside the multiline
     idx += 3
     # put first value as the value_init
@@ -44,13 +44,16 @@ def parse_multiline_string[
     # Move +2 to be about to the end of closing in case it's empty
     idx += 2
 
-    while (
+    while idx < len(data) and (
         data[idx] != quote_type
         or data[idx - 1] != quote_type
         or data[idx - 2] != quote_type
         or (data[idx - 3] == Escape and not ignore_escape)
     ):
         idx += 1
+
+    if idx >= len(data):
+        raise "Multiline not closed."
 
     # move two if there is a end like: """""
     # comptime if ignore_escape:
@@ -66,12 +69,17 @@ def parse_multiline_string[
 
 def parse_quoted_string[
     quote_type: Byte, *, ignore_escape: Bool
-](data: Span[Byte, _], mut idx: Int) -> Span[Byte, data.origin]:
+](data: Span[Byte, _], mut idx: Int) raises -> Span[Byte, data.origin]:
     idx += 1
     var value_init = idx
+    if idx >= len(data):
+        raise "String not closed."
 
     while data[idx] != quote_type:
         idx += 1
+
+        if idx >= len(data):
+            raise "String not closed."
 
         comptime if not ignore_escape:
             if data[idx] == quote_type:
@@ -406,7 +414,7 @@ def parse_keys[
     o: ImmutOrigin, //, close_char: Byte
 ](
     data: Span[Byte, o], mut idx: Int, var key_base: List[toml.StringRef[o]]
-) -> List[toml.StringRef[o]]:
+) raises -> List[toml.StringRef[o]]:
     """
     In a case we have a.b.c we expect to get back (a.b.c, c), no quotes included.
     This should be able to work on either inline key/values, multiline or nested. eg:
@@ -458,6 +466,9 @@ def parse_keys[
 
         idx += 1
 
+    if idx >= len(data):
+        raise "Key not closed."
+
     if not key:
         key = toml.StringRef(data[key_init:idx], literal=False, multiline=False)
 
@@ -488,13 +499,17 @@ def parse_kv_pairs[
 
         comptime if log:
             print(
-                "inline keys -> <",
+                "inline keys -> '",
                 ",".join([StringSlice(unsafe_from_utf8=k.data) for k in keys]),
-                ">",
+                "'",
                 sep="",
             )
         idx += 1
         skip[Space, Tab](data, idx)
+
+        if idx >= len(data):
+            break
+
         var v = parse_value[end_char](data, idx)
 
         comptime if log:
@@ -852,7 +867,7 @@ def parse_toml_raises[
     var base = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
 
     comptime if log:
-        print("end parsing initial kv pairs...")
+        print(t"end parsing initial kv pairs... Current idx: {idx}")
 
     parse_multiline_collections(data, idx, base)
 

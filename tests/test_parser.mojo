@@ -52,39 +52,39 @@ def toml_single_test(strpath: String) raises -> None:
     print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var json_result = parse_toml_raises[log=True](content)
+            var json_result = parse_toml_raises(content)
         return
 
-    # var json_result = parse_toml_raises(content)
+    var json_result = parse_toml_raises(content)
 
-    # var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
-    # if not exp_file.exists():
-    #     raise t"json file not exists: {exp_file}"
+    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
+    if not exp_file.exists():
+        raise t"json file not exists: {exp_file}"
 
-    # var exp_result = exp_file.read_text()
+    var exp_result = exp_file.read_text()
 
-    # var py = Python()
-    # var json = py.import_module("json")
-    # try:
-    #     py_obj = exp_result.to_python_object()
-    #     py_expected = json.loads(py_obj)
-    #     py_expected = translate_json_to_types(py, py_expected)
-    # except:
-    #     raise "[TESTCASE ERR]"
+    var py = Python()
+    var json = py.import_module("json")
+    try:
+        py_obj = PythonObject(exp_result)
+        py_expected = json.loads(py_obj)
+        py_expected = translate_json_to_types(py, py_expected)
+    except:
+        raise "[TESTCASE ERR]"
 
-    # try:
-    #     r_obj = json_result.to_python_object()
-    # except:
-    #     raise t"[Python Interop Error] Failed to convert json result to python object. {json_result}"
-    # try:
-    #     py_result = json.loads(r_obj)
-    #     py_result = translate_json_to_types(py, py_result)
-    # except:
-    #     raise t"[OUTPUT ERR] Error parsing json output from parser: {r_obj}"
-    # try:
-    #     assert_true(py_result == py_expected)
-    # except:
-    #     raise t"Values are not equal.\nresult:\n{py_result}\nexpected:\n{py_expected}"
+    try:
+        r_obj = PythonObject(json_result^)
+    except:
+        raise "[Python Interop Error] Failed to convert json result to python object."
+    try:
+        py_result = json.loads(r_obj)
+        py_result = translate_json_to_types(py, py_result)
+    except:
+        raise t"[OUTPUT ERR] Error parsing json output from parser: {r_obj}"
+    try:
+        assert_true(py_result == py_expected)
+    except:
+        raise t"Values are not equal.\nresult:\n{py_result}\nexpected:\n{py_expected}"
 
 
 @always_inline

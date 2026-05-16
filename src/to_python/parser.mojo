@@ -16,4 +16,4 @@ def PyInit_motoml() -> PythonObject:
 
 
 def loads(v: PythonObject) raises -> PythonObject:
-    return parse_toml_raises(String(py=v)).to_python_object()
+    return parse_toml_raises(String(py=v))

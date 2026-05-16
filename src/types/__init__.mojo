@@ -324,7 +324,8 @@ struct TomlType(ConvertibleToPython, Copyable, Iterable, Writable):
                 v.value.destroy_pointee()
 
     def to_python_object(var self) raises -> PythonObject:
-        return PythonObject("TomlType is a text for now...")
+        var toml_str = String(self^)
+        return PythonObject(toml_str^)
 
     def write_to(self, mut w: Some[Writer]):
         ref inner = self.inner
