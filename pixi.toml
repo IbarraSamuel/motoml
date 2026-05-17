@@ -46,8 +46,8 @@ tests = { depends-on = ["test-comptime-parser", "test-reflection", "test-parser"
 
 # Build tasks
 build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"
-build = { cmd = "mojo build stdin_parser.mojo", cwd = "tests" }
+build = { cmd = "pixi run mojo build stdin_parser.mojo -o ../motoml", cwd = "tests" }
+debug_build = { cmd = "pixi run mojo build stdin_parser.mojo -o ../motoml_debug -D LOG=1", cwd = "tests" }
 package = "mojo package src/ -o motoml.mojopkg"
-move-to-test = "mv motoml.mojopkg tests/"
 
 # TODO: CHECK DOCS

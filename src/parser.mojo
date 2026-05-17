@@ -889,4 +889,6 @@ def toml_to_tagged_json[
     *, log: Bool = False
 ](content: StringSlice) raises -> String:
     var toml_values = parse_toml_raises[log=log](content)
-    return String(toml_values^)
+    var out = String()
+    toml_values.to_json(out)
+    return out

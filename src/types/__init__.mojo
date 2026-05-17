@@ -1,4 +1,4 @@
-import std.os as os
+from std.memory import stack_allocation
 from std.builtin.rebind import downcast
 from std.sys.intrinsics import likely, _type_is_eq
 from std.utils import Variant
@@ -54,7 +54,9 @@ struct TomlRef[toml: ImmutOrigin](Iterable, TrivialRegisterPassable):
     def __getitem__(ref self, idx: Int) -> ref[Self.toml] Self.Toml:
         return self.pointer[][idx]
 
-    def __getitem__(ref self, key: StringSlice) -> ref[Self.toml] Self.Toml:
+    def __getitem__(
+        ref self, key: StringSlice
+    ) raises -> ref[Self.toml] Self.Toml:
         return self.pointer[][key]
 
     def __iter__(ref self) -> Self.IteratorType[Self.toml]:
@@ -115,7 +117,7 @@ struct TomlTableIter[
         return kv.key, TomlRef(toml_value)
 
 
-struct TomlType(ConvertibleToPython, Copyable, Iterable, Writable):
+struct TomlType(Copyable, Iterable, Writable):
     comptime String = String
     # comptime StringLiteral = StringLit[Self.o]
     comptime Integer = Integer
@@ -266,14 +268,14 @@ struct TomlType(ConvertibleToPython, Copyable, Iterable, Writable):
 
     # For interop with dict
 
-    def __getitem__(ref self, key: StringSlice) -> ref[self] Self:
+    def __getitem__(ref self, key: StringSlice) raises -> ref[self] Self:
         ref table = self.inner[Self.OpaqueTable]
 
         for kv in table.items():
             if kv.key == key:
                 return Self.from_addr(kv.value)
 
-        os.abort("key not found in toml")
+        raise "key not found in toml"
         # String(key)
         # os.abort(String("Key '", key, "' not found in TOML table."))
 
@@ -323,51 +325,54 @@ struct TomlType(ConvertibleToPython, Copyable, Iterable, Writable):
             for v in table.take_items():
                 v.value.destroy_pointee()
 
-    def to_python_object(var self) raises -> PythonObject:
-        var toml_str = String(self^)
-        return PythonObject(toml_str^)
-
-    def write_to(self, mut w: Some[Writer]):
+    def to_json(self, mut w: Some[Writer]) raises:
         ref inner = self.inner
         if inner.isa[self.String]():
             ref s = inner[self.String]
             return w.write('{"type": "string", "value": "', s, '"}')
-        elif inner.isa[self.Integer]():
+        if inner.isa[self.Integer]():
             var intg = inner[self.Integer]
             return w.write('{"type": "integer", "value": "', intg, '"}')
-        elif inner.isa[self.Float]():
+        if inner.isa[self.Float]():
             var fl = inner[self.Float]
             return w.write('{"type": "float", "value": "', fl, '"}')
-        elif inner.isa[self.NaN]():
+        if inner.isa[self.NaN]():
             return w.write('{"type": "float", "value": "nan"}')
-        elif inner.isa[self.Boolean]():
+        if inner.isa[self.Boolean]():
             var value = "true" if inner[self.Boolean] else "false"
             return w.write('{"type": "bool", "value": "', value, '"}')
-        elif inner.isa[self.DateTime]():
+        if inner.isa[self.DateTime]():
             var dt = inner[self.DateTime]
             var nm = "datetime-local" if dt.is_local else "datetime"
             return w.write('{"type": "', nm, '", "value": "', dt, '"}')
-        elif inner.isa[self.Date]():
+        if inner.isa[self.Date]():
             var date = inner[self.Date]
             return w.write('{"type": "date-local", "value": "', date, '"}')
-        elif inner.isa[self.Time]():
+        if inner.isa[self.Time]():
             var time = inner[self.Time]
             return w.write('{"type": "time-local", "value": "', time, '"}')
-        elif inner.isa[self.OpaqueArray]():
-            ref array = inner[self.OpaqueArray]
-            var values = ", ".join(
-                [String(Self.from_addr(addr)) for addr in array]
-            )
-            return w.write("[", values, "]")
 
-        elif inner.isa[self.OpaqueTable]():
+        if inner.isa[self.OpaqueArray]():
+            ref array = inner[self.OpaqueArray]
+            w.write("[")
+            for i, addr in enumerate(array):
+                if i != 0:
+                    w.write(", ")
+
+                Self.from_addr(addr).to_json(w)
+            w.write("]")
+            return
+
+        if inner.isa[self.OpaqueTable]():
             ref table = inner[self.OpaqueTable]
-            var content = ", ".join(
-                [
-                    String(t'"{kv.key}": {Self.from_addr(kv.value)}')
-                    for kv in table.items()
-                ]
-            )
-            return w.write("{", content, "}")
-        else:
-            os.abort("type to write not identified")
+            w.write("{")
+            for i, kv in enumerate(table.items()):
+                if i != 0:
+                    w.write(", ")
+
+                w.write(t'"{kv.key}": ')
+                Self.from_addr(kv.value).to_json(w)
+            w.write("}")
+            return
+
+        raise "type to write not identified"

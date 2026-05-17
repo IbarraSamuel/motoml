@@ -52,28 +52,33 @@ def toml_single_test(strpath: String) raises -> None:
     print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var json_result = parse_toml_raises(content)
+            var toml_r = parse_toml_raises(content)
+            var w = String()
+            toml_r.to_json(w)
+            print(w)
         return
 
-    var json_result = parse_toml_raises(content)
+    var toml_result = parse_toml_raises(content)
 
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not exp_file.exists():
         raise t"json file not exists: {exp_file}"
 
-    var exp_result = exp_file.read_text()
+    var expected_result = exp_file.read_text()
 
     var py = Python()
     var json = py.import_module("json")
     try:
-        py_obj = PythonObject(exp_result)
+        py_obj = PythonObject(expected_result)
         py_expected = json.loads(py_obj)
         py_expected = translate_json_to_types(py, py_expected)
     except:
         raise "[TESTCASE ERR]"
 
     try:
-        r_obj = PythonObject(json_result^)
+        var str_res = String()
+        toml_result.to_json(str_res)
+        r_obj = PythonObject(str_res)
     except:
         raise "[Python Interop Error] Failed to convert json result to python object."
     try:

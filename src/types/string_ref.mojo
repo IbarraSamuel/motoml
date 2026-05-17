@@ -132,12 +132,12 @@ def parse_string_escape(v: StringSlice) raises -> String:
     # var search_base = 0
     var char, init, spn = fesc(ssb, 0)
 
-    print(
-        "First iter:",
-        Codepoint(char),
-        init,
-        StringSlice(unsafe_from_utf8=spn),
-    )
+    # print(
+    #     "First iter:",
+    #     Codepoint(char),
+    #     init,
+    #     StringSlice(unsafe_from_utf8=spn),
+    # )
 
     while init != -1:
         # sleep(0.5)
@@ -190,14 +190,14 @@ def parse_string_escape(v: StringSlice) raises -> String:
                 codepoint = String(Codepoint(unsafe_unchecked_codepoint=value))
 
         elif char == Byte(ord("e")):
-            print(
-                "Found \\e! next idx:",
-                next_idx,
-                "and byte length:",
-                len(ssb),
-            )
+            # print(
+            #     "Found \\e! next idx:",
+            #     next_idx,
+            #     "and byte length:",
+            #     len(ssb),
+            # )
             if next_idx < len(ssb) and ssb[next_idx] == Byte(ord("[")):
-                print("bracket found! Seeing where to end it (an m)")
+                # print("bracket found! Seeing where to end it (an m)")
                 for bi, b in enumerate(ssb[next_idx + 1 :]):
                     if b == Byte(ord("m")):
                         next_idx += bi + 1
@@ -210,7 +210,7 @@ def parse_string_escape(v: StringSlice) raises -> String:
                 codepoint = ""
             else:
                 codepoint = "\\u001b"
-            print("e modifications done!")
+            # print("e modifications done!")
         else:
             raise ("error! value not found")
 
@@ -227,16 +227,16 @@ def parse_string_escape(v: StringSlice) raises -> String:
         # search_base += init + 1
 
         char, init, spn = fesc(ssb, init + 1)
-        print(
-            "Next iter:",
-            Codepoint(char),
-            init,
-            StringSlice(unsafe_from_utf8=spn),
-        )
+        # print(
+        #     "Next iter:",
+        #     Codepoint(char),
+        #     init,
+        #     StringSlice(unsafe_from_utf8=spn),
+        # )
         # x, u, U, e = _find_escapes(ssb[search_base:])
         # init = x if x != -1 else u if u != -1 else U if U != -1 else e
 
-    print("Codepoint Replacements done: Final value is:", ss)
+    # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = 0
     while (esc := ss.find("\\", last_esc)) != -1:
         # print("escape found:...")

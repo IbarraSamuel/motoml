@@ -3,6 +3,6 @@
 !.pixi/config.toml
 kgen.trace*
 stdin_parser
-parser
-parser-w-logs
+motoml
+motoml_debug
 tests/motoml.mojopkg

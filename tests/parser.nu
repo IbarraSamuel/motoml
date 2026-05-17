@@ -1,6 +1,6 @@
 export def compile-toml-parser [] {
-  pixi run mojo build -D LOG=1 tests/stdin_parser.mojo -o parser-w-logs
-  pixi run mojo build tests/stdin_parser.mojo -o parser
+  pixi run build
+  pixi run debug_build
 }
 
 export def parse-toml [file?: path] : [
@@ -8,7 +8,7 @@ export def parse-toml [file?: path] : [
   nothing -> string
 ] {
   let f = if $file != null {open $file --raw} else {$in} 
-  $f | ./parser-w-logs
+  $f | ./motoml_debug
 }
 
 export def compare-toml-parser [file: path] {
@@ -18,7 +18,7 @@ export def compare-toml-parser [file: path] {
   let expected = open ($file | str replace ".toml" ".json") | sort
   $expected | to json | print
   "----- parser result -----" | print
-  let result = open $file --raw | ./parser | from json | sort
+  let result = open $file --raw | ./motoml | from json | sort
   $result | to json | print
   "-------------------------" | print
   "Is exactly equal?: " + ($expected == $result | to text) | print
