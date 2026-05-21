@@ -33,6 +33,9 @@ comptime DoubleQuote = Byte(ord('"'))
 comptime SingleQuote = Byte(ord("'"))
 comptime Escape = Byte(ord("\\"))
 
+def _printif[log: Bool](msg: Some[Writable]):
+    if log:
+        print(msg)
 
 def parse_multiline_string[
     quote_type: Byte, *, ignore_escape: Bool
@@ -271,7 +274,7 @@ def string_to_type[
     ) or "e" in v_slice or "E" in v_slice:
         return toml.TomlType(float=atof(v_slice.replace("_", "")))
 
-    raise ("Could not find a type for value: `{}`".format(v_slice))
+    raise t"Could not find a type for value: `{v_slice}`"
 
 
 
@@ -842,10 +845,7 @@ def _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
 
 def _repr_dict[o: ImmutOrigin](v: toml.TomlType.OpaqueTable) -> String:
     var r = [
-        "{}: {}".format(
-            kv.key,
-            String(kv.value.bitcast[toml.TomlType]()[]),
-        )
+        String(t"{kv.key}: {String(kv.value.bitcast[toml.TomlType]()[])}")
         for kv in v.items()
     ]
     return String(r)
@@ -877,10 +877,10 @@ def parse_toml_raises[
 
 
 def parse_toml[
-    # *, log: Bool = False
+    *, log: Bool = False
 ](content: StringSlice) -> Optional[toml.TomlType]:
     try:
-        return parse_toml_raises(content)
+        return parse_toml_raises[log=log](content)
     except:
         return None
 
