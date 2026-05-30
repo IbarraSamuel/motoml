@@ -466,6 +466,9 @@ def parse_keys[
             skip[Space, Tab](data, idx)
             # Return the inner element?
             return parse_keys[close_char](data, idx, key_base^)
+        elif chr == Byte(ord("#")):
+            raise "Comment found in middle of key"
+            
 
         idx += 1
 
