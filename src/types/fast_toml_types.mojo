@@ -95,8 +95,14 @@ struct TomlTableIter[
     comptime Toml = TomlType[Self.data]
     var dict_iter: _DictEntryIter[
         mut=Self.toml.mut,
-        K=Self.Toml.OpaqueTable.K,
-        V=Self.Toml.OpaqueTable.V,
+        K=downcast[
+            Self.Toml.OpaqueTable.K,
+            Copyable & KeyElement & ImplicitlyDestructible,
+        ],
+        V=downcast[
+            Self.Toml.OpaqueTable.V,
+            Copyable & KeyElement & ImplicitlyDestructible,
+        ],
         H=Self.Toml.OpaqueTable.H,
         origin=Self.toml,
     ]
