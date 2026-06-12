@@ -82,14 +82,18 @@ struct Result[T: Movable](
 
 
 # Result Wrapper
-def toml_to_type[T: Movable](var toml: TomlType) -> Result[T]:
+def toml_to_type[
+    T: Movable & ImplicitlyDestructible
+](var toml: TomlType) -> Result[T]:
     try:
         return toml_to_type_raises[T](toml^)
     except e:
         return e^
 
 
-def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
+def toml_to_type_raises[
+    T: Movable & ImplicitlyDestructible
+](var toml: TomlType) raises -> T:
     # Calculate all types that matches the type T within the AnyType type
     comptime Tr = reflect[T]
 
@@ -105,7 +109,7 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
     #         StringSlice(unsafe_from_utf8=toml.inner[toml.String].data)
     #     )
 
-    comptime if AnyTomlType.Ts.contains[T]():
+    comptime if AnyTomlType[MutUntrackedOrigin].Ts.contains[T]():
         var v = toml^.take_inner().take[T]()
         return v^
 
@@ -118,23 +122,32 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
         # Use the fact that List is iterable, to get the inner element using the trait.
         comptime Elem = downcast[
             downcast[T, Iterable].IteratorType[origin_of(toml)].Element,
-            Copyable,
+            Copyable & ImplicitlyDestructible,
         ]
 
-        var lst = List[Elem]()
-        ref toml_arr = toml.as_opaque_array()
-        while len(toml_arr) > 0:
-            var toml_elem = toml_arr.pop().bitcast[TomlType]()
+        # var lst = List[Elem]()
+        # ref toml_arr = toml.as_opaque_array()
+        # for var ptr in toml_arr:
+        #     var toml_elem = ptr.bitcast[TomlType]()
+        #     var e = toml_to_type_raises[Elem](toml_elem.take_pointee())
+        #     lst.append(e^)
 
-            # parse the toml_elem to the type of the list typed on T
-            var e = toml_to_type_raises[Elem](toml_elem.take_pointee())
+        var lst = [
+            toml_to_type_raises[Elem](ptr.bitcast[TomlType]().take_pointee())
+            for var ptr in toml.as_opaque_array()
+        ]
+        # while len(toml_arr) > 0:
+        #     var toml_elem = toml_arr.pop().bitcast[TomlType]()
 
-            # if not e:
-            #     raise "Not able to parse value from list."
+        #     # parse the toml_elem to the type of the list typed on T
+        #     var e = toml_to_type_raises[Elem](toml_elem.take_pointee())
 
-            lst.append(e^)
+        #     # if not e:
+        #     #     raise "Not able to parse value from list."
 
-        lst.reverse()
+        #     lst.append(e^)
+
+        # lst.reverse()
         return rebind_var[T](lst^)
 
     # ========= Working with Structs here ===============
@@ -198,6 +211,8 @@ def toml_to_type_raises[T: Movable](var toml: TomlType) raises -> T:
 
         comptime if reflect[TYPE].base_name() == "Optional":
             comptime Inner = downcast[TYPE, Iterator].Element
+            comptime assert conforms_to(Inner, Copyable & ImplicitlyDeletable)
+
             if not key:  # we identify this value is not in the toml table
                 field_ptr.bitcast[Optional[Inner]]()[] = None
             else:

@@ -1,4 +1,3 @@
-from std.memory import stack_allocation
 from std.builtin.rebind import downcast
 from std.sys.intrinsics import likely, _type_is_eq
 from std.utils import Variant
@@ -17,14 +16,11 @@ comptime Float = Float64
 comptime Boolean = Bool
 # comptime OffsetDateTime = DateTime[WithOffset=True]
 # comptime LocalDateTime = DateTime[WithOffset=False]
+comptime Opaque[o: Origin] = OpaquePointer[o]
+comptime PointerList[o: Origin] = List[Opaque[o]]
+comptime PointerDict[o: Origin] = Dict[String, Opaque[o]]
 
-comptime Opaque[o: MutOrigin] = OpaquePointer[o]
-comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
-comptime OpaqueTable = Dict[String, Opaque[MutExternalOrigin]]
-
-# TODO: Add new time types
-
-comptime AnyTomlType = Variant[
+comptime AnyTomlType[o: Origin] = Variant[
     String,
     Integer,
     Float,
@@ -33,8 +29,8 @@ comptime AnyTomlType = Variant[
     Date,
     Time,
     DateTime,
-    OpaqueArray,
-    OpaqueTable,
+    PointerList[o],
+    PointerDict[o],
 ]
 
 
@@ -88,7 +84,7 @@ struct TomlListIter[
 struct TomlTableIter[
     toml: Origin,
 ](ImplicitlyCopyable, Iterable, Iterator):
-    comptime Element = Tuple[String, TomlRef[MutExternalOrigin]]
+    comptime Element = Tuple[String, TomlRef[MutUntrackedOrigin]]
     comptime IteratorType[origin: Origin]: Iterator = Self
     comptime Toml = TomlType
     var dict_iter: _DictEntryIter[
@@ -135,8 +131,8 @@ struct TomlType(Copyable, Iterable, Writable):
     comptime DateTime = DateTime
 
     # Store a list of addesses.
-    comptime OpaqueArray = OpaqueArray
-    comptime OpaqueTable = OpaqueTable
+    comptime OpaqueArray = PointerList[MutUntrackedOrigin]
+    comptime OpaqueTable = PointerDict[MutUntrackedOrigin]
 
     comptime RefArray[o: ImmutOrigin] = List[TomlRef[o]]
     comptime RefTable[o: ImmutOrigin] = Dict[String, TomlRef[o]]
@@ -146,7 +142,7 @@ struct TomlType(Copyable, Iterable, Writable):
     comptime Table = Dict[String, Self]
 
     # Runtime
-    var inner: AnyTomlType
+    var inner: AnyTomlType[MutUntrackedOrigin]
 
     # Iterable
     comptime IteratorType[
@@ -173,7 +169,7 @@ struct TomlType(Copyable, Iterable, Writable):
         else:
             return self.inner.isa[T]()
 
-    def take_inner(deinit self) -> AnyTomlType:
+    def take_inner(deinit self) -> AnyTomlType[MutUntrackedOrigin]:
         return self.inner^
 
     @staticmethod
@@ -181,10 +177,10 @@ struct TomlType(Copyable, Iterable, Writable):
         return addr.bitcast[Self]()[]
 
     @staticmethod
-    def take_from_addr(var addr: Opaque[MutExternalOrigin]) -> Self:
+    def take_from_addr(var addr: Opaque[MutUntrackedOrigin]) -> Self:
         return addr.bitcast[Self]().take_pointee()
 
-    def move_to_addr(var self) -> Opaque[MutExternalOrigin]:
+    def move_to_addr(var self) -> Opaque[MutUntrackedOrigin]:
         var ptr = alloc[Self](1)
         ptr.init_pointee_move(self^)
         return ptr.bitcast[NoneType]()

@@ -18,9 +18,9 @@ comptime Boolean = Bool
 # comptime OffsetDateTime = DateTime[WithOffset=True]
 # comptime LocalDateTime = DateTime[WithOffset=False]
 
-comptime Opaque[o: MutOrigin] = OpaquePointer[o]
-comptime OpaqueArray = List[Opaque[MutExternalOrigin]]
-comptime OpaqueTable[o: ImmutOrigin] = Dict[String, Opaque[MutExternalOrigin]]
+comptime Opaque = OpaquePointer[MutUntrackedOrigin]
+comptime OpaqueArray = List[Opaque]
+comptime OpaqueTable = Dict[String, Opaque]
 
 # TODO: Add new time types
 
@@ -34,7 +34,7 @@ comptime AnyTomlType[o: ImmutOrigin] = Variant[
     Time,
     DateTime,
     OpaqueArray,
-    OpaqueTable[o],
+    OpaqueTable,
 ]
 
 
@@ -90,7 +90,7 @@ struct TomlTableIter[
     data: ImmutOrigin,
     toml: Origin,
 ](ImplicitlyCopyable, Iterable, Iterator):
-    comptime Element = Tuple[String, TomlRef[Self.data, MutExternalOrigin]]
+    comptime Element = Tuple[String, TomlRef[Self.data, MutUntrackedOrigin]]
     comptime IteratorType[origin: Origin]: Iterator = Self
     comptime Toml = TomlType[Self.data]
     var dict_iter: _DictEntryIter[
@@ -140,7 +140,7 @@ struct TomlType[o: ImmutOrigin](
 
     # Store a list of addesses.
     comptime OpaqueArray = OpaqueArray
-    comptime OpaqueTable = OpaqueTable[Self.o]
+    comptime OpaqueTable = OpaqueTable
 
     comptime RefArray[o: ImmutOrigin] = List[TomlRef[Self.o, o]]
     comptime RefTable[o: ImmutOrigin] = Dict[String, TomlRef[Self.o, o]]
@@ -182,16 +182,20 @@ struct TomlType[o: ImmutOrigin](
         return addr.bitcast[Self]()[]
 
     @staticmethod
-    def take_from_addr(var addr: Opaque[MutExternalOrigin]) -> Self:
+    def take_from_addr(var addr: Opaque) -> Self:
         return addr.bitcast[Self]().take_pointee()
 
-    def move_to_addr(var self) -> Opaque[MutExternalOrigin]:
+    def move_to_addr(var self) -> Opaque:
         var ptr = alloc[Self](1)
         ptr.init_pointee_move(self^)
         return ptr.bitcast[NoneType]()
 
-    def to_addr(mut self) -> Opaque[origin_of(self)]:
-        return UnsafePointer(to=self).bitcast[NoneType]()
+    def to_addr(mut self) -> Opaque:
+        return (
+            UnsafePointer(to=self)
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .bitcast[NoneType]()
+        )
 
     # TODO: Ask to provide capacity, to minimize allocations
     @staticmethod

@@ -6,7 +6,7 @@ from ..parser import parse_toml_raises
 
 
 @export
-def PyInit_motoml() -> PythonObject:
+def PyInit_motoml() abi("C") -> PythonObject:
     try:
         var module = PythonModuleBuilder("motoml")
         module.def_function[loads]("loads", "Parse a toml file from a string.")
