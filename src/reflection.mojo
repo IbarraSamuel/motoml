@@ -73,7 +73,7 @@ struct Result[T: Movable](
         return self^.unsafe_take_value()
 
     def or_else[
-        t: Movable & ImplicitlyDestructible, //
+        t: Movable & ImplicitlyDeletable, //
     ](deinit self: Result[t], var default: t) -> t:
         """Take the value or return a default value."""
         if not self:
@@ -83,7 +83,7 @@ struct Result[T: Movable](
 
 # Result Wrapper
 def toml_to_type[
-    T: Movable & ImplicitlyDestructible
+    T: Movable & ImplicitlyDeletable
 ](var toml: TomlType) -> Result[T]:
     try:
         return toml_to_type_raises[T](toml^)
@@ -92,7 +92,7 @@ def toml_to_type[
 
 
 def toml_to_type_raises[
-    T: Movable & ImplicitlyDestructible
+    T: Movable & ImplicitlyDeletable
 ](var toml: TomlType) raises -> T:
     # Calculate all types that matches the type T within the AnyType type
     comptime Tr = reflect[T]
@@ -122,7 +122,7 @@ def toml_to_type_raises[
         # Use the fact that List is iterable, to get the inner element using the trait.
         comptime Elem = downcast[
             downcast[T, Iterable].IteratorType[origin_of(toml)].Element,
-            Copyable & ImplicitlyDestructible,
+            Copyable & ImplicitlyDeletable,
         ]
 
         # var lst = List[Elem]()
@@ -156,11 +156,11 @@ def toml_to_type_raises[
         "T should be a struct because is not a List and is not part of"
         " AnyTomlType Variant."
     )
-    comptime assert conforms_to(T, ImplicitlyDestructible), (
+    comptime assert conforms_to(T, ImplicitlyDeletable), (
         "In case the struct is not completely initialized, we should be able to"
         " safely destroy the struct."
     )
-    comptime DT = downcast[T, Movable & ImplicitlyDestructible]
+    comptime DT = downcast[T, Movable & ImplicitlyDeletable]
     comptime DTr = reflect[DT]
 
     comptime field_types = DTr.field_types()
@@ -180,7 +180,7 @@ def toml_to_type_raises[
             TYPE, Movable
         ), "Each type Ti of the struct T should be Movable."
         comptime assert conforms_to(
-            TYPE, ImplicitlyDestructible
+            TYPE, ImplicitlyDeletable
         ), "Each type Ti of the struct T should be Movable."
 
         if NAME in toml_tb:
@@ -202,7 +202,7 @@ def toml_to_type_raises[
     comptime for fi in range(field_count):
         comptime NAME = field_names[fi]
         comptime TYPE = downcast[
-            field_types[fi], Movable & ImplicitlyDestructible
+            field_types[fi], Movable & ImplicitlyDeletable
         ]  # already checked
         comptime OFFSET = DTr.field_offset[index=fi]()
 

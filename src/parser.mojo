@@ -118,6 +118,7 @@ def parse_inline_array(
         # var s = String()
         # arr_item.write_tagged_json_to(s)
         # print("value parsed: `{}`".format(s))
+        arr.append(Pointer[type=toml.TomlType, origin=MutUntrackedOrigin](to=arr_item))
         arr.append(arr_item^.move_to_addr())
         # We are at the end of the item parsed, let's move +1
         idx += 1
@@ -848,7 +849,7 @@ def _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
 
 def _repr_dict[o: ImmutOrigin](v: toml.TomlType.OpaqueTable) -> String:
     var r = [
-        String(t"{kv.key}: {String(kv.value.bitcast[toml.TomlType]()[])}")
+        String(t"{kv.key}: {String(kv.value[])}")
         for kv in v.items()
     ]
     return String(r)

@@ -97,11 +97,11 @@ struct TomlTableIter[
         mut=Self.toml.mut,
         K=downcast[
             Self.Toml.OpaqueTable.K,
-            Copyable & KeyElement & ImplicitlyDestructible,
+            Copyable & KeyElement & ImplicitlyDeletable,
         ],
         V=downcast[
             Self.Toml.OpaqueTable.V,
-            Copyable & KeyElement & ImplicitlyDestructible,
+            Copyable & KeyElement & ImplicitlyDeletable,
         ],
         H=Self.Toml.OpaqueTable.H,
         origin=Self.toml,

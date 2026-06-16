@@ -16,9 +16,9 @@ comptime Float = Float64
 comptime Boolean = Bool
 # comptime OffsetDateTime = DateTime[WithOffset=True]
 # comptime LocalDateTime = DateTime[WithOffset=False]
-comptime Opaque[o: Origin] = OpaquePointer[o]
-comptime PointerList[o: Origin] = List[Opaque[o]]
-comptime PointerDict[o: Origin] = Dict[String, Opaque[o]]
+comptime TomlPtr[o: Origin] = Pointer[TomlType, o]
+comptime PointerList[o: Origin] = List[TomlPtr[o]]
+comptime PointerDict[o: Origin] = Dict[String, TomlPtr[o]]
 
 comptime AnyTomlType[o: Origin] = Variant[
     String,
@@ -76,7 +76,7 @@ struct TomlListIter[
         if self.index >= len(self.pointer[]):
             raise StopIteration()
 
-        ref elem = self.pointer[][self.index].bitcast[Self.Element]()[]
+        ref elem = self.pointer[][self.index][]
         self.index += 1
         return elem
 
@@ -91,11 +91,11 @@ struct TomlTableIter[
         mut=Self.toml.mut,
         K=downcast[
             Self.Toml.OpaqueTable.K,
-            Copyable & KeyElement & ImplicitlyDestructible,
+            Copyable & KeyElement & ImplicitlyDeletable,
         ],
         V=downcast[
             Self.Toml.OpaqueTable.V,
-            Copyable & KeyElement & ImplicitlyDestructible,
+            Copyable & KeyElement & ImplicitlyDeletable,
         ],
         H=Self.Toml.OpaqueTable.H,
         origin=Self.toml,
@@ -115,7 +115,7 @@ struct TomlTableIter[
     ) raises StopIteration -> Self.Element:
         ref kv = next(self.dict_iter)
 
-        ref toml_value = kv.value.bitcast[Self.Toml]()[]
+        ref toml_value = kv.value[]
         return kv.key, TomlRef(toml_value)
 
 
@@ -173,20 +173,20 @@ struct TomlType(Copyable, Iterable, Writable):
         return self.inner^
 
     @staticmethod
-    def from_addr(addr: Opaque) -> ref[addr.origin] Self:
-        return addr.bitcast[Self]()[]
+    def from_addr(addr: TomlPtr) -> ref[addr.origin] Self:
+        return addr[]
 
-    @staticmethod
-    def take_from_addr(var addr: Opaque[MutUntrackedOrigin]) -> Self:
-        return addr.bitcast[Self]().take_pointee()
+    # @staticmethod
+    # def take_from_addr[o: MutOrigin](var addr: TomlPtr[o]) -> Self:
+    #     return addr.take_pointee()
 
-    def move_to_addr(var self) -> Opaque[MutUntrackedOrigin]:
-        var ptr = alloc[Self](1)
-        ptr.init_pointee_move(self^)
-        return ptr.bitcast[NoneType]()
+    # def move_to_addr(var self) -> TomlPtr[MutUntrackedOrigin]:
+    #     var ptr = alloc[Self](1)
+    #     ptr.init_pointee_move(self^)
+    #     return ptr.bitcast[NoneType]()
 
-    def to_addr(mut self) -> Opaque[origin_of(self)]:
-        return UnsafePointer(to=self).bitcast[NoneType]()
+    def to_addr(mut self) -> TomlPtr[origin_of(self)]:
+        return Pointer(to=self)
 
     # TODO: Ask to provide capacity, to minimize allocations
     @staticmethod
@@ -221,16 +221,16 @@ struct TomlType(Copyable, Iterable, Writable):
     def boolean(ref self) -> Self.Boolean:
         return self.inner[Self.Boolean]
 
-    def to_array(deinit self) -> Self.Array:
-        """Points to self, because external origin it's managed by self."""
-        return [Self.take_from_addr(it) for it in self.inner[Self.OpaqueArray]]
+    # def to_array(deinit self) -> Self.Array:
+    #     """Points to self, because external origin it's managed by self."""
+    #     return [Self.take_from_addr(it) for it in self.inner[Self.OpaqueArray]]
 
-    def to_table(deinit self) -> Self.Table:
-        """Points to self, because external origin it's managed by self."""
-        return {
-            kv.key.copy(): Self.take_from_addr(kv.value)
-            for kv in self.inner[Self.OpaqueTable].items()
-        }
+    # def to_table(deinit self) -> Self.Table:
+    #     """Points to self, because external origin it's managed by self."""
+    #     return {
+    #         kv.key.copy(): Self.take_from_addr(kv.value)
+    #         for kv in self.inner[Self.OpaqueTable].items()
+    #     }
 
     def array(self) -> Self.RefArray[origin_of(self.inner)]:
         """Points to self, because external origin it's managed by self."""
@@ -249,16 +249,13 @@ struct TomlType(Copyable, Iterable, Writable):
     # For interop with list
 
     def __getitem__(ref self, idx: Int) -> ref[self] Self:
-        return self.inner[Self.OpaqueArray][idx].bitcast[Self]()[]
+        return self.inner[Self.OpaqueArray][idx][]
 
     def __contains__(ref self, v: StringSlice) -> Bool:
         # Only works for arrays and tables
         if self.isa[Self.Array]():
             for ptrs in self.as_opaque_array():
-                if (
-                    ptrs.bitcast[Self]()[].isa[Self.String]()
-                    and ptrs.bitcast[Self]()[].string() == v
-                ):
+                if ptrs[].isa[Self.String]() and ptrs[].string() == v:
                     return True
             return False
         elif self.isa[Self.Table]():
@@ -320,12 +317,12 @@ struct TomlType(Copyable, Iterable, Writable):
     def __del__(deinit self):
         if self.inner.isa[self.OpaqueArray]():
             var array = self.inner^.take[self.OpaqueArray]()
-            for _ in range(len(array)):
-                array.pop().destroy_pointee()
+            for var _ in array:
+                pass
         elif self.inner.isa[self.OpaqueTable]():
             var table = self.inner^.take[self.OpaqueTable]()
-            for v in table.take_items():
-                v.value.destroy_pointee()
+            for _ in table.take_items():
+                pass
 
     def to_json(self, mut w: Some[Writer]) raises:
         ref inner = self.inner
