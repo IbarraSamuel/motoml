@@ -104,7 +104,7 @@ def parse_inline_array(
     skip_blanks_and_comments(data, idx)
 
     var value = toml.TomlType.new_array()
-    ref arr = value.as_opaque_array()
+    ref arr = value.ref_array()
 
     while idx < len(data) and data[idx] != SquareBracketClose:
         # print(
@@ -118,8 +118,7 @@ def parse_inline_array(
         # var s = String()
         # arr_item.write_tagged_json_to(s)
         # print("value parsed: `{}`".format(s))
-        arr.append(Pointer[type=toml.TomlType, origin=MutUntrackedOrigin](to=arr_item))
-        arr.append(arr_item^.move_to_addr())
+        arr.append(arr_item^)
         # We are at the end of the item parsed, let's move +1
         idx += 1
         # For both table and array, you need to split by comma
@@ -339,11 +338,11 @@ def get_container_ref[
     o: ImmutOrigin #, //, log: Bool = False
 ](
     keys: Span[toml.StringRef[o], _],
-    mut base: toml.TomlType.OpaqueTable,
+    mut base: toml.TomlTypes.Table,
     *,
     var default: toml.TomlType,  # it's the leaf. The last container
 ) raises -> ref[base] toml.TomlType:
-    var is_array = default.inner.isa[toml.TomlType.OpaqueArray]()
+    var is_array = default.isa[toml.TomlTypes.Array]()
     var cont = Pointer[origin=MutAnyOrigin](to=base)
     for k in keys[: len(keys) - 1]:
         # comptime if log:
@@ -354,11 +353,11 @@ def get_container_ref[
 
         ref inner_v = cont[].setdefault(
             k.calc_value(),
-            toml.TomlType.new_table().move_to_addr(),
+            toml.TomlType.new_table(),
         )
-        if not inner_v.bitcast[toml.TomlType]()[].inner.isa[toml.TomlType.OpaqueTable]():
+        if not inner_v.isa[toml.TomlTypes.Array]():
             raise "Container should be table, but is not."
-        cont = Pointer[origin=MutAnyOrigin](to=inner_v.bitcast[toml.TomlType]()[].as_opaque_table())
+        cont = Pointer[origin=MutAnyOrigin](to=inner_v.ref_table())
         # cont = Pointer(
         #     to=inner_v.bitcast[toml.TomlType[o]]()
         #     .unsafe_origin_cast[MutAnyOrigin]()[]
@@ -370,11 +369,7 @@ def get_container_ref[
     # comptime if log:
     #     print(t"|> k -> '{k.calc_value()}'")
     ref pre_last = cont[]
-    var last = pre_last.setdefault(k.calc_value(), default^.move_to_addr()).bitcast[
-        toml.TomlType
-    ]()
-
-    return last[]
+    return pre_last.setdefault(k.calc_value(), default^)
     # if not is_array:
     #     # just refer to the placeholder of the key.
     #     return last[]
@@ -486,14 +481,14 @@ def parse_keys[
 
 def parse_kv_pairs[
     separator: Byte, end_char: Byte, log: Bool = False,
-](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlType.OpaqueTable:
+](data: Span[mut=False, Byte, _], mut idx: Int) raises -> toml.TomlTypes.Table:
     """This function expect to be on top of the value to start parsing. So item=1.
     End at the last value + 1.
     """
 
     comptime if log:
         print("++ kcreate new empty table container")
-    var table = toml.TomlType.OpaqueTable()
+    var table = toml.TomlTypes.Table(capacity=16)
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
@@ -675,7 +670,7 @@ def tp_eq[
 def parse_multiline_collections(
     data: Span[mut=False, Byte, _],
     mut idx: Int,
-    mut base: toml.TomlType.OpaqueTable,
+    mut base: toml.TomlTypes.Table,
     # base_keys: Span[Span[Byte, data.origin]],
     # nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
 ) raises:
@@ -683,7 +678,7 @@ def parse_multiline_collections(
     var contexts: List[
         Tuple[
             List[toml.StringRef[data.origin]],
-            Pointer[toml.TomlType.OpaqueTable, origin_of(base)],
+            Pointer[toml.TomlTypes.Table, origin_of(base)],
         ]
     ] = [(List[toml.StringRef[data.origin]](), Pointer(to=base))]
 
@@ -799,19 +794,18 @@ def parse_multiline_collections(
         #     print(">> store value into the container...")
 
         if is_array:
-            if not cont[].inner.isa[toml.TomlType.OpaqueArray]():
+            if not cont[].isa[toml.TomlTypes.Array]():
                 raise "container should be an array, but inner value isn't"
-            ref arr = cont[].as_opaque_array()
-            arr.append(toml.TomlType.new_table().move_to_addr())
+            ref arr = cont[].ref_array()
+            arr.append(toml.TomlType.new_table())
             cont = Pointer(
                 to=arr[len(arr) - 1]
-                .bitcast[toml.TomlType]()
-                .unsafe_origin_cast[origin_of(base)]()[]
             )
 
-        if not cont[].inner.isa[toml.TomlType.OpaqueTable]():
+        if not cont[].isa[toml.TomlTypes.Table]():
             raise "container should be a table, but inner value isn't"
-        cont[].as_opaque_table().update(values)
+
+        cont[].ref_table().update(values)
 
         # cont = values^
 
@@ -835,7 +829,7 @@ def parse_multiline_collections(
 
         # comptime if log:
         #     print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
-        var new_ctx = (keys^, Pointer(to=cont[].as_opaque_table()))
+        var new_ctx = (keys^, Pointer(to=cont[].ref_table()))
         contexts.append(new_ctx^)
 
         # comptime if log:
@@ -847,9 +841,9 @@ def _repr_keys[o: ImmutOrigin](v: Span[toml.StringRef[o], _]) -> String:
     return r
 
 
-def _repr_dict[o: ImmutOrigin](v: toml.TomlType.OpaqueTable) -> String:
+def _repr_dict[o: ImmutOrigin](v: toml.TomlTypes.Table) -> String:
     var r = [
-        String(t"{kv.key}: {String(kv.value[])}")
+        String(t"{kv.key}: {String(kv.value)}")
         for kv in v.items()
     ]
     return String(r)

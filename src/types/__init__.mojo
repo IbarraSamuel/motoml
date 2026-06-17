@@ -7,259 +7,236 @@ from std.utils.numerics import FPUtils
 from std.builtin._format_float import _to_decimal
 from std.python import ConvertibleToPython, PythonObject
 
+from std.memory import OwnedPointer
+
 from .string_ref import StringRef
 from .tempo import Date, DateTime, Time
 
 # TYPES
-comptime Integer = Int
-comptime Float = Float64
-comptime Boolean = Bool
-# comptime OffsetDateTime = DateTime[WithOffset=True]
-# comptime LocalDateTime = DateTime[WithOffset=False]
-comptime TomlPtr[o: Origin] = Pointer[TomlType, o]
-comptime PointerList[o: Origin] = List[TomlPtr[o]]
-comptime PointerDict[o: Origin] = Dict[String, TomlPtr[o]]
-
-comptime AnyTomlType[o: Origin] = Variant[
-    String,
-    Integer,
-    Float,
-    NoneType,
-    Boolean,
-    Date,
-    Time,
-    DateTime,
-    PointerList[o],
-    PointerDict[o],
-]
 
 
-struct TomlRef[toml: ImmutOrigin](Iterable, TrivialRegisterPassable):
-    comptime Toml = TomlType
-    comptime IteratorType[origin: Origin]: Iterator = Self.Toml.IteratorType[
-        Self.toml
-    ]
-    var pointer: Pointer[Self.Toml, Self.toml]
-
-    def __init__(out self, ref[Self.toml] v: Self.Toml):
-        self.pointer = Pointer(to=v)
-
-    def __getitem__(ref self) -> ref[Self.toml] Self.Toml:
-        return self.pointer[]
-
-    def __getitem__(ref self, idx: Int) -> ref[Self.toml] Self.Toml:
-        return self.pointer[][idx]
-
-    def __getitem__(
-        ref self, key: StringSlice
-    ) raises -> ref[Self.toml] Self.Toml:
-        return self.pointer[][key]
-
-    def __iter__(ref self) -> Self.IteratorType[Self.toml]:
-        return self.pointer[].__iter__()
-
-
-struct TomlListIter[
-    toml: ImmutOrigin,
-](Iterator):
-    comptime Element = TomlType
-    var pointer: Pointer[Self.Element.OpaqueArray, Self.toml]
-    var index: Int
-
-    def __init__(out self, ref[Self.toml] v: Self.Element.OpaqueArray):
-        self.pointer = Pointer(to=v)
-        self.index = 0
-
-    def __next__(
-        mut self,
-    ) raises StopIteration -> ref[Self.toml] Self.Element:
-        if self.index >= len(self.pointer[]):
-            raise StopIteration()
-
-        ref elem = self.pointer[][self.index][]
-        self.index += 1
-        return elem
-
-
-struct TomlTableIter[
-    toml: Origin,
-](ImplicitlyCopyable, Iterable, Iterator):
-    comptime Element = Tuple[String, TomlRef[MutUntrackedOrigin]]
-    comptime IteratorType[origin: Origin]: Iterator = Self
-    comptime Toml = TomlType
-    var dict_iter: _DictEntryIter[
-        mut=Self.toml.mut,
-        K=downcast[
-            Self.Toml.OpaqueTable.K,
-            Copyable & KeyElement & ImplicitlyDeletable,
-        ],
-        V=downcast[
-            Self.Toml.OpaqueTable.V,
-            Copyable & KeyElement & ImplicitlyDeletable,
-        ],
-        H=Self.Toml.OpaqueTable.H,
-        origin=Self.toml,
-    ]
-
-    def __init__(
-        out self: TomlTableIter[origin_of(v)],
-        ref v: Self.Toml.OpaqueTable,
-    ):
-        self.dict_iter = v.items()
-
-    def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
-        return self.copy()
-
-    def __next__(
-        mut self,
-    ) raises StopIteration -> Self.Element:
-        ref kv = next(self.dict_iter)
-
-        ref toml_value = kv.value[]
-        return kv.key, TomlRef(toml_value)
-
-
-struct TomlType(Copyable, Iterable, Writable):
+struct TomlTypes:
     comptime String = String
-    # comptime StringLiteral = StringLit[Self.o]
-    comptime Integer = Integer
-    comptime Float = Float
-    comptime NaN = NoneType
-    comptime Boolean = Boolean
+    comptime Integer = Int
+    comptime Float = Float64
+    comptime Boolean = Bool
     comptime Date = Date
     comptime Time = Time
     comptime DateTime = DateTime
+    comptime Array = List[TomlType]
+    comptime Table = Dict[String, TomlType]
 
+    comptime IsTomlType[T: Movable] = AnyTomlType.Ts.contains[T]()
+
+
+comptime AnyTomlType = Variant[
+    TomlTypes.String,
+    TomlTypes.Integer,
+    TomlTypes.Float,
+    NoneType,
+    TomlTypes.Boolean,
+    TomlTypes.Date,
+    TomlTypes.Time,
+    TomlTypes.DateTime,
+    TomlTypes.Array,
+    TomlTypes.Table,
+]
+
+
+# struct TomlRef[toml: ImmutOrigin](Iterable, TrivialRegisterPassable):
+#     comptime Toml = TomlType
+#     comptime IteratorType[origin: Origin]: Iterator = Self.Toml.IteratorType[
+#         Self.toml
+#     ]
+#     var pointer: Pointer[Self.Toml, Self.toml]
+
+#     def __init__(out self, ref[Self.toml] v: Self.Toml):
+#         self.pointer = Pointer(to=v)
+
+#     def __getitem__(ref self) -> ref[Self.toml] Self.Toml:
+#         return self.pointer[]
+
+#     def __getitem__(ref self, idx: Int) -> ref[Self.toml] Self.Toml:
+#         return self.pointer[][idx]
+
+#     def __getitem__(
+#         ref self, key: StringSlice
+#     ) raises -> ref[Self.toml] Self.Toml:
+#         return self.pointer[][key]
+
+#     def __iter__(ref self) -> Self.IteratorType[Self.toml]:
+#         return self.pointer[].__iter__()
+
+
+# struct TomlListIter[
+#     toml: ImmutOrigin,
+# ](Iterator):
+#     comptime Element = TomlType
+#     var pointer: Pointer[Self.Element.OpaqueArray, Self.toml]
+#     var index: Int
+
+#     def __init__(out self, ref[Self.toml] v: Self.Element.OpaqueArray):
+#         self.pointer = Pointer(to=v)
+#         self.index = 0
+
+#     def __next__(
+#         mut self,
+#     ) raises StopIteration -> ref[Self.toml] Self.Element:
+#         if self.index >= len(self.pointer[]):
+#             raise StopIteration()
+
+#         ref elem = self.pointer[][self.index][]
+#         self.index += 1
+#         return elem
+
+
+# struct TomlTableIter[
+#     toml: Origin,
+# ](ImplicitlyCopyable, Iterable, Iterator):
+#     comptime Element = Tuple[String, TomlRef[MutUntrackedOrigin]]
+#     comptime IteratorType[origin: Origin]: Iterator = Self
+#     comptime Toml = TomlType
+#     var dict_iter: _DictEntryIter[
+#         mut=Self.toml.mut,
+#         K=downcast[
+#             Self.Toml.OpaqueTable.K,
+#             Copyable & KeyElement & ImplicitlyDeletable,
+#         ],
+#         V=downcast[
+#             Self.Toml.OpaqueTable.V,
+#             Copyable & KeyElement & ImplicitlyDeletable,
+#         ],
+#         H=Self.Toml.OpaqueTable.H,
+#         origin=Self.toml,
+#     ]
+
+#     def __init__(
+#         out self: TomlTableIter[origin_of(v)],
+#         ref v: Self.Toml.OpaqueTable,
+#     ):
+#         self.dict_iter = v.items()
+
+#     def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
+#         return self.copy()
+
+#     def __next__(
+#         mut self,
+#     ) raises StopIteration -> Self.Element:
+#         ref kv = next(self.dict_iter)
+
+#         ref toml_value = kv.value[]
+#         return kv.key, TomlRef(toml_value)
+
+
+# struct TomlType(Copyable, Iterable, Writable):
+struct TomlType(Copyable, Writable):
     # Store a list of addesses.
-    comptime OpaqueArray = PointerList[MutUntrackedOrigin]
-    comptime OpaqueTable = PointerDict[MutUntrackedOrigin]
+    # comptime OpaqueArray = PointerList
+    # comptime OpaqueTable = PointerDict
 
-    comptime RefArray[o: ImmutOrigin] = List[TomlRef[o]]
-    comptime RefTable[o: ImmutOrigin] = Dict[String, TomlRef[o]]
+    # comptime RefArray[o: ImmutOrigin] = List[TomlRef[o]]
+    # comptime RefTable[o: ImmutOrigin] = Dict[String, TomlRef[o]]
 
     # For ease of use of the type
-    comptime Array = List[Self]
-    comptime Table = Dict[String, Self]
+    # comptime Array = List[Self]
+    # comptime Table = Dict[String, Self]
 
     # Runtime
-    var inner: AnyTomlType[MutUntrackedOrigin]
+    # comptime AnyToml = AnyTomlType
+    var inner: OpaquePointer[MutUntrackedOrigin]
 
     # Iterable
-    comptime IteratorType[
-        mut: Bool, //, origin: Origin[mut=mut]
-    ] = TomlListIter[origin]
+    # comptime IteratorType[
+    #     mut: Bool, //, origin: Origin[mut=mut]
+    # ] = TomlListIter[origin]
 
-    def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
-        # upcast origin to self.
-        ref array = UnsafePointer(
-            to=self.inner[Self.OpaqueArray]
-        ).unsafe_origin_cast[origin_of(self)]()[]
+    # def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
+    #     # upcast origin to self.
+    #     ref array = UnsafePointer(
+    #         to=self.inner[Self.OpaqueArray]
+    #     ).unsafe_origin_cast[origin_of(self)]()[]
 
-        return TomlListIter[origin_of(self)](array)
+    #     return TomlListIter[origin_of(self)](array)
 
     def isa[T: AnyType](self) -> Bool:
-        comptime if _type_is_eq[T, Self.Array]():
-            return self.inner.isa[Self.OpaqueArray]()
-        elif _type_is_eq[T, Self.Table]():
-            return self.inner.isa[Self.OpaqueTable]()
-        elif _type_is_eq[T, Self.OpaqueArray]():
-            return False
-        elif _type_is_eq[T, Self.OpaqueTable]():
-            return False
-        else:
-            return self.inner.isa[T]()
+        ref inner = self.get_inner()
+        return inner.isa[T]()
 
-    def take_inner(deinit self) -> AnyTomlType[MutUntrackedOrigin]:
-        return self.inner^
-
-    @staticmethod
-    def from_addr(addr: TomlPtr) -> ref[addr.origin] Self:
-        return addr[]
+    def take_inner(deinit self) -> AnyTomlType:
+        return self.inner.bitcast[AnyTomlType]().take_pointee()
 
     # @staticmethod
-    # def take_from_addr[o: MutOrigin](var addr: TomlPtr[o]) -> Self:
-    #     return addr.take_pointee()
+    # def from_addr(addr: TomlPtr) -> ref[addr] Self:
+    #     return addr^.take()
 
-    # def move_to_addr(var self) -> TomlPtr[MutUntrackedOrigin]:
-    #     var ptr = alloc[Self](1)
-    #     ptr.init_pointee_move(self^)
-    #     return ptr.bitcast[NoneType]()
+    # @staticmethod
+    # def take_from_addr(var addr: OwnedPointer[Self]) -> Self:
+    #     return addr^.take()
 
-    def to_addr(mut self) -> TomlPtr[origin_of(self)]:
-        return Pointer(to=self)
+    # def move_to_addr(var self) -> OwnedPointer[Self]:
+    #     return OwnedPointer(self)
 
-    # TODO: Ask to provide capacity, to minimize allocations
-    @staticmethod
-    def new_array(out self: Self):
-        self = Self(array=Self.OpaqueArray(capacity=32))
+    # def to_addr(mut self) -> TomlPtr[origin_of(self)]:
+    #     return Pointer(to=self)
 
     @staticmethod
-    def new_table(out self: Self):
-        self = Self(table=Self.OpaqueTable(capacity=32))
+    def new_array(out self: Self, capacity: Int = 32):
+        self = Self(array=TomlTypes.Array(capacity=capacity))
 
-    def as_opaque_table(ref self) -> ref[self] Self.OpaqueTable:
-        return UnsafePointer(
-            to=self.inner[Self.OpaqueTable]
-        ).unsafe_origin_cast[origin_of(self)]()[]
+    @staticmethod
+    def new_table(out self: Self, capacity: Int = 32):
+        self = Self(table=TomlTypes.Table(capacity=capacity))
 
-    def as_opaque_array(ref self) -> ref[self] Self.OpaqueArray:
-        return UnsafePointer(
-            to=self.inner[Self.OpaqueArray]
-        ).unsafe_origin_cast[origin_of(self)]()[]
+    def ref_table(ref self) -> ref[self] TomlTypes.Table:
+        ref inner = self.get_inner()
+        return inner[TomlTypes.Table]
+
+    def ref_array(ref self) -> ref[self] TomlTypes.Array:
+        ref inner = self.get_inner()
+        return inner[TomlTypes.Array]
 
     # ==== Access inner values using methods ====
 
-    def string(ref self) -> String:
-        return self.inner[Self.String]
+    def string(ref self) -> TomlTypes.String:
+        return self.get_inner()[TomlTypes.String]
 
-    def integer(ref self) -> Self.Integer:
-        return self.inner[Self.Integer]
+    def integer(ref self) -> TomlTypes.Integer:
+        return self.get_inner()[TomlTypes.Integer]
+        # return self.inner[Self.Integer]
 
-    def float(ref self) -> Self.Float:
-        return self.inner[Self.Float]
+    def float(ref self) -> TomlTypes.Float:
+        return self.get_inner()[TomlTypes.Float]
+        # return self.inner[Self.Float]
 
-    def boolean(ref self) -> Self.Boolean:
-        return self.inner[Self.Boolean]
+    def boolean(ref self) -> TomlTypes.Boolean:
+        return self.get_inner()[TomlTypes.Boolean]
+        # return self.inner[Self.Boolean]
 
-    # def to_array(deinit self) -> Self.Array:
-    #     """Points to self, because external origin it's managed by self."""
-    #     return [Self.take_from_addr(it) for it in self.inner[Self.OpaqueArray]]
-
-    # def to_table(deinit self) -> Self.Table:
-    #     """Points to self, because external origin it's managed by self."""
-    #     return {
-    #         kv.key.copy(): Self.take_from_addr(kv.value)
-    #         for kv in self.inner[Self.OpaqueTable].items()
-    #     }
-
-    def array(self) -> Self.RefArray[origin_of(self.inner)]:
+    def array(deinit self) -> TomlTypes.Array:
         """Points to self, because external origin it's managed by self."""
-        return [
-            TomlRef[origin_of(self.inner)](Self.from_addr(it))
-            for it in self.inner[Self.OpaqueArray]
-        ]
+        return self^.take_inner().take[TomlTypes.Array]()
 
-    def table(self) -> Self.RefTable[origin_of(self.inner)]:
+    def table(deinit self) -> TomlTypes.Table:
         """Points to self, because external origin it's managed by self."""
-        return {
-            kv.key: TomlRef[origin_of(self.inner)](Self.from_addr(kv.value))
-            for kv in self.inner[Self.OpaqueTable].items()
-        }
+        return self^.take_inner().take[TomlTypes.Table]()
 
     # For interop with list
 
+    def get_inner(ref self) -> ref[self] AnyTomlType:
+        return self.inner.bitcast[AnyTomlType]()[]
+
     def __getitem__(ref self, idx: Int) -> ref[self] Self:
-        return self.inner[Self.OpaqueArray][idx][]
+        return self.get_inner()[TomlTypes.Array][idx]
 
     def __contains__(ref self, v: StringSlice) -> Bool:
         # Only works for arrays and tables
-        if self.isa[Self.Array]():
-            for ptrs in self.as_opaque_array():
-                if ptrs[].isa[Self.String]() and ptrs[].string() == v:
+        if self.isa[TomlTypes.Array]():
+            for ptrs in self.ref_array():
+                if ptrs.isa[TomlTypes.String]() and ptrs.string() == v:
                     return True
             return False
-        elif self.isa[Self.Table]():
-            for i in self.as_opaque_table():
+        elif self.isa[TomlTypes.Table]():
+            for i in self.ref_table():
                 if i == v:
                     return True
             return False
@@ -268,109 +245,168 @@ struct TomlType(Copyable, Iterable, Writable):
     # For interop with dict
 
     def __getitem__(ref self, key: StringSlice) raises -> ref[self] Self:
-        ref table = self.inner[Self.OpaqueTable]
+        ref table = self.get_inner()[TomlTypes.Table]
 
-        for kv in table.items():
+        for ref kv in table.items():
             if kv.key == key:
-                return Self.from_addr(kv.value)
+                return UnsafePointer(to=kv.value).unsafe_origin_cast[
+                    origin_of(self)
+                ]()[]
 
         raise "key not found in toml"
         # String(key)
         # os.abort(String("Key '", key, "' not found in TOML table."))
 
-    def items(ref self) -> TomlTableIter[origin_of(self.inner)]:
-        return TomlTableIter(self.inner[Self.OpaqueTable])
+    # def items(ref self) -> TomlTableIter[origin_of(self.inner)]:
+    #     return TomlTableIter(self.inner[Self.OpaqueTable])
 
-    def __init__(out self, *, var string: Self.String):
-        self.inner = string
+    # def __init__(out self, *, var toml: AnyTomlType):
+    #     self.inner = (
+    #         UnsafePointer(to=toml)
+    #         .bitcast[NoneType]()
+    #         .unsafe_origin_cast[MutUntrackedOrigin]()
+    #     )
 
-    # def __init__(out self, *, var string_literal: Self.StringLiteral):
-    #     self.inner = string_literal
+    def __init__(out self, *, var string: TomlTypes.String):
+        var _val = string^
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var integer: Self.Integer):
-        self.inner = integer
+    def __init__(out self, *, var integer: TomlTypes.Integer):
+        var _val = integer
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var float: Self.Float):
-        self.inner = float
+    def __init__(out self, *, var float: TomlTypes.Float):
+        var _val = float
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
     def __init__(out self, *, var none: NoneType):
-        self.inner = none
+        var _val = none
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var boolean: Self.Boolean):
-        self.inner = boolean
+    def __init__(out self, *, var boolean: TomlTypes.Boolean):
+        var _val = boolean
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var date: Self.Date):
-        self.inner = date
+    def __init__(out self, *, var date: TomlTypes.Date):
+        var _val = date
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var time: Self.Time):
-        self.inner = time
+    def __init__(out self, *, var time: TomlTypes.Time):
+        var _val = time
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var datetime: Self.DateTime):
-        self.inner = datetime
+    def __init__(out self, *, var datetime: TomlTypes.DateTime):
+        var _val = datetime
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var array: Self.OpaqueArray):
-        self.inner = array^
+    def __init__(out self, *, var array: TomlTypes.Array):
+        var _val = array^
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val^))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
-    def __init__(out self, *, var table: Self.OpaqueTable):
-        self.inner = table^
+    def __init__(out self, *, var table: TomlTypes.Table):
+        var _val = table^
+        self.inner = (
+            UnsafePointer(to=AnyTomlType(_val^))
+            .bitcast[NoneType]()
+            .unsafe_origin_cast[MutUntrackedOrigin]()
+            .unsafe_mut_cast[target_mut=True]()
+        )
 
     def __del__(deinit self):
-        if self.inner.isa[self.OpaqueArray]():
-            var array = self.inner^.take[self.OpaqueArray]()
-            for var _ in array:
-                pass
-        elif self.inner.isa[self.OpaqueTable]():
-            var table = self.inner^.take[self.OpaqueTable]()
-            for _ in table.take_items():
-                pass
+        self.inner.bitcast[AnyTomlType]().destroy_pointee()
 
     def to_json(self, mut w: Some[Writer]) raises:
-        ref inner = self.inner
-        if inner.isa[self.String]():
-            ref s = inner[self.String]
+        ref inner = self.get_inner()
+        if inner.isa[TomlTypes.String]():
+            ref s = inner[TomlTypes.String]
             return w.write('{"type": "string", "value": "', s, '"}')
-        if inner.isa[self.Integer]():
-            var intg = inner[self.Integer]
+        if inner.isa[TomlTypes.Integer]():
+            var intg = inner[TomlTypes.Integer]
             return w.write('{"type": "integer", "value": "', intg, '"}')
-        if inner.isa[self.Float]():
-            var fl = inner[self.Float]
+        if inner.isa[TomlTypes.Float]():
+            var fl = inner[TomlTypes.Float]
             return w.write('{"type": "float", "value": "', fl, '"}')
-        if inner.isa[self.NaN]():
+        if inner.isa[NoneType]():
             return w.write('{"type": "float", "value": "nan"}')
-        if inner.isa[self.Boolean]():
-            var value = "true" if inner[self.Boolean] else "false"
+        if inner.isa[TomlTypes.Boolean]():
+            var value = "true" if inner[TomlTypes.Boolean] else "false"
             return w.write('{"type": "bool", "value": "', value, '"}')
-        if inner.isa[self.DateTime]():
-            var dt = inner[self.DateTime]
+        if inner.isa[TomlTypes.DateTime]():
+            var dt = inner[TomlTypes.DateTime]
             var nm = "datetime-local" if dt.is_local else "datetime"
             return w.write('{"type": "', nm, '", "value": "', dt, '"}')
-        if inner.isa[self.Date]():
-            var date = inner[self.Date]
+        if inner.isa[TomlTypes.Date]():
+            var date = inner[TomlTypes.Date]
             return w.write('{"type": "date-local", "value": "', date, '"}')
-        if inner.isa[self.Time]():
-            var time = inner[self.Time]
+        if inner.isa[TomlTypes.Time]():
+            var time = inner[TomlTypes.Time]
             return w.write('{"type": "time-local", "value": "', time, '"}')
 
-        if inner.isa[self.OpaqueArray]():
-            ref array = inner[self.OpaqueArray]
+        if inner.isa[TomlTypes.Array]():
+            ref array = inner[TomlTypes.Array]
             w.write("[")
-            for i, addr in enumerate(array):
+            for i, v in enumerate(array):
                 if i != 0:
                     w.write(", ")
 
-                Self.from_addr(addr).to_json(w)
+                v.to_json(w)
             w.write("]")
             return
 
-        if inner.isa[self.OpaqueTable]():
-            ref table = inner[self.OpaqueTable]
+        if inner.isa[TomlTypes.Table]():
+            ref table = inner[TomlTypes.Table]
             w.write("{")
             for i, kv in enumerate(table.items()):
                 if i != 0:
                     w.write(", ")
 
                 w.write(t'"{kv.key}": ')
-                Self.from_addr(kv.value).to_json(w)
+                kv.value.to_json(w)
             w.write("}")
             return
 
