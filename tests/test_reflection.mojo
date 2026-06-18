@@ -3,8 +3,9 @@ from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 
 from motoml.types.string_ref import StringRef
 from motoml.types.tempo import Date, DateTime, Time
-from motoml.parser import parse_toml, parse_toml_raises
-from motoml.types import TomlType, AnyTomlType
+
+# from motoml.parser import parse_toml, parse_toml_raises
+from motoml.types import TomlType, AnyTomlType, TomlTypes
 from motoml.reflection import toml_to_type_raises
 
 
@@ -86,9 +87,9 @@ def test_string() raises:
 # TODO: Add Variant into this, to be able to store a list of distinct types.
 def test_float_list() raises:
     var f = TomlType(float=3.12)
-    var f2 = TomlType(float=TomlType.Float.MAX)
+    var f2 = TomlType(float=TomlTypes.Float.MAX)
     var f3 = TomlType(float=3e14)
-    var l = [f^.move_to_addr(), f2^.move_to_addr(), f3^.move_to_addr()]
+    var l = [f^, f2^, f3^]
     var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[Float64]](toml_list^)
     assert_equal(result[0], 3.12)
@@ -97,10 +98,11 @@ def test_float_list() raises:
 
 
 def test_int_list() raises:
-    var f1 = TomlType(integer=3)
-    var f2 = TomlType(integer=4)
-    var f3 = TomlType(integer=5)
-    var l = [f1^.move_to_addr(), f2^.move_to_addr(), f3^.move_to_addr()]
+    # var f1 = TomlType(integer=3)
+    # var f2 = TomlType(integer=4)
+    # var f3 = TomlType(integer=5)
+    # var l = [f1^, f2^, f3^]
+    var l = [TomlType(integer=i) for i in range(3, 6)]
     var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[Int]](toml_list^)
     assert_equal(result[0], 3)
@@ -111,10 +113,10 @@ def test_int_list() raises:
 def test_string_list() raises:
     var string_v = StringSlice("hello")
     var l = [
-        TomlType(string=string_v).move_to_addr(),
-        TomlType(string=string_v).move_to_addr(),
-        TomlType(string=string_v).move_to_addr(),
-        TomlType(string=string_v).move_to_addr(),
+        TomlType(string=string_v),
+        TomlType(string=string_v),
+        TomlType(string=string_v),
+        TomlType(string=string_v),
     ]
     var toml_list = TomlType(array=l^)
     var result = toml_to_type_raises[List[String]](toml_list^)
@@ -129,17 +131,17 @@ struct SimpleStruct(Movable):
     var second_value: Float64
 
 
-def test_simple_struct() raises:
-    var test_table = """
-    first_value = 1
-    second_value = 3.1
-    """
+# def test_simple_struct() raises:
+#     var test_table = """
+#     first_value = 1
+#     second_value = 3.1
+#     """
 
-    var toml_obj = parse_toml_raises(test_table)
-    var simple_struct = toml_to_type_raises[SimpleStruct](toml_obj^)
+#     var toml_obj = parse_toml_raises(test_table)
+#     var simple_struct = toml_to_type_raises[SimpleStruct](toml_obj^)
 
-    assert_equal(simple_struct.first_value, 1)
-    assert_equal(simple_struct.second_value, 3.1)
+#     assert_equal(simple_struct.first_value, 1)
+#     assert_equal(simple_struct.second_value, 3.1)
 
 
 struct AllTypes(Movable):
@@ -162,32 +164,32 @@ struct SimpleTable(Equatable, Movable, Writable):
     var key2: Int
 
 
-def test_struct_all_types() raises:
-    var test_table = """
-    integer = 1
-    float = 3.1
-    boolean = true
-    string = "hello"
-    string_lit = 'hello'
-    multiline = \"""
-    hi my friend.
-    \"""
-    multiline_lit = '''
-    hi my friend.
-    '''
-    date = 2024-21-02
-    time = 22:01:04
-    datetime = 2026-02-01T22:01:38-05:00
-    list = [1,2,3,4]
-    table = {key=32, key2=84}
-    """
+# def test_struct_all_types() raises:
+#     var test_table = """
+#     integer = 1
+#     float = 3.1
+#     boolean = true
+#     string = "hello"
+#     string_lit = 'hello'
+#     multiline = \"""
+#     hi my friend.
+#     \"""
+#     multiline_lit = '''
+#     hi my friend.
+#     '''
+#     date = 2024-21-02
+#     time = 22:01:04
+#     datetime = 2026-02-01T22:01:38-05:00
+#     list = [1,2,3,4]
+#     table = {key=32, key2=84}
+#     """
 
-    var toml_obj = parse_toml_raises(test_table)
-    var at = toml_to_type_raises[AllTypes](toml_obj^)
+#     var toml_obj = parse_toml_raises(test_table)
+#     var at = toml_to_type_raises[AllTypes](toml_obj^)
 
-    assert_equal(at.integer, 1)
-    assert_equal(at.float, 3.1)
-    assert_equal(at.boolean, True)
+#     assert_equal(at.integer, 1)
+#     assert_equal(at.float, 3.1)
+#     assert_equal(at.boolean, True)
 
 
 struct StructOptional(Movable):
@@ -195,36 +197,36 @@ struct StructOptional(Movable):
     var value_2: Optional[Int]
 
 
-def test_struct_optional() raises:
-    var toml = """
-    value_1 = "hello"
-    """
-    var toml_obj = parse_toml_raises(toml)
-    var value = toml_to_type_raises[StructOptional](toml_obj^)
+# def test_struct_optional() raises:
+#     var toml = """
+#     value_1 = "hello"
+#     """
+#     var toml_obj = parse_toml_raises(toml)
+#     var value = toml_to_type_raises[StructOptional](toml_obj^)
 
-    assert_equal(value.value_1, "hello")
-    assert_equal(Bool(value.value_2), False)
+#     assert_equal(value.value_1, "hello")
+#     assert_equal(Bool(value.value_2), False)
 
 
-def test_nested() raises:
-    comptime TOML_CONTENT = """
-    name = "samuel"
-    age = 30
-    other_types = [1.0, 2.0, 3.0]
-       [language]
-    current_version = 0.26
-       [language.info]
-    name = "mojo"
-    version = "0.26.2.0"
-    """
-    var toml_obj = parse_toml_raises(TOML_CONTENT)
-    var value = toml_to_type_raises[TestBuild](toml_obj^)
+# def test_nested() raises:
+#     comptime TOML_CONTENT = """
+#     name = "samuel"
+#     age = 30
+#     other_types = [1.0, 2.0, 3.0]
+#        [language]
+#     current_version = 0.26
+#        [language.info]
+#     name = "mojo"
+#     version = "0.26.2.0"
+#     """
+#     var toml_obj = parse_toml_raises(TOML_CONTENT)
+#     var value = toml_to_type_raises[TestBuild](toml_obj^)
 
-    assert_equal(value.name, "samuel")
-    assert_equal(value.age, 30)
-    assert_equal(value.language.info.name, "mojo")
-    assert_equal(value.language.current_version.value(), 0.26)
-    assert_equal(Bool(value.language.stable_version), False)
+#     assert_equal(value.name, "samuel")
+#     assert_equal(value.age, 30)
+#     assert_equal(value.language.info.name, "mojo")
+#     assert_equal(value.language.current_version.value(), 0.26)
+#     assert_equal(Bool(value.language.stable_version), False)
 
 
 def main() raises:

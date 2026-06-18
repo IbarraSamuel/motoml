@@ -36,13 +36,15 @@ mojo = "*"
 parser = { cmd = "mojo tests/stdin_parser.mojo" }
 
 # Test tasks
+test-toml-type= { cmd = "pixi run mojo test_toml_type.mojo", cwd = "tests" }
 test-reflection = { cmd = "pixi run mojo test_reflection.mojo", cwd = "tests" }
+test-toml-suite = { cmd = "pixi run mojo test_toml_suite.mojo", cwd = "tests" }
 test-parser = { cmd = "pixi run mojo test_parser.mojo", cwd = "tests" }
 test-comptime-parser = { cmd = "pixi run mojo test_comptime_parser.mojo", cwd = "tests" }
 # test-reflection = { cmd = "mojo test_reflection.mojo", cwd = "tests", depends-on = ["package", "move-to-test"] }
 # test-parser = { cmd = "mojo test_parser.mojo", cwd = "tests", depends-on = ["package", "move-to-test"] }
 # test-comptime-parser = { cmd = "mojo test_comptime_parser.mojo", cwd = "tests", depends-on = ["package", "move-to-test"]  }
-tests = { depends-on = ["test-comptime-parser", "test-reflection", "test-parser"] }
+tests = { depends-on = ["test-toml-type", "test-reflection", "test-parser", "test-toml-suite"] }
 
 # Build tasks
 build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"

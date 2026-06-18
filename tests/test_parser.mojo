@@ -1,164 +1,139 @@
+from std.testing import assert_equal, TestSuite
+
 from motoml.parser import parse_toml_raises
-from files_to_test import TOML_FILES
-from std.pathlib import Path
-from std.reflection import call_location, SourceLocation, source_location
-from std.python import Python, PythonObject
-from std.testing import assert_equal, assert_true, assert_raises
-from std.testing.suite import TestReport, TestResult, TestSuiteReport
-
-from std.time import perf_counter_ns
+from motoml.reflection import toml_to_type_raises
+from motoml.types import TomlTypes
 
 
-def translate_json_to_types(
-    py: Python, json: PythonObject
-) raises -> PythonObject:
-    if "type" in json and "value" in json and len(json) == 2:
-        var type = json["type"]
-        var str_v = json["value"]
-
-        var value: PythonObject
-        if type == "float":
-            if str_v == "nan":
-                value = py.none()
-            else:
-                value = py.float(str_v)
-        elif type == "integer":
-            value = py.int(str_v)
-        else:
-            value = str_v
-        return {"type": json["type"], "value": value}
-
-    if py.type(json) is py.evaluate("list"):
-        var new_list = py.list()
-        for it in json:
-            new_list.append(translate_json_to_types(py, it))
-        return new_list
-    elif py.type(json) is py.evaluate("dict"):
-        var new_dict = py.dict()
-        for kv in json.items():
-            new_dict[kv[0]] = translate_json_to_types(py, kv[1])
-        return new_dict
-    else:
-        return json
+struct SimpleStruct(Movable):
+    var first_value: Int
+    var second_value: Float64
 
 
-def toml_single_test(strpath: String) raises -> None:
-    # var strpath = StaticString(TOML_FILES).splitlines()[testno]
-    var file = toml_files() / strpath
-    if not file.exists():
-        raise "file not exists: " + String(file)
-    var content = file.read_text()
+def test_simple_struct() raises:
+    var test_table = """
+    first_value = 1
+    second_value = 3.1
+    """
 
-    print(t"test readed! file: {strpath}")
-    if "invalid/" in strpath:
-        with assert_raises():
-            var toml_r = parse_toml_raises(content)
-            var w = String()
-            toml_r.to_json(w)
-            print(w)
-        return
+    var toml_obj = parse_toml_raises[log=True](test_table)
+    print(toml_obj)
+    ref first_value = toml_obj["first_value"]
+    print(first_value)
+    # var simple_struct = toml_to_type_raises[SimpleStruct](toml_obj^)
 
-    var toml_result = parse_toml_raises(content)
-
-    var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
-    if not exp_file.exists():
-        raise t"json file not exists: {exp_file}"
-
-    var expected_result = exp_file.read_text()
-
-    var py = Python()
-    var json = py.import_module("json")
-    try:
-        py_obj = PythonObject(expected_result)
-        py_expected = json.loads(py_obj)
-        py_expected = translate_json_to_types(py, py_expected)
-    except:
-        raise "[TESTCASE ERR]"
-
-    try:
-        var str_res = String()
-        toml_result.to_json(str_res)
-        r_obj = PythonObject(str_res)
-    except:
-        raise "[Python Interop Error] Failed to convert json result to python object."
-    try:
-        py_result = json.loads(r_obj)
-        py_result = translate_json_to_types(py, py_result)
-    except:
-        raise t"[OUTPUT ERR] Error parsing json output from parser: {r_obj}"
-    try:
-        assert_true(py_result == py_expected)
-    except:
-        raise t"Values are not equal.\nresult:\n{py_result}\nexpected:\n{py_expected}"
+    # assert_equal(simple_struct.first_value, 1)
+    # assert_equal(simple_struct.second_value, 3.1)
 
 
-@always_inline
-def toml_files() -> Path:
-    var loc = call_location().file_name()
-    return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
+struct AllTypes(Movable):
+    var integer: Int
+    var float: Float64
+    var boolean: Bool
+    var string: String
+    var string_lit: String
+    var multiline: String
+    var multiline_lit: String
+    var date: TomlTypes.Date
+    var time: TomlTypes.Time
+    var datetime: TomlTypes.DateTime
+    var array: List[Int]
+    var table: SimpleTable
 
 
-def main() raises:
-    """Main entrypoint."""
-    var suite = PyTestSuite()
-    var files = StaticString(TOML_FILES).splitlines()
-    for li, fpath in enumerate(files):
-        if not fpath.endswith(".toml"):
-            continue
-        var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
-        suite.add_test(name=root_fpath^, location=fpath)
+struct SimpleTable(Equatable, Movable, Writable):
+    var key: Int
+    var key2: Int
 
-    print("Running tests...")
-    suite^.run()
+
+def test_struct_all_types() raises:
+    var test_table = """
+    integer = 1
+    float = 3.1
+    boolean = true
+    string = "hello"
+    string_lit = 'hello'
+    multiline = \"""
+    hi my friend.
+    \"""
+    multiline_lit = '''
+    hi my friend.
+    '''
+    date = 2024-21-02
+    time = 22:01:04
+    datetime = 2026-02-01T22:01:38-05:00
+    array = [1,2,3,4]
+    table = {key=32, key2=84}
+    """
+
+    var toml_obj = parse_toml_raises(test_table)
+    # var at = toml_to_type_raises[AllTypes](toml_obj^)
+
+    # assert_equal(at.integer, 1)
+    # assert_equal(at.float, 3.1)
+    # assert_equal(at.boolean, True)
+
+
+struct StructOptional(Movable):
+    var value_1: String
+    var value_2: Optional[Int]
+
+
+def test_struct_optional() raises:
+    var toml = """
+    value_1 = "hello"
+    """
+    var toml_obj = parse_toml_raises(toml)
+    # var value = toml_to_type_raises[StructOptional](toml_obj^)
+
+    # assert_equal(value.value_1, "hello")
+    # assert_equal(Bool(value.value_2), False)
 
 
 @fieldwise_init
-@explicit_destroy("run() or abandon() the TestSuite")
-struct PyTestSuite(Movable):
-    var tests: List[Tuple[String, String]]
-    var location: SourceLocation
+struct Info(Movable, Writable):
+    var name: String
+    var version: String
 
-    @always_inline
-    def __init__(
-        out self: PyTestSuite, location: Optional[SourceLocation] = None
-    ):
-        self.tests = {}
-        self.location = location.or_else(call_location())
 
-    def add_test(mut self, *, name: String, location: String):
-        self.tests.append((name, location))
+@fieldwise_init
+struct Language(Movable, Writable):
+    var info: Info
+    var current_version: Optional[Float64]
+    var stable_version: Optional[Float64]
 
-    def abandon(deinit self):
-        pass
 
-    def run(deinit self) raises:
-        var reports = List[TestReport](capacity=len(self.tests))
+@fieldwise_init
+struct TestBuild(Movable, Writable):
+    var name: String
+    var age: Int
+    var other_types: List[Float64]
+    var language: Language
 
-        for name, location in self.tests:
-            var error: Optional[Error] = None
-            var start = perf_counter_ns()
-            try:
-                toml_single_test(location)
-            except e:
-                error = e^
-            var duration = perf_counter_ns() - start
-            var result = TestResult.PASS if not error else TestResult.FAIL
-            var report = TestReport(
-                name=name,
-                duration_ns=duration,
-                result=result,
-                error=error^.or_else({}),
-            )
-            reports.append(report^)
 
-        # parallelize[test_n](len(reports))
-        # for ti in range(len(reports)):
-        #     tg.create_task(test_n(ti))
+def test_nested() raises:
+    comptime TOML_CONTENT = """
+    name = "samuel"
+    age = 30
+    other_types = [1.0, 2.0, 3.0]
+       [language]
+    current_version = 0.26
+       [language.info]
+    name = "mojo"
+    version = "0.26.2.0"
+    """
+    var toml_obj = parse_toml_raises(TOML_CONTENT)
+    # var value = toml_to_type_raises[TestBuild](toml_obj^)
 
-        # tg.wait()
-        var report = TestSuiteReport(reports=reports^, location=self.location)
+    # assert_equal(value.name, "samuel")
+    # assert_equal(value.age, 30)
+    # assert_equal(value.language.info.name, "mojo")
+    # assert_equal(value.language.current_version.value(), 0.26)
+    # assert_equal(Bool(value.language.stable_version), False)
 
-        if report.failures > 0:
-            raise Error(report^)
 
-        print(report)
+def main() raises:
+    var ts = TestSuite()
+    ts.test[test_simple_struct]()
+    ts^.run()
+    # TestSuite.discover_tests[__functions_in_module()]().run()

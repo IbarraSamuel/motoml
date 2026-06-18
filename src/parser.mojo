@@ -103,8 +103,9 @@ def parse_inline_array(
     """
     skip_blanks_and_comments(data, idx)
 
-    var value = toml.TomlType.new_array()
-    ref arr = value.ref_array()
+    # var value = toml.TomlType.new_array()
+    var arr = toml.TomlTypes.Array(capacity=32)
+    # ref arr = value[toml.TomlTypes.Array]
 
     while idx < len(data) and data[idx] != SquareBracketClose:
         # print(
@@ -133,7 +134,7 @@ def parse_inline_array(
 
         skip_blanks_and_comments(data, idx)
 
-    return value^
+    return toml.TomlType(value=arr^)
 
 
 def string_to_type[
@@ -153,30 +154,30 @@ def string_to_type[
 
     if data[idx : idx + 4] == "true".as_bytes():
         idx += 3
-        return toml.TomlType(boolean=True)
+        return toml.TomlType(value=True)
 
     elif data[idx : idx + 5] == "false".as_bytes():
         idx += 4
-        return toml.TomlType(boolean=False)
+        return toml.TomlType(value=False)
 
     elif data[idx : idx + 3] == "nan".as_bytes():
         idx += 2
-        return toml.TomlType(none=None)
+        return toml.TomlType(value=NoneType())
     elif data[idx : idx + 4] == "+nan".as_bytes():
         idx += 3
-        return toml.TomlType(none=None)
+        return toml.TomlType(value=NoneType())
     elif data[idx : idx + 4] == "-nan".as_bytes():
         idx += 3
-        return toml.TomlType(none=None)
+        return toml.TomlType(value=NoneType())
     elif data[idx : idx + 3] == "inf".as_bytes():
         idx += 2
-        return toml.TomlType(float=Float64.MAX)
+        return toml.TomlType(value=Float64.MAX)
     elif data[idx : idx + 4] == "+inf".as_bytes():
         idx += 3
-        return toml.TomlType(float=Float64.MAX)
+        return toml.TomlType(value=Float64.MAX)
     elif data[idx : idx + 4] == "-inf".as_bytes():
         idx += 3
-        return toml.TomlType(float=Float64.MIN)
+        return toml.TomlType(value=Float64.MIN)
 
     var v_init = idx
 
@@ -243,23 +244,23 @@ def string_to_type[
     ):
         # print("parsing datetime")
         var dt = toml.DateTime.from_string(v_slice)
-        return toml.TomlType(datetime=dt)
+        return toml.TomlType(value=dt)
 
     elif dashes == 2 and len(v_span) == 10:
         # print("parsing date")
         var date = toml.Date.from_string(v_slice)
-        return toml.TomlType(date=date)
+        return toml.TomlType(value=date)
 
     elif colons > 0:
         # print("psrgin time")
         var time = toml.Time.from_string(v_slice)
-        return toml.TomlType(time=time)
+        return toml.TomlType(value=time)
 
     elif is_ascii_digit or is_hex or is_bin or is_oct:
         # print("parsing int")
         var v = v_slice[byte=2 if is_hex or is_bin or is_oct else 0 :].replace("_", "")
         return toml.TomlType(
-            integer=atol(
+            value=atol(
                 v,
                 base=16 if is_hex else 8 if is_oct else 2 if is_bin else 10,
             )
@@ -272,7 +273,7 @@ def string_to_type[
         .is_ascii_digit()
         and v_slice[byte=dot + 1 :].replace("_", "").is_ascii_digit()
     ) or "e" in v_slice or "E" in v_slice:
-        return toml.TomlType(float=atof(v_slice.replace("_", "")))
+        return toml.TomlType(value=atof(v_slice.replace("_", "")))
 
     raise t"Could not find a type for value: `{v_slice}`"
 
@@ -289,7 +290,7 @@ def parse_value[
                 data, idx
             )
             return toml.TomlType(
-                string=toml.StringRef(s, literal=False, multiline=True).calc_value()
+                value=toml.StringRef(s, literal=False, multiline=True).calc_value()
             )
         else:
             # print("value is double quote string")
@@ -297,7 +298,7 @@ def parse_value[
                 data, idx
             )
             return toml.TomlType(
-                string=toml.StringRef(s, literal=False, multiline=False).calc_value()
+                value=toml.StringRef(s, literal=False, multiline=False).calc_value()
             )
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
@@ -306,7 +307,7 @@ def parse_value[
                 data, idx
             )
             return toml.TomlType(
-                string=toml.StringRef(s, literal=True, multiline=True).calc_value()
+                value=toml.StringRef(s, literal=True, multiline=True).calc_value()
             )
         else:
             # print("value is single quote string")
@@ -314,7 +315,7 @@ def parse_value[
                 data, idx
             )
             return toml.TomlType(
-                string=toml.StringRef(s, literal=True, multiline=False).calc_value()
+                value=toml.StringRef(s, literal=True, multiline=False).calc_value()
             )
     elif data[idx] == SquareBracketOpen:
         idx += 1
@@ -328,48 +329,42 @@ def parse_value[
         var inline_tb = parse_kv_pairs[
             separator=Comma, end_char=CurlyBracketClose
         ](data, idx)
-        return toml.TomlType(table=inline_tb^)
+        return toml.TomlType(value=inline_tb^)
         # print("last multiline table codepoint parsed is:", Codepoint(data[idx]))
     else:
         return string_to_type[end_char](data, idx)
 
 
-def get_container_ref[
-    o: ImmutOrigin #, //, log: Bool = False
+def get_table_ref[
+    o: ImmutOrigin, //, log: Bool = False
 ](
     keys: Span[toml.StringRef[o], _],
     mut base: toml.TomlTypes.Table,
     *,
     var default: toml.TomlType,  # it's the leaf. The last container
 ) raises -> ref[base] toml.TomlType:
-    var is_array = default.isa[toml.TomlTypes.Array]()
-    var cont = Pointer[origin=MutAnyOrigin](to=base)
+    var cont = Pointer(to=base)
     for k in keys[: len(keys) - 1]:
-        # comptime if log:
-        #     print(
-        #         t"|> k -> '{k.calc_value()}' ",
-        #         end="",
-        #     )
+        comptime if log:
+            print(
+                t"|> k -> '{k.calc_value()}' ",
+                end="",
+            )
 
         ref inner_v = cont[].setdefault(
             k.calc_value(),
-            toml.TomlType.new_table(),
+            toml.TomlType(value=toml.TomlTypes.Table(capacity=32)),
         )
         if not inner_v.isa[toml.TomlTypes.Array]():
             raise "Container should be table, but is not."
-        cont = Pointer[origin=MutAnyOrigin](to=inner_v.ref_table())
-        # cont = Pointer(
-        #     to=inner_v.bitcast[toml.TomlType[o]]()
-        #     .unsafe_origin_cast[MutAnyOrigin]()[]
-        #     .inner[toml.TomlType[o].OpaqueTable]
-        # )
+        cont = Pointer(to=inner_v[toml.TomlTypes.Table])
 
     ref k = keys[len(keys) - 1]
 
     # comptime if log:
     #     print(t"|> k -> '{k.calc_value()}'")
-    ref pre_last = cont[]
-    return pre_last.setdefault(k.calc_value(), default^)
+    # ref pre_last = cont[]
+    return cont[].setdefault(k.calc_value(), default^)
     # if not is_array:
     #     # just refer to the placeholder of the key.
     #     return last[]
@@ -519,7 +514,7 @@ def parse_kv_pairs[
             print("Getting container ref...")
         idx += 1
 
-        _ = get_container_ref[o = data.origin](keys, table, default=v^)
+        _ = get_table_ref[o = data.origin](keys, table, default=v^)
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
         comptime if log:
@@ -539,6 +534,9 @@ def parse_kv_pairs[
         comptime if log:
             print("Parser keep going to next cycle...")
     # _ = get_container_ref[o = data.origin](keys, table, default=v^)
+
+    comptime if log:
+        print(t"Initial table finished! data is: {table}")
     return table^
 
 
@@ -718,12 +716,16 @@ def parse_multiline_collections(
         #             for kv in values.items()
         #         }
         #     )
-
-        var def_cont = (
-            toml.TomlType
-            .new_array() if is_array else toml.TomlType
-            .new_table()
-        )
+        var def_cont: toml.TomlType
+        if is_array:
+            def_cont=toml.TomlType(value=toml.TomlTypes.Array(capacity=16))
+        else:
+            def_cont=toml.TomlType(value=toml.TomlTypes.Table(capacity=16))
+        # var def_cont = (
+        #     toml.TomlType
+        #     .new_array() if is_array else toml.TomlType
+        #     .new_table()
+        # )
 
         # Check each last context and pop if current is not a subset untill it is.
         var pair = contexts.pop()
@@ -787,7 +789,7 @@ def parse_multiline_collections(
         # comptime if log:
         #     print(">> Getting container from ctx...")
         var cont = Pointer(
-            to=get_container_ref(rltv_keys, ctx[], default=def_cont^)
+            to=get_table_ref(rltv_keys, ctx[], default=def_cont^)
         )
 
         # comptime if log:
@@ -796,8 +798,8 @@ def parse_multiline_collections(
         if is_array:
             if not cont[].isa[toml.TomlTypes.Array]():
                 raise "container should be an array, but inner value isn't"
-            ref arr = cont[].ref_array()
-            arr.append(toml.TomlType.new_table())
+            ref arr = cont[][toml.TomlTypes.Array]
+            arr.append(toml.TomlType(value=toml.TomlTypes.Table(capacity=16)))
             cont = Pointer(
                 to=arr[len(arr) - 1]
             )
@@ -805,7 +807,7 @@ def parse_multiline_collections(
         if not cont[].isa[toml.TomlTypes.Table]():
             raise "container should be a table, but inner value isn't"
 
-        cont[].ref_table().update(values)
+        cont[][toml.TomlTypes.Table].update(values)
 
         # cont = values^
 
@@ -829,7 +831,7 @@ def parse_multiline_collections(
 
         # comptime if log:
         #     print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
-        var new_ctx = (keys^, Pointer(to=cont[].ref_table()))
+        var new_ctx = (keys^, Pointer(to=cont[][toml.TomlTypes.Table]))
         contexts.append(new_ctx^)
 
         # comptime if log:
@@ -858,7 +860,7 @@ def parse_toml_raises[
     skip_blanks_and_comments(data, idx)
 
     if idx >= len(data):
-        return toml.TomlType.new_table()
+        return toml.TomlType(value=toml.TomlTypes.Table(capacity=0))
 
     comptime if log:
         print("parsing initial kv pairs...")
@@ -871,7 +873,17 @@ def parse_toml_raises[
 
     comptime if log:
         print("done parsing toml!")
-    return toml.TomlType(table=base^)
+        print("final data is:", base)
+
+    var t =toml.TomlType(value=base^)
+    comptime if log:
+        print("Checking if it's stored...")
+        ref inner = t[toml.TomlTypes.Table]
+        print("check result:", inner)
+        # print("is a tale?", t.get_inner().)
+        # var c = String(t.get_inner()[toml.TomlTypes.Table])
+        # print("Result is:", c)
+    return t^
 
 
 def parse_toml[

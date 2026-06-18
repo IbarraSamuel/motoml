@@ -6,7 +6,7 @@ TODO: Make it a single implementation.
 from .types import TomlType, AnyTomlType, TomlTypes
 from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from std.builtin.rebind import downcast
-from std.reflection import reflect, Reflected
+from std.reflection import reflect
 from std.utils import Variant
 from std.memory import stack_allocation, alloc
 
@@ -92,14 +92,6 @@ def toml_to_type[
         return e^
 
 
-def toml_to_list[
-    E: Movable & ImplicitlyDeletable
-](var toml: TomlType) raises -> List[E]:
-    if not toml.isa[TomlTypes.Array]():
-        raise "Type Mismatch. Expected Array to convert to list."
-    return [toml_to_type_raises[E](elem^) for var elem in toml^.array()]
-
-
 def toml_to_type_raises[
     T: Movable & ImplicitlyDeletable
 ](var toml: TomlType) raises -> T:
@@ -113,11 +105,10 @@ def toml_to_type_raises[
     #         StringSlice(unsafe_from_utf8=toml.inner[toml.String].data)
     #     )
 
-    comptime if AnyTomlType.Ts.contains[T]():
+    comptime if TomlTypes.AllTypes.contains[T]():
         if not toml.isa[T]():
             raise "[TYPE MISMATCH]: Type defined doesn't align with TomlType."
-        var v = toml^.take_inner().take[T]()
-        return v^
+        return toml^.take[T]()
 
     # ========= Case the Type is a list, but not List[OpaqueArray] within AnyTomlType ==========
 
@@ -128,9 +119,16 @@ def toml_to_type_raises[
         # Use the fact that List is iterable, to get the inner element using the trait.
 
         comptime Elem = downcast[
-            downcast[T, Iterator].Element, Movable & ImplicitlyDeletable
+            downcast[T, Iterable].IteratorType[origin_of()].Element,
+            Movable & ImplicitlyDeletable,
         ]
-        var lst = toml_to_list[Elem](toml^)
+        # comptime Elem = downcast[
+        #     downcast[T, Iterator].Element, Movable & ImplicitlyDeletable
+        # ]
+        var lst = [
+            toml_to_type_raises[Elem](elem^)
+            for var elem in toml^.take[TomlTypes.Array]()
+        ]
         return rebind_var[T](lst^)
 
     # ========= Working with Structs here ===============
@@ -144,7 +142,7 @@ def toml_to_type_raises[
     comptime field_count = Tr.field_count()
     comptime field_names = Tr.field_names()
 
-    var toml_tb = toml^.table()
+    var toml_tb = toml^.take[TomlTypes.Table]()
 
     # ========= Check if the object is initializable before initializing it ===========
 
@@ -153,12 +151,15 @@ def toml_to_type_raises[
     comptime for fi in range(field_count):
         comptime TYPE = field_types[fi]
         comptime NAME = field_names[fi]
-        comptime assert conforms_to(
-            TYPE, Movable
-        ), "Each type Ti of the struct T should be Movable."
-        comptime assert conforms_to(
-            TYPE, ImplicitlyDeletable
-        ), "Each type Ti of the struct T should be Movable."
+        print(reflect[TYPE].name())
+        comptime assert conforms_to(TYPE, Movable), String(
+            "Each type Ti of the struct T should be Movable."
+        )
+        comptime Lit = StringLiteral
+        print(reflect[TYPE].name())
+        comptime assert conforms_to(TYPE, ImplicitlyDeletable), String(
+            "Each type Ti of the struct T should be ImplicitlyDeletable."
+        )
 
         if NAME in toml_tb:
             key_list.append(NAME)
@@ -176,6 +177,7 @@ def toml_to_type_raises[
     # )
     # var struct_ptr = UnsafePointer(to=inner_obj).bitcast[Byte]()
     var struct_ptr = alloc[T](1)
+    # var struct_ptr = stack_allocation[T, 1]()
 
     comptime for fi in range(field_count):
         comptime NAME = field_names[fi]
