@@ -2,7 +2,7 @@ from std.testing import assert_equal, TestSuite
 
 from motoml.parser import parse_toml_raises
 from motoml.reflection import toml_to_type_raises
-from motoml.types import TomlTypes
+from motoml.types.toml import Toml
 
 
 struct SimpleStruct(Movable):
@@ -16,34 +16,11 @@ def test_simple_struct() raises:
     second_value = 3.1
     """
 
-    var toml_obj = parse_toml_raises[log=True](test_table)
-    print(toml_obj)
-    ref first_value = toml_obj["first_value"]
-    print(first_value)
+    var toml_obj = parse_toml_raises(test_table)
     # var simple_struct = toml_to_type_raises[SimpleStruct](toml_obj^)
 
-    # assert_equal(simple_struct.first_value, 1)
-    # assert_equal(simple_struct.second_value, 3.1)
-
-
-struct AllTypes(Movable):
-    var integer: Int
-    var float: Float64
-    var boolean: Bool
-    var string: String
-    var string_lit: String
-    var multiline: String
-    var multiline_lit: String
-    var date: TomlTypes.Date
-    var time: TomlTypes.Time
-    var datetime: TomlTypes.DateTime
-    var array: List[Int]
-    var table: SimpleTable
-
-
-struct SimpleTable(Equatable, Movable, Writable):
-    var key: Int
-    var key2: Int
+    assert_equal(toml_obj[Toml.Table]["first_value"][Toml.Integer], 1)
+    assert_equal(toml_obj[Toml.Table]["second_value"][Toml.Float], 3.1)
 
 
 def test_struct_all_types() raises:
@@ -69,9 +46,12 @@ def test_struct_all_types() raises:
     var toml_obj = parse_toml_raises(test_table)
     # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
-    # assert_equal(at.integer, 1)
-    # assert_equal(at.float, 3.1)
-    # assert_equal(at.boolean, True)
+    assert_equal(toml_obj[Toml.Table]["integer"][Toml.Integer], 1)
+    assert_equal(toml_obj[Toml.Table]["float"][Toml.Float], 3.1)
+    assert_equal(toml_obj[Toml.Table]["boolean"][Toml.Boolean], True)
+    assert_equal(
+        toml_obj[Toml.Table]["table"][Toml.Table]["key2"][Toml.Integer], 84
+    )
 
 
 struct StructOptional(Movable):
@@ -84,10 +64,8 @@ def test_struct_optional() raises:
     value_1 = "hello"
     """
     var toml_obj = parse_toml_raises(toml)
-    # var value = toml_to_type_raises[StructOptional](toml_obj^)
 
-    # assert_equal(value.value_1, "hello")
-    # assert_equal(Bool(value.value_2), False)
+    assert_equal(toml_obj[Toml.Table]["value_1"][Toml.String], "hello")
 
 
 @fieldwise_init
@@ -124,16 +102,21 @@ def test_nested() raises:
     """
     var toml_obj = parse_toml_raises(TOML_CONTENT)
     # var value = toml_to_type_raises[TestBuild](toml_obj^)
+    var value = toml_obj^.take[Toml.Table]()
 
-    # assert_equal(value.name, "samuel")
-    # assert_equal(value.age, 30)
-    # assert_equal(value.language.info.name, "mojo")
-    # assert_equal(value.language.current_version.value(), 0.26)
-    # assert_equal(Bool(value.language.stable_version), False)
+    assert_equal(value["name"][Toml.String], "samuel")
+    assert_equal(value["age"][Toml.Integer], 30)
+    assert_equal(
+        value["language"][Toml.Table]["info"][Toml.Table]["name"][Toml.String],
+        "mojo",
+    )
+    assert_equal(
+        value["language"][Toml.Table]["current_version"][Toml.Float], 0.26
+    )
 
 
 def main() raises:
-    var ts = TestSuite()
-    ts.test[test_simple_struct]()
-    ts^.run()
-    # TestSuite.discover_tests[__functions_in_module()]().run()
+    # var ts = TestSuite()
+    # ts.test[test_simple_struct]()
+    # ts^.run()
+    TestSuite.discover_tests[__functions_in_module()]().run()

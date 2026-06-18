@@ -1,5 +1,6 @@
 from std.testing import assert_equal, TestSuite
 
+from motoml.types.toml import Toml
 from motoml.parser import parse_toml
 
 
@@ -38,38 +39,22 @@ some_v = 1
 
 comptime desired_multiline_string = "select * from something\\n"
 
-# Parse at compile time
-comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
-
-# fn test_parse_toml_improvement() raises:
-#     """Test if new iterations really work better than old versions."""
-#     from benchmark import run
-#     from testing import assert_true
-
-#     fn old_impl():
-#         _ = parse_toml(TOML_TYPES)
-
-#     fn new_impl():
-#         _ = parse_toml_v2(TOML_TYPES)
-
-#     var old_report = run[func2=old_impl](max_iters=1000)
-#     var new_report = run[func2=new_impl](max_iters=1000)
-
-#     var old_time = old_report.duration()
-#     var new_time = new_report.duration()
-
-#     assert_true(new_time <= old_time)
-
 
 def test_all_toml_types() raises:
     # Materialize compile time values.
+    comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
+    # var res = parse_toml(TOML_TYPES)
     var res = materialize[TOML_TYPES_RES]()
     if not res:
-        raise "failed to parse toml file."
-    var r = res.take()
-    assert_equal(r["string"].string(), "abcd")
-    assert_equal(r["string_with_scape"].string(), r"ab\"cd")
-    assert_equal(r["multiline_string"].string(), desired_multiline_string)
+        var err = res^.take_error()
+        raise err^
+
+    var r = res^.take_value()
+    print("Parsed and saved!")
+    ref tb = r[Toml.Table]
+    assert_equal(tb["string"][Toml.String], "abcd")
+    assert_equal(tb["string_with_scape"][Toml.String], r"ab\"cd")
+    assert_equal(tb["multiline_string"][Toml.String], desired_multiline_string)
 
 
 def main() raises:
