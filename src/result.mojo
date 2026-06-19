@@ -1,4 +1,53 @@
 from std.utils import Variant
+from std.sys.intrinsics import _type_is_eq_parse_time
+
+
+@explicit_destroy("You should destroy, free, or take the pointer.")
+@fieldwise_init
+struct LinearPtr[is_empty: Bool, //, T: Movable & ImplicitlyDeletable](Movable):
+    var ptr: UnsafePointer[Self.T, MutUntrackedOrigin]
+
+    def __init__(out self: LinearPtr[is_empty=False, Self.T], var v: Self.T):
+        self.ptr = alloc[Self.T](1)
+        self.ptr.init_pointee_move(v^)
+
+    def __init__(out self: LinearPtr[is_empty=True, Self.T]):
+        self.ptr = alloc[Self.T](1)
+
+    def store(
+        deinit self, var v: Self.T
+    ) -> LinearPtr[is_empty=False, Self.T] where Self.is_empty:
+        self.ptr.init_pointee_move(v^)
+        return {self.ptr}
+
+    def take(deinit self) -> Self.T where not Self.is_empty:
+        return self.ptr.take_pointee()
+
+    def bitcast[
+        t: Movable & ImplicitlyDeletable
+    ](deinit self) -> LinearPtr[is_empty=False, t] where not Self.is_empty:
+        return {self.ptr.bitcast[t]()}
+
+    def unsafe_ref(ref self) -> ref[self] Self.T where Self.is_empty:
+        return self.ptr[]
+
+    def unsafe_as_initialized(
+        deinit self,
+    ) -> LinearPtr[is_empty=False, Self.T] where Self.is_empty:
+        return {self.ptr}
+
+    def __getitem__(ref self) -> ref[self] Self.T where not Self.is_empty:
+        return self.ptr[]
+
+    def destroy(
+        deinit self,
+    ) where not Self.is_empty:
+        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
+        self.ptr.destroy_pointee()
+
+    def free(deinit self) where Self.is_empty:
+        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
+        self.ptr.free()
 
 
 @explicit_destroy("The Result must be consumed.")
@@ -38,7 +87,7 @@ struct Result[T: Movable](
 
     def destroy(deinit self):
         """Destroy the result, and not use the value inside."""
-        pass
+        self.inner^.__del__()
 
     @always_inline
     def unsafe_take_value(deinit self) -> Self.T:
@@ -77,3 +126,11 @@ struct Result[T: Movable](
         if not self:
             return default^
         return self^.unsafe_take_value()
+
+    def and_then[
+        O: Movable, //
+    ](var self, func: def(var v: Self.T) thin -> O) -> Result[O]:
+        if self:
+            return func(self^.unsafe_take_value())
+        else:
+            return self^.unsafe_take_error()

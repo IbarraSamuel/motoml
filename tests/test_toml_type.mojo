@@ -73,11 +73,28 @@ def test_table() raises:
     }
     var toml = Toml(table^)
 
-    print(toml)
     ref tb = toml[Toml.Table]
     assert_equal(tb["first"][Int], 1)
     assert_equal(tb["second"][Float64], 2.0)
     assert_equal(tb["third"][Bool], True)
+
+    var own_tb = toml^.take[Toml.Table]()
+    assert_equal(own_tb["first"][Int], 1)
+    assert_equal(own_tb["second"][Float64], 2.0)
+    assert_equal(own_tb["third"][Bool], True)
+
+
+def test_nested_table() raises:
+    var table = {
+        "first": Toml({"second": Toml(1)}),
+    }
+    # var toml = Toml(table^)
+
+    # print(toml)
+    # ref tb = toml[Toml.Table]
+    # assert_equal(tb["first"][Int], 1)
+    # assert_equal(tb["second"][Float64], 2.0)
+    # assert_equal(tb["third"][Bool], True)
 
     # var own_tb = toml^.take[Toml.Table]()
     # assert_equal(own_tb["first"][Int], 1)

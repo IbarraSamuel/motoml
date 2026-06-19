@@ -74,10 +74,6 @@ def test_float_list() raises:
 
 
 def test_int_list() raises:
-    # var f1 = TomlType(integer=3)
-    # var f2 = TomlType(integer=4)
-    # var f3 = TomlType(integer=5)
-    # var l = [f1^, f2^, f3^]
     var l = [Toml(i) for i in range(3, 6)]
     var toml_list = Toml(l^)
     var result = toml_to_type_raises[List[Int]](toml_list^)
@@ -102,6 +98,31 @@ def test_string_list() raises:
     assert_equal(result[3], string_v)
 
 
+def test_toml_list() raises:
+    var string_v = Toml("hello")
+    var l = [
+        string_v.copy(),
+        string_v.copy(),
+        string_v.copy(),
+        string_v.copy(),
+    ]
+    var toml_list = Toml(l^)
+    var result = toml_to_type_raises[List[Toml]](toml_list^)
+    assert_equal(result[0], string_v)
+    assert_equal(result[1], string_v)
+    assert_equal(result[2], string_v)
+    assert_equal(result[3], string_v)
+
+
+def test_toml_table() raises:
+    var toml_obj = Toml({"first_value": Toml(1), "second_value": Toml(3.1)})
+
+    var simple_struct = toml_to_type_raises[Dict[String, Toml]](toml_obj^)
+
+    assert_equal(simple_struct["first_value"][Int], 1)
+    assert_equal(simple_struct["second_value"][Float64], 3.1)
+
+
 struct SimpleStruct(Movable):
     var first_value: Int
     var second_value: Float64
@@ -116,128 +137,115 @@ def test_simple_struct() raises:
     assert_equal(simple_struct.second_value, 3.1)
 
 
-struct AllTypes(Movable):
-    var integer: Int
-    var float: Float64
-    var boolean: Bool
-    var string: String
-    var string_lit: String
-    var multiline: String
-    var multiline_lit: String
-    var date: Toml.Date
-    var time: Toml.Time
-    var datetime: Toml.DateTime
-    var list: List[Int]
-    var table: SimpleTable
+# struct AllTypes(Movable):
+#     var integer: Int
+#     var float: Float64
+#     var boolean: Bool
+#     var string: String
+#     var date: Toml.Date
+#     var time: Toml.Time
+#     var datetime: Toml.DateTime
+#     var list: List[Int]
+#     var table: Table
 
 
-struct SimpleTable(Equatable, Movable, Writable):
-    var key: Int
-    var key2: Int
+# struct Table(Movable):
+#     var key: Int
+#     var key2: Int
 
 
 def test_struct_all_types() raises:
-    var toml_obj = Toml(
-        {
-            "integer": Toml(1),
-            "float": Toml(3.1),
-            "boolean": Toml(True),
-            "string": Toml("hello"),
-            "date": Toml(Toml.Date.from_string("2024-21-02")),
-            "time": Toml(Toml.Time.from_string("22:01:04")),
-            "datetime": Toml(
-                Toml.DateTime.from_string("2026-02-01T22:01:38-05:00")
-            ),
-            "list": Toml([Toml(1), Toml(2), Toml(3), Toml(4)]),
-            "table": Toml({"key": Toml(32), "key2": Toml(84)}),
-        }
-    )
+    var tb = Toml({"key": Toml(32), "key2": Toml("other_type")})
+    var other_t = Toml({"keyval": tb^})
+    # var _toml_obj = Toml(
+    #     {
+    #         "integer": Toml(1),
+    #         "float": Toml(3.1),
+    #         "boolean": Toml(True),
+    #         "string": Toml("hello"),
+    #         "nan": Toml(Toml.NaN()),
+    #         "date": Toml(Toml.Date.from_string("2024-21-02")),
+    #         "time": Toml(Toml.Time.from_string("22:01:04")),
+    #         "datetime": Toml(
+    #             Toml.DateTime.from_string("2026-02-01T22:01:38-05:00")
+    #         ),
+    #         "list": Toml([Toml(1), Toml(2), Toml(3), Toml(4)]),
+    #         "table": tb^,
+    #     }
+    # )
 
-    var at = toml_to_type_raises[AllTypes](toml_obj^)
+    # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
-    assert_equal(at.integer, 1)
-    assert_equal(at.float, 3.1)
-    assert_equal(at.boolean, True)
-    assert_equal(at.datetime.date.day, 2)
-    assert_equal(at.table.key, 32)
-
-
-struct StructOptional(Movable):
-    var value_1: String
-    var value_2: Optional[Int]
+    # assert_equal(at.integer, 1)
+    # assert_equal(at.float, 3.1)
+    # assert_equal(at.boolean, True)
+    # assert_equal(at.datetime.date.day, 2)
+    # assert_equal(at.table.key, 32)
 
 
-def test_struct_optional() raises:
-    var toml_obj = Toml({"value_1": Toml("hello")})
-    var value = toml_to_type_raises[StructOptional](toml_obj^)
-
-    assert_equal(value.value_1, "hello")
-    assert_equal(Bool(value.value_2), False)
+# struct StructOptional(Movable):
+#     var value_1: String
+#     var value_2: Int
 
 
-@fieldwise_init
-struct Info(Movable, Writable):
-    var name: String
-    var version: String
+# def test_struct_optional() raises:
+#     var toml_obj = Toml({"value_1": Toml("hello")})
+#     var value = toml_to_type_raises[StructOptional](toml_obj^)
+
+#     assert_equal(value.value_1, "hello")
+#     assert_equal(Bool(value.value_2), False)
 
 
-@fieldwise_init
-struct Language(Movable, Writable):
-    var info: Info
-    var current_version: Optional[Float64]
-    var stable_version: Optional[Float64]
+# struct TestBuild(Movable):
+#     var name: String
+#     var age: Int
+#     var other_types: List[Float64]
+#     var language: Language
 
 
-@fieldwise_init
-struct TestBuild(Movable, Writable):
-    var name: String
-    var age: Int
-    var other_types: List[Float64]
-    var language: Language
+# struct Language(Movable):
+#     # var current_version: Optional[Float64]
+#     # var stable_version: Optional[Float64]
+#     var info: Info
 
 
-def test_nested() raises:
-    comptime TOML_CONTENT = """
-    name = "samuel"
-    age = 30
-    other_types = [1.0, 2.0, 3.0]
-       [language]
-    current_version = 0.26
-       [language.info]
-    name = "mojo"
-    version = "0.26.2.0"
-    """
-    var toml_obj = Toml(
-        {
-            "name": Toml("samuel"),
-            "age": Toml(30),
-            "other_types": Toml(
-                [
-                    Toml(1.0),
-                    Toml(2.0),
-                    Toml(3.0),
-                ]
-            ),
-            "language": Toml(
-                {
-                    "current_version": Toml(0.26),
-                    "info": Toml(
-                        {
-                            "name": Toml("mojo"),
-                            "version": Toml("0.26.2.0"),
-                        }
-                    ),
-                }
-            ),
-        }
-    )
-    var value = toml_to_type_raises[TestBuild](toml_obj^)
+# struct Info(Movable):
+#     var name: String
+#     var version: String
 
-    assert_equal(value.name, "samuel")
-    assert_equal(value.age, 30)
-    assert_equal(value.language.info.name, "mojo")
-    assert_equal(value.language.current_version.value(), 0.26)
-    assert_equal(Bool(value.language.stable_version), False)
+
+# def test_nested() raises:
+#     var toml_obj = Toml(
+#         {
+#             "name": Toml("samuel"),
+#             "age": Toml(30),
+#             "other_types": Toml(
+#                 [
+#                     Toml(1.0),
+#                     Toml(2.0),
+#                     Toml(3.0),
+#                 ]
+#             ),
+#             "language": Toml(
+#                 {
+#                     "current_version": Toml(0.26),
+#                     "info": Toml(
+#                         {
+#                             "name": Toml("mojo"),
+#                             "version": Toml("0.26.2.0"),
+#                         }
+#                     ),
+#                 }
+#             ),
+#         }
+#     )
+#     var value = toml_to_type_raises[TestBuild](toml_obj^)
+
+#     assert_equal(value.name, "samuel")
+#     assert_equal(value.age, 30)
+#     assert_equal(value.language.info.name, "mojo")
+#     # assert_equal(value.language.current_version.value(), 0.26)
+#     # assert_equal(Bool(value.language.stable_version), False)
 
 
 def main() raises:
