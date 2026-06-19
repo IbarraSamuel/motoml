@@ -1,5 +1,6 @@
 from std.utils import Variant
 from std.sys.intrinsics import _type_is_eq_parse_time
+from std.memory import stack_allocation
 
 
 @explicit_destroy("You should destroy, free, or take the pointer.")
@@ -7,12 +8,21 @@ from std.sys.intrinsics import _type_is_eq_parse_time
 struct LinearPtr[is_empty: Bool, //, T: Movable & ImplicitlyDeletable](Movable):
     var ptr: UnsafePointer[Self.T, MutUntrackedOrigin]
 
-    def __init__(out self: LinearPtr[is_empty=False, Self.T], var v: Self.T):
-        self.ptr = alloc[Self.T](1)
-        self.ptr.init_pointee_move(v^)
+    def __init__(
+        out self: LinearPtr[is_empty=False, Self.T],
+        var v: Self.T,
+        *,
+        in_stack: Bool = False,
+    ):
+        self = LinearPtr[is_empty=True, Self.T](in_stack=in_stack).store(v^)
 
-    def __init__(out self: LinearPtr[is_empty=True, Self.T]):
-        self.ptr = alloc[Self.T](1)
+    def __init__(
+        out self: LinearPtr[is_empty=True, Self.T], *, in_stack: Bool = False
+    ):
+        if in_stack:
+            self.ptr = stack_allocation[1, Self.T]()
+        else:
+            self.ptr = alloc[Self.T](1)
 
     def store(
         deinit self, var v: Self.T
