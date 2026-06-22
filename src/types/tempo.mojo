@@ -1,3 +1,6 @@
+from motoml.result import Result
+
+
 struct Date(Equatable, TrivialRegisterPassable, Writable):
     var year: Int
     var month: Int
@@ -10,14 +13,17 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) raises -> Self:
-        var year_s = Int(v[byte=:4].removeprefix("0"))
-        # var year = 0 if len(year_s) == 0 else Int(year_s)
+    def from_string(v: StringSlice) -> Result[Self]:
+        try:
+            year_s = Int(v[byte=:4].removeprefix("0"))
+            # var year = 0 if len(year_s) == 0 else Int(year_s)
 
-        var month = Int(v[byte=5:7].removeprefix("0"))
-        var day = Int(v[byte=8:10].removeprefix("0"))
+            month = Int(v[byte=5:7].removeprefix("0"))
+            day = Int(v[byte=8:10].removeprefix("0"))
+        except e:
+            return e^
 
-        return {year = year_s, month = month, day = day}
+        return Self(year=year_s, month=month, day=day)
 
     def write_to(self, mut w: Some[Writer]):
         _align[4](self.year, w)
@@ -44,21 +50,24 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) -> Result[Self]:
         var positive: Bool
         if v[byte=0] == "-":
             positive = False
         elif v[byte=0] == "Z" or v[byte=0] == "z" or v[byte=0] == "+":
             positive = True
         else:
-            raise "sign not found for offset"
+            return Error("sign not found for offset")
 
-        var hour_s = Int(v[byte=1:3].removeprefix("0"))
-        # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
-        var minute_s = Int(v[byte=4:6].removeprefix("0"))
-        # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
+        try:
+            hour_s = Int(v[byte=1:3].removeprefix("0"))
+            # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
+            minute_s = Int(v[byte=4:6].removeprefix("0"))
+            # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
+        except e:
+            return e^
 
-        return {hour = hour_s, minute = minute_s, positive = positive}
+        return Offset(hour=hour_s, minute=minute_s, positive=positive)
 
     def write_to(self, mut w: Some[Writer]):
         if self == Offset.utc:
@@ -83,15 +92,18 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) raises -> Self:
-        var hour_s = Int(v[byte=0:2].removeprefix("0"))
-        var minute_s = Int(v[byte=3:5].removeprefix("0"))
+    def from_string(v: StringSlice) -> Result[Self]:
+        try:
+            hour_s = Int(v[byte=0:2].removeprefix("0"))
+            minute_s = Int(v[byte=3:5].removeprefix("0"))
+            if v.byte_length() != 5:
+                second = Float64(v[byte=6:].removeprefix("0"))
+            else:
+                second = 0.0
+        except e:
+            return e^
 
-        if v.byte_length() == 5:
-            return {hour = hour_s, minute = minute_s, second = 0.0}
-
-        var second = Float64(v[byte=6:].removeprefix("0"))
-        return {hour = hour_s, minute = minute_s, second = second}
+        return Time(hour=hour_s, minute=minute_s, second=second)
 
     def write_to(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
@@ -125,15 +137,42 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
     var offset: Offset
     var is_local: Bool
 
+    def __init__(
+        out self,
+        var date: Result[Date],
+        var time: Result[Time],
+        var offset: Result[Offset],
+        _is_local: Bool,
+    ) raises:
+        if not date:
+            time^.destroy()
+            offset^.destroy()
+            raise date^.unsafe_take_error()
+        if not time:
+            date^.destroy()
+            offset^.destroy()
+            raise time^.unsafe_take_error()
+        if not offset:
+            date^.destroy()
+            time^.destroy()
+            raise offset^.unsafe_take_error()
+
+        return Self(
+            date^.unsafe_take_value(),
+            time^.unsafe_take_value(),
+            offset^.unsafe_take_value(),
+            _is_local,
+        )
+
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) raises -> Self:
+    def from_string(v: StringSlice) -> Result[Self]:
         var split = v.find("T")
         split = v.find("t") if split == -1 else split
         split = v.find(" ") if split == -1 else split
 
         if split == -1:
-            raise t"Datetime is not datetime: `{v}`"
+            return Error(t"Datetime is not datetime: `{v}`")
         var date_s = v[byte=:split]
         # print("date is:", date_s)
 
@@ -162,7 +201,10 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         ) or z != -1 else Offset.from_string(v[byte=t_split:])
         # print("offset is:", offset)
 
-        return {date, time, offset, t_split == v.byte_length()}
+        try:
+            return Self(date^, time^, offset^, t_split == v.byte_length())
+        except e:
+            return e^
 
     def write_to(self, mut w: Some[Writer]):
         w.write(self.date, "T")

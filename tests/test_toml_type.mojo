@@ -35,7 +35,7 @@ def test_date() raises:
 
 
 def test_datetime() raises:
-    var datetime = Toml.DateTime.from_string("2022-03-02 03:43:02")
+    var datetime = Toml.DateTime.from_string("2022-03-02 03:43:02").take_value()
     var toml = Toml(datetime)
     assert_equal(toml[Toml.DateTime], datetime)
 
@@ -85,21 +85,13 @@ def test_table() raises:
 
 
 def test_nested_table() raises:
-    var table = {
-        "first": Toml({"second": Toml(1)}),
-    }
-    # var toml = Toml(table^)
+    var toml = Toml(
+        {
+            "first": Toml({"second": Toml(1)}),
+        }
+    )
 
-    # print(toml)
-    # ref tb = toml[Toml.Table]
-    # assert_equal(tb["first"][Int], 1)
-    # assert_equal(tb["second"][Float64], 2.0)
-    # assert_equal(tb["third"][Bool], True)
-
-    # var own_tb = toml^.take[Toml.Table]()
-    # assert_equal(own_tb["first"][Int], 1)
-    # assert_equal(own_tb["second"][Float64], 2.0)
-    # assert_equal(own_tb["third"][Bool], True)
+    assert_equal(toml[Toml.Table]["first"][Toml.Table]["second"][Int], 1)
 
 
 def main() raises:

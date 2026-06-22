@@ -1,5 +1,6 @@
 from std.hashlib import Hasher
 from std.os import abort
+from motoml.result import Result
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
@@ -61,7 +62,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
     #         ss = ss.replace(Pair[0], Pair[1])
     #     return ss
 
-    def calc_value(self) raises -> String:
+    def calc_value(self) -> Result[String]:
         # print("original string: `{}`".format(self.as_pure_slice()))
         var s = String(self.as_pure_slice().removeprefix("\n"))
         # print("stirng whitout prefix: `{}`".format(s))
@@ -72,7 +73,10 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
             # print("Is literal: -> ", s)
             ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         else:
-            ss = parse_string_escape(s)
+            var se = parse_string_escape(s)
+            if not se:
+                return se^.unsafe_take_error()
+            ss = se^.unsafe_take_value()
 
         comptime for f, t in Self.CommonEscape:
             ss = ss.replace(f, t)
@@ -117,7 +121,7 @@ def _find_escapes[
     return Byte(), -1, {}
 
 
-def parse_string_escape(v: StringSlice) raises -> String:
+def parse_string_escape(v: StringSlice) -> Result[String]:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
     var ssb = ss.as_bytes()
@@ -159,7 +163,7 @@ def parse_string_escape(v: StringSlice) raises -> String:
                 elif min_c <= byte and byte <= max_c:
                     rtv = 10 + byte - min_c
                 else:
-                    raise ("Span doesn't contain a valid hex value")
+                    return Error("Span doesn't contain a valid hex value")
                 value += UInt32(rtv) * UInt32(16**ii)
 
             if value == 8:
@@ -203,7 +207,7 @@ def parse_string_escape(v: StringSlice) raises -> String:
                         next_idx += bi + 1
                         break
                 else:
-                    raise (
+                    return Error(
                         "\\e scape found, and [ found but not found m at the"
                         " end."
                     )
@@ -212,7 +216,7 @@ def parse_string_escape(v: StringSlice) raises -> String:
                 codepoint = "\\u001b"
             # print("e modifications done!")
         else:
-            raise ("error! value not found")
+            return Error("error! value not found")
 
         if next_idx < ss.byte_length():
             ss = (

@@ -220,7 +220,7 @@ struct TomlType[o: ImmutOrigin](
 
     def string(ref self) -> String:
         try:
-            return self.inner[Self.String].calc_value()
+            return self.inner[Self.String].calc_value().take_value()
         except:
             os.abort("Error while parsing Value!")
 
@@ -350,7 +350,7 @@ struct TomlType[o: ImmutOrigin](
             ref s = inner[self.String]
             var v: String
             try:
-                v = s.calc_value()
+                v = s.calc_value().take_value()
             except:
                 os.abort("Unable to parse toml value. Bad toml!")
             return w.write('{"type": "string", "value": "', v, '"}')

@@ -3,26 +3,25 @@ from std.sys.intrinsics import _type_is_eq_parse_time
 from std.memory import stack_allocation
 
 
+struct NullPtr(Movable):
+    pass
+
+
 @explicit_destroy("You should destroy, free, or take the pointer.")
 @fieldwise_init
-struct LinearPtr[is_empty: Bool, //, T: Movable & ImplicitlyDeletable](Movable):
-    var ptr: UnsafePointer[Self.T, MutUntrackedOrigin]
+struct LinearPtr[is_empty: Bool, //, T: Movable, origin: Origin](
+    Copyable where not is_empty, Movable
+):
+    var ptr: UnsafePointer[Self.T, Self.origin]
 
     def __init__(
-        out self: LinearPtr[is_empty=False, Self.T],
-        var v: Self.T,
+        out self: LinearPtr[is_empty=False, Self.T, Self.Origin],
+        mut v: Self.T,
         *,
-        in_stack: Bool = False,
+        in_stack: Bool = True,
     ):
+        UnsafePointer(to=v)
         self = LinearPtr[is_empty=True, Self.T](in_stack=in_stack).store(v^)
-
-    def __init__(
-        out self: LinearPtr[is_empty=True, Self.T], *, in_stack: Bool = False
-    ):
-        if in_stack:
-            self.ptr = stack_allocation[1, Self.T]()
-        else:
-            self.ptr = alloc[Self.T](1)
 
     def store(
         deinit self, var v: Self.T
@@ -34,7 +33,7 @@ struct LinearPtr[is_empty: Bool, //, T: Movable & ImplicitlyDeletable](Movable):
         return self.ptr.take_pointee()
 
     def bitcast[
-        t: Movable & ImplicitlyDeletable
+        t: Movable
     ](deinit self) -> LinearPtr[is_empty=False, t] where not Self.is_empty:
         return {self.ptr.bitcast[t]()}
 
@@ -51,9 +50,15 @@ struct LinearPtr[is_empty: Bool, //, T: Movable & ImplicitlyDeletable](Movable):
 
     def destroy(
         deinit self,
-    ) where not Self.is_empty:
+    ) where conforms_to(Self.T, ImplicitlyDeletable) and not Self.is_empty:
         comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
         self.ptr.destroy_pointee()
+
+    def destroy_with(
+        deinit self, func: def(var Self.T) thin
+    ) where not Self.is_empty:
+        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
+        self.ptr.destroy_pointee_with(func)
 
     def free(deinit self) where Self.is_empty:
         comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
@@ -139,7 +144,14 @@ struct Result[T: Movable](
 
     def and_then[
         O: Movable, //
-    ](var self, func: def(var v: Self.T) thin -> O) -> Result[O]:
+    ](var self, func: def(var Self.T) thin -> Result[O]) -> Result[O]:
+        if not self:
+            return self^.unsafe_take_error()
+        return func(self^.unsafe_take_value())
+
+    def map[
+        O: Movable, //
+    ](var self, func: def(var Self.T) thin -> O) -> Result[O]:
         if self:
             return func(self^.unsafe_take_value())
         else:

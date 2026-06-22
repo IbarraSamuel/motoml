@@ -1,7 +1,10 @@
 from .tempo import Date, DateTime, Time
+from motoml.result import LinearPtr
+
 from std.sys.intrinsics import _type_is_eq_parse_time, _type_is_eq
 from std.sys.compile import codegen_unreachable
-from std.reflection.traits import AllWritable, AllEquatable
+from std.builtin.rebind import downcast
+from std.reflection.traits import AllWritable, AllEquatable, AllCopyable
 from std.memory import stack_allocation, alloc
 
 
@@ -10,6 +13,9 @@ struct NaN(Equatable, TrivialRegisterPassable, Writable):
     pass
 
 
+# @explicit_destroy(
+#     "Toml needs to be consumed. Or discard content with `destroy[T].`"
+# )
 struct Toml(Copyable, Equatable, Movable, Writable):
     comptime String = String
     comptime Integer = Int
@@ -32,11 +38,11 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         Self.Date,
         Self.Time,
         Self.DateTime,
-        Self.Array,
-        Self.Table,
+        downcast[Self.Array, Copyable],
+        downcast[Self.Table, Copyable],
     ]()
 
-    var _inner: OpaquePointer[MutUntrackedOrigin]
+    var _inner: LinearPtr[is_empty=False, NoneType]
     var _id: Int
 
     @staticmethod
@@ -54,6 +60,19 @@ struct Toml(Copyable, Equatable, Movable, Writable):
                 return reflect[T].name()
 
         return "ERROR: NOT FOUND"
+
+    def __init__(out self, *, copy: Self):
+        comptime for i in range(Self.AllTypes.size):
+            comptime T = Self.AllTypes[i]
+            comptime assert conforms_to(T, Copyable)
+            comptime assert Self.AllTypes.contains[T]()
+            if copy.isa[T]():
+                var val_copy = copy.unsafe_ref[T]().copy()
+                comptime assert Self.AllTypes.contains[type_of(val_copy)]()
+                return {val_copy^}
+
+        self._inner = {copy = copy._inner}
+        self._id = copy._id
 
     # def __moveinit__(deinit self) -> Self:
     #     comptime for i in range(Self.AllTypes.size):
@@ -80,14 +99,11 @@ struct Toml(Copyable, Equatable, Movable, Writable):
     def __init__[
         T: Movable, //
     ](out self, var value: T) where Self.AllTypes.contains[T]():
-        var ptr: UnsafePointer[T, MutUntrackedOrigin]
-        if _type_is_eq_parse_time[T, Self.Table]():
-            ptr = stack_allocation[1, type_of(value)]()
+        comptime if _type_is_eq_parse_time[T, Self.Table]():
+            ptr = LinearPtr[is_empty=False, T](value^, in_stack=True)
         else:
-            ptr = alloc[T](1)
-
-        ptr.init_pointee_move(value^)
-        self._inner = ptr.bitcast[NoneType]()
+            ptr = LinearPtr[is_empty=False, T](value^, in_stack=False)
+        self._inner = ptr^.bitcast[NoneType]()
         self._id = self._get_type_idx[T]()
 
     def isa[T: Movable](self) -> Bool where Self.AllTypes.contains[T]():
@@ -98,7 +114,13 @@ struct Toml(Copyable, Equatable, Movable, Writable):
     ](ref self) raises -> ref[self] T where Self.AllTypes.contains[T]():
         if not self.isa[T]():
             raise "The type you are trying to access is not correct."
-        return self._inner.bitcast[T]()[]
+        return self.unsafe_ref[T]()
+
+    def unsafe_ref[
+        T: Movable
+    ](ref self) -> ref[self] T where Self.AllTypes.contains[T]():
+        assert self.isa[T]()
+        return self._inner.ptr.bitcast[T]()[]
 
     def take[
         T: Movable
@@ -111,7 +133,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         T: Movable
     ](deinit self) -> T where Self.AllTypes.contains[T]():
         assert self.isa[T]()
-        return self._inner.bitcast[T]().take_pointee()
+        return self._inner^.bitcast[T]().take()
 
     def write_to(self, mut w: Some[Writer]):
         comptime for i in range(Self.AllTypes.size):
@@ -122,7 +144,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             if self.isa[T]():
                 comptime if _type_is_eq[T, Self.Array]():
                     w.write("[")
-                    for i, v in enumerate(self._inner.bitcast[Self.Array]()[]):
+                    for i, v in enumerate(self.unsafe_ref[Self.Array]()):
                         if i != 0:
                             w.write(", ")
                         w.write(v)
@@ -130,7 +152,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
                 elif _type_is_eq[T, Self.Table]():
                     w.write("{")
                     for i, v in enumerate(
-                        self._inner.bitcast[Self.Table]()[].items()
+                        self.unsafe_ref[Self.Table]().items()
                     ):
                         var rp = t'"{v.key}": {v.value}'
                         if i != 0:
@@ -138,7 +160,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
                         w.write(rp)
                     w.write("}")
                 else:
-                    w.write(self._inner.bitcast[T]()[])
+                    w.write(self.unsafe_ref[T]())
                 return
 
     def __eq__(self, other: Toml) -> Bool:
@@ -203,11 +225,13 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             w.write("}")
             return
 
-    # def __del__(deinit self):
-    #     comptime for i in range(Self.AllTypes.size):
-    #         comptime T = Self.AllTypes[i]
-    #         comptime assert Self.AllTypes.contains[T]()
-    #         comptime assert conforms_to(T, ImplicitlyDeletable)
-    #         if self.isa[T]():
-    #             self._inner.bitcast[T]().destroy_pointee()
-    #             return
+    def __del__(deinit self):
+        comptime for i in range(Self.AllTypes.size):
+            comptime T = Self.AllTypes[i]
+            comptime assert Self.AllTypes.contains[T]()
+            comptime assert conforms_to(T, ImplicitlyDeletable)
+            if self.isa[T]():
+                self._inner^.bitcast[T]().destroy()
+                return
+        else:
+            _ = self._inner^.take()
