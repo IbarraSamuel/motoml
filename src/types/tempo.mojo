@@ -145,16 +145,16 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         _is_local: Bool,
     ) raises:
         if not date:
-            time^.destroy()
-            offset^.destroy()
+            time^.forget()
+            offset^.forget()
             raise date^.unsafe_take_error()
         if not time:
-            date^.destroy()
-            offset^.destroy()
+            date^.forget()
+            offset^.forget()
             raise time^.unsafe_take_error()
         if not offset:
-            date^.destroy()
-            time^.destroy()
+            date^.forget()
+            time^.forget()
             raise offset^.unsafe_take_error()
 
         return Self(

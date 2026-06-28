@@ -4,16 +4,17 @@ TODO: Make it a single implementation.
 """
 
 from .types.toml import Toml
-from .result import Result, LinearPtr
+from .result import Result
 
 from std.sys import size_of
 from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 from std.builtin.rebind import downcast
 from std.reflection import reflect, Reflected
 from std.utils import Variant
-from std.memory import stack_allocation, alloc
+from std.memory import stack_allocation, alloc, dealloc, Layout
 
 
+@always_inline
 def _rebind_toml_type[
     T: Movable & ImplicitlyDeletable
 ](var toml: Toml) -> Result[T] where Toml.AllTypes.contains[T]():
@@ -26,6 +27,7 @@ def _rebind_toml_type[
     return toml^.unsafe_take[T]()
 
 
+@always_inline
 def _rebind_list[
     T: Movable & ImplicitlyDeletable
 ](var toml: Toml) -> Result[List[T]]:
@@ -45,9 +47,8 @@ def _rebind_list[
     return new_lst^
 
 
-def _rebind_struct[
-    T: Movable & ImplicitlyDeletable
-](var toml: Toml) -> Result[T]:
+@always_inline
+def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
     comptime Tr = reflect[T]
     comptime field_types = Tr.field_types()
     comptime field_count = Tr.field_count()
@@ -56,10 +57,13 @@ def _rebind_struct[
     if not toml.isa[Toml.Table]():
         return Error("The toml value doesn't correspond to a Table.")
 
-    var struct_ptr = LinearPtr[T]()
+    # print(t"building struct allocation for struct : {Tr.name()}")
+    var struct_ptr = alloc[T](1)
+    # print("allocation done")
     # var struct_ptr = stack_allocation[1, T]()
     var toml_tb = toml^.unsafe_take[Toml.Table]()
 
+    # print("iterate all fields...")
     comptime for fi in range(field_count):
         comptime TYPE = field_types[fi]
         comptime RTYPE = reflect[TYPE]
@@ -72,7 +76,8 @@ def _rebind_struct[
             t" idx: {fi}"
         )
 
-        ref field_ptr = Tr.field_ref[fi](struct_ptr.unsafe_ref())
+        # print("Field name:", NAME)
+        ref field_ptr = Tr.field_ref[fi](struct_ptr[])
 
         comptime if RTYPE.base_name() == "Optional":
             comptime assert conforms_to(TYPE, Iterator)
@@ -88,7 +93,7 @@ def _rebind_struct[
 
                 if not inner:
                     # TODO: Destroy properly
-                    struct_ptr^.free()
+                    struct_ptr.free()
                     return inner^.unsafe_take_error()
 
                 field_ptr = rebind_var[TYPE](
@@ -96,7 +101,9 @@ def _rebind_struct[
                 )
         else:
             if NAME not in toml_tb:
-                struct_ptr^.free()
+                # TODO: Destroy properly
+                struct_ptr.free()
+                # dealloc(struct_ptr^)
                 return Error("Struct field doesn't exists in toml table.")
 
             var value = toml_tb.pop(NAME, {Toml.NaN()})
@@ -104,17 +111,24 @@ def _rebind_struct[
             var inner = toml_to_type[TYPE](value^)
             if not inner:
                 # TODO: Destroy properly
-                struct_ptr^.free()
+                _ = struct_ptr.free()
+                # dealloc(struct_ptr^)
                 return inner^.unsafe_take_error()
             field_ptr = inner^.unsafe_take_value()
+        # print(t"Field {NAME} done!")
 
-    return struct_ptr^.unsafe_as_initialized().take()
+    # print("struct done!")
+    return struct_ptr.take_pointee()
 
 
 def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
     comptime Tr = reflect[T]
+    # print(
+    #     t"Syntetize type {Tr.name()} from toml type: {toml.get_type_name()}."
+    #     t" Base is: {Tr.base_name()}"
+    # )
 
-    comptime if _type_is_eq_parse_time[T, Toml]():
+    comptime if _type_is_eq[T, Toml]():
         return rebind_var[T](toml^)
 
     elif Toml.AllTypes.contains[T]():
@@ -124,7 +138,6 @@ def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
         comptime assert conforms_to(T, Iterable)
         comptime Elem = T.IteratorType[origin_of()].Element
         comptime assert conforms_to(Elem, Movable & ImplicitlyDeletable)
-
         var lst = _rebind_list[Elem](toml^)
         if not lst:
             return lst^.unsafe_take_error()

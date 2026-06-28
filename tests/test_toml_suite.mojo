@@ -49,13 +49,13 @@ def toml_single_test(strpath: String) raises -> None:
         raise "file not exists: " + String(file)
     var content = file.read_text()
 
-    print(t"test readed! file: {strpath}")
+    # print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
             var toml_r = parse_toml_raises(content)
             var w = String()
             toml_r.to_json(w)
-            print(w)
+            # print(w)
         return
 
     var toml_result = parse_toml_raises(content)
@@ -108,7 +108,7 @@ def main() raises:
         var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
         suite.add_test(name=root_fpath^, location=fpath)
 
-    print("Running tests...")
+    # print("Running tests...")
     suite^.run()
 
 

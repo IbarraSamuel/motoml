@@ -1,85 +1,24 @@
 from std.utils import Variant
 from std.sys.intrinsics import _type_is_eq_parse_time
-from std.memory import stack_allocation
-
-
-struct NullPtr(Movable):
-    pass
-
-
-@explicit_destroy("You should destroy, free, or take the pointer.")
-@fieldwise_init
-struct LinearPtr[is_empty: Bool, //, T: Movable, origin: Origin](
-    Copyable where not is_empty, Movable
-):
-    var ptr: UnsafePointer[Self.T, Self.origin]
-
-    def __init__(
-        out self: LinearPtr[is_empty=False, Self.T, Self.Origin],
-        mut v: Self.T,
-        *,
-        in_stack: Bool = True,
-    ):
-        UnsafePointer(to=v)
-        self = LinearPtr[is_empty=True, Self.T](in_stack=in_stack).store(v^)
-
-    def store(
-        deinit self, var v: Self.T
-    ) -> LinearPtr[is_empty=False, Self.T] where Self.is_empty:
-        self.ptr.init_pointee_move(v^)
-        return {self.ptr}
-
-    def take(deinit self) -> Self.T where not Self.is_empty:
-        return self.ptr.take_pointee()
-
-    def bitcast[
-        t: Movable
-    ](deinit self) -> LinearPtr[is_empty=False, t] where not Self.is_empty:
-        return {self.ptr.bitcast[t]()}
-
-    def unsafe_ref(ref self) -> ref[self] Self.T where Self.is_empty:
-        return self.ptr[]
-
-    def unsafe_as_initialized(
-        deinit self,
-    ) -> LinearPtr[is_empty=False, Self.T] where Self.is_empty:
-        return {self.ptr}
-
-    def __getitem__(ref self) -> ref[self] Self.T where not Self.is_empty:
-        return self.ptr[]
-
-    def destroy(
-        deinit self,
-    ) where conforms_to(Self.T, ImplicitlyDeletable) and not Self.is_empty:
-        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
-        self.ptr.destroy_pointee()
-
-    def destroy_with(
-        deinit self, func: def(var Self.T) thin
-    ) where not Self.is_empty:
-        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
-        self.ptr.destroy_pointee_with(func)
-
-    def free(deinit self) where Self.is_empty:
-        comptime assert not _type_is_eq_parse_time[Self.T, NoneType]()
-        self.ptr.free()
+from std.memory import alloc
+from std.utils.type_functions import ConditionalType
 
 
 @explicit_destroy("The Result must be consumed.")
-struct Result[T: Movable](
+struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
     Boolable,
     Equatable where conforms_to(T, Equatable),
     Movable,
     Writable,
 ):
-    var inner: Variant[Self.T, Error]
+    var inner: Variant[Self.T, Self.E]
 
     @implicit
     def __init__(out self, var value: Self.T):
         self.inner = value^
 
     @implicit
-    def __init__(out self, var error: Error):
+    def __init__(out self, var error: Self.E):
         self.inner = error^
 
     def __bool__(self) -> Bool:
@@ -87,72 +26,111 @@ struct Result[T: Movable](
 
     def __eq__(self, other: Self) -> Bool where conforms_to(Self.T, Equatable):
         return (
-            self.inner.isa[Self.T]()
-            and other.inner.isa[Self.T]()
-            and self.ref_value() == other.ref_value()
+            Bool(self)
+            and Bool(other)
+            and self.unsafe_ref_value() == other.unsafe_ref_value()
         )
 
-    def ref_value(self) -> ref[self.inner] Self.T:
+    def __getitem__(self) raises -> ref[self.inner] Self.T:
+        if not self:
+            raise "Result type doesn't hold a value."
+        return self.unsafe_ref_value()
+
+    @always_inline
+    def unsafe_ref_value(self) -> ref[self.inner] Self.T:
+        assert Bool(self), "Result type doesn't hold a value."
         return self.inner[Self.T]
 
-    def ref_error(self) -> ref[self.inner] Error:
-        return self.inner[Error]
+    def ref_error(self) raises -> ref[self.inner] Self.E:
+        if self:
+            raise "Result Type doesn't have an Error value."
+        return self.unsafe_ref_error()
+
+    @always_inline
+    def unsafe_ref_error(self) -> ref[self.inner] Self.E:
+        assert not self, "Result type doesn't hold an error."
+        return self.inner[Self.E]
 
     # -- Destroy methods --
 
-    def destroy(deinit self):
-        """Destroy the result, and not use the value inside."""
-        self.inner^.__del__()
+    def forget(deinit self):
+        pass
+        # if not self:
+        #     pass
+        #     var typed = self.inner.bitcast[Error]()
+        #     _ = typed.destroy_pointee()
+        #     typed.free()
+        # else:
+        #     var typed = self.inner.bitcast[Self.T]()
+        #     _ = typed.destroy_pointee()
+        #     typed.free()
+
+    def unsafe_take[
+        t: Movable
+    ](deinit self, out value: t) where TypeList.of[
+        Trait=Movable, Self.T, Self.E
+    ].contains[t]():
+        assert Bool(self), "No value found in the Result Type."
+        value = self.inner^.take[t]()
 
     @always_inline
     def unsafe_take_value(deinit self) -> Self.T:
         """Take the value. You must check that there is a value. If not, you will get UB.
         """
-        return self.inner^.unsafe_take[Self.T]()
+        # TODO: MOVE TO UNSAFE IN FUTURE
+        return self^.unsafe_take[Self.T]()
 
     @always_inline
-    def unsafe_take_error(deinit self) -> Error:
+    def unsafe_take_error(deinit self) -> Self.E:
         """Take the error. You must check that there is an error. If not, you will get UB.
         """
-        return self.inner^.unsafe_take[Error]()
+        # TODO: MOVE TO UNSAFE IN FUTURE
+        return self^.unsafe_take[Self.E]()
 
-    def take_error(deinit self) raises -> Error:
+    def take_error(var self) raises -> Self.E:
         """Take the error or raises otherwise."""
         if self:
+            comptime assert conforms_to(Self.T, ImplicitlyDeletable)
+            _ = self^.unsafe_take_value()
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
 
-    def take_value(deinit self) raises -> Self.T:
+    def take_value(var self) raises -> Self.T:
         """Take the value or raises otherwise."""
         if not self:
+            _ = self^.unsafe_take_error()
             raise "Result type has an error, not a value T."
         return self^.unsafe_take_value()
 
-    def as_optional(deinit self) -> Optional[Self.T]:
+    def as_optional(var self) -> Optional[Self.T]:
         """Convert to an Optional type."""
         if not self:
+            _ = self^.unsafe_take_error()
             return None
         return self^.unsafe_take_value()
 
-    def or_else[
-        t: Movable & ImplicitlyDeletable, //
-    ](deinit self: Result[t], var default: t) -> t:
+    def or_else(var self, var default: Self.T) -> Self.T:
         """Take the value or return a default value."""
         if not self:
+            _ = self^.unsafe_take_error()
             return default^
+        comptime assert conforms_to(Self.T, ImplicitlyDeletable)
+        _ = default^
         return self^.unsafe_take_value()
 
     def and_then[
-        O: Movable, //
-    ](var self, func: def(var Self.T) thin -> Result[O]) -> Result[O]:
+        O: Movable, e: Writable & Movable & ImplicitlyDeletable, //
+    ](var self, func: def(var Self.T) thin -> Result[O, e]) -> Result[O, Error]:
         if not self:
-            return self^.unsafe_take_error()
-        return func(self^.unsafe_take_value())
+            return Error(self^.unsafe_take_error())
+        var new_result = func(self^.unsafe_take_value())
+        if not new_result:
+            return Error(new_result^.unsafe_take_error())
+        return new_result^.unsafe_take_value()
 
     def map[
         O: Movable, //
-    ](var self, func: def(var Self.T) thin -> O) -> Result[O]:
-        if self:
-            return func(self^.unsafe_take_value())
-        else:
+    ](var self, func: def(var Self.T) thin -> O) -> Result[O, Self.E]:
+        if not self:
             return self^.unsafe_take_error()
+        return func(self^.unsafe_take_value())
