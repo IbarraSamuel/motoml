@@ -3,15 +3,6 @@ Rules:
 Dotted keys, can create a dictionary grouping the values.
 """
 
-from std.collections.string import Codepoint
-from std.utils import Variant
-from std.sys.intrinsics import _type_is_eq, unlikely, likely
-from std.collections.dict import _DictEntryIter
-from std.builtin.builtin_slice import ContiguousSlice
-from std.sys.compile import codegen_unreachable
-from std.memory import OwnedPointer
-from std.iter import map
-
 from .result import Result
 from .types.toml import Toml
 from .types.string_ref import StringRef
@@ -35,9 +26,9 @@ comptime DoubleQuote = Byte(ord('"'))
 comptime SingleQuote = Byte(ord("'"))
 comptime Escape = Byte(ord("\\"))
 
-def _printif[log: Bool](msg: Some[Writable]):
+def _printif[log: Bool](msg: Some[Writable], *, sep: StringSlice = " ", end: StringSlice = "\n"):
     if log:
-        print(msg)
+        print(msg,sep=sep,end=end)
 
 def parse_multiline_string[
     quote_type: Byte, *, ignore_escape: Bool
@@ -347,8 +338,7 @@ def get_table_ref[
 ) -> Result[Pointer[Toml, origin_of(base)]]:
     var cont = Pointer(to=base)
     for k in keys[: len(keys) - 1]:
-        comptime if log:
-            print(
+        _printif[log](
                 t"|> k -> '{k}' ",
                 end="",
             )
@@ -410,7 +400,7 @@ def to_string_ref[o: ImmutOrigin, lit: Bool, multi: Bool](v: Span[Byte, o]) -> S
     
 
 def parse_keys[
-    o: ImmutOrigin, //, close_char: Byte
+    o: ImmutOrigin, //, close_char: Byte, *, log: Bool
 ](
     data: Span[Byte, o], mut idx: Int, var key_base: List[String]
 ) -> Result[List[String]]:
@@ -426,6 +416,7 @@ def parse_keys[
     var key_init = idx
     var key: Optional[String] = {}
 
+    _printif[log](t"Len data is: {len(data)} and curr idx is: {idx}")
     while idx < len(data) and data[idx] != close_char:
         var chr = data[idx]
         if chr == SingleQuote:
@@ -457,13 +448,15 @@ def parse_keys[
             # Skip any space between parsed element and next key
             skip[Space, Tab](data, idx)
             # Return the inner element?
-            return parse_keys[close_char](data, idx, key_base^)
+            return parse_keys[close_char, log=log](data, idx, key_base^)
         elif chr == Byte(ord("#")):
-            return Error("Comment found in middle of key") 
-
+            return Error("Comment found in middle of key")
+        # elif key and chr == Equal:
+        #     return Error("Assignment in middle of key definition.")
         idx += 1
 
-    if idx >= len(data):
+    # _printif[log](t"Len data is: {len(data)} and curr idx is: {idx}")
+    if idx == len(data) or idx > len(data):
         return Error("Key not closed.")
 
     if not key:
@@ -481,29 +474,24 @@ def parse_kv_pairs[
     End at the last value + 1.
     """
 
-    comptime if log:
-        print("++ kcreate new empty table container")
+    _printif[log]("++ kcreate new empty table container")
     var table = Toml.Table(capacity=16)
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
         var key_base = List[String]()
 
-        comptime if log:
-            print("Parsing inline keys...")
+        _printif[log]("Parsing inline keys...")
 
-        var keys_res = parse_keys[Equal](data, idx, key_base^)
+        var keys_res = parse_keys[Equal ,log=log](data, idx, key_base^)
         if not keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
 
 
 
-        comptime if log:
-            print(
-                "inline keys -> '",
-                ",".join(keys),
-                "'",
+        _printif[log](
+                t"inline keys -> '{",".join(keys)}'",
                 sep=""
             )
         idx += 1
@@ -515,11 +503,10 @@ def parse_kv_pairs[
         var v_r = parse_value[end_char](data, idx)
         if not v_r:
             return v_r^.unsafe_take_error()
-        var v= v_r^.unsafe_take_value()
+        var v = v_r^.unsafe_take_value()
 
-        comptime if log:
-            print("inline value -> '", v, "'", sep="")
-            print("Getting container ref...")
+        _printif[log](t"inline value -> '{v}'")
+        _printif[log]("Getting container ref...")
         idx += 1
 
         var table_ref = get_table_ref(keys, table, default=v^)
@@ -528,52 +515,48 @@ def parse_kv_pairs[
         _ = table_ref^.unsafe_take_value()
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
-        comptime if log:
-            print("container found and data saved!")
+        _printif[log]("container found and data saved!")
         stop_at[separator, end_char](data, idx)
-        comptime if log:
-            print(t"Stopped at `{Codepoint(separator)}`, `{Codepoint(end_char)}` or EOF!")
+        _printif[log](t"Stopped at `{Codepoint(separator)}`, `{Codepoint(end_char)}` or EOF!")
         if idx >= len(data) or data[idx] == end_char:
             break
-        comptime if log:
-            print(t"Skipping `{Codepoint(separator)}` or stop at EOF...")
+        _printif[log](t"Skipping `{Codepoint(separator)}` or stop at EOF...")
         # we are at separator
         skip[separator](data, idx)
-        comptime if log:
-            print("Skip blanks and comments...")
+        _printif[log]("Skip blanks and comments...")
         skip_blanks_and_comments(data, idx)
-        comptime if log:
-            print("Parser keep going to next cycle...")
+        _printif[log]("Parser keep going to next cycle...")
     # _ = get_container_ref[o = data.origin](keys, table, default=v^)
 
-    comptime if log:
-        print(t"Initial table finished! data is: {table}")
+    _printif[log](t"Initial table finished! data is: {table}")
     return table^
 
 
-def parse_multiline_keys(
+def parse_multiline_keys[log:Bool](
     data: Span[mut=False, Byte, _], mut idx: Int
 ) -> Result[List[String]]:
     """Assume where are on the position to start parsing the multiline key.
     But please skip spaces and tabs.
     """
     skip[Space, Tab](data, idx)
-    # print("parsing multiline collection key:")
-    var keys = parse_keys[SquareBracketClose](data, idx, {})
+    _printif[log](t"parsing multiline collection key. Curr idx: {idx}")
+    var keys = parse_keys[SquareBracketClose, log=log](data, idx, {})
+    if not keys:
+        return keys^.unsafe_take_error()
 
     # In case you are on a list, just skip the second squarebracket open
     idx += 1 + Int(data[idx] == SquareBracketOpen)
 
     stop_at[NewLine, SquareBracketOpen](data, idx)
     skip_blanks_and_comments(data, idx)
+    _printif[log]("Key parsed sucessfully")
 
     return keys^
 
 
 @always_inline
 def skip[*chars: Byte, log: Bool = False](data: Span[Byte, _], mut idx: Int):
-    comptime if log:
-        print("Starting skip of chars at:", idx)
+    _printif[log](t"Starting skip of chars at: {idx}")
     while idx < len(data):
         comptime for c in chars:
             if data[idx] == c:
@@ -594,12 +577,10 @@ def stop_at[*chars: Byte](data: Span[Byte, _], mut idx: Int):
 
 @always_inline
 def skip_blanks_and_comments[log: Bool = False](data: Span[Byte, _], mut idx: Int):
-    comptime if log:
-        print("Skip blanks and comments starting at:", idx)
+    _printif[log](t"Skip blanks and comments starting at: {idx}")
     while True:
         skip[NewLine, Enter, Space, Tab, log=log](data, idx)
-        comptime if log:
-            print("Done skipping space, enter, tab and newline... Checking if we are on a comment or we are out of idx. Curr idx: ", idx)
+        _printif[log](t"Done skipping space, enter, tab and newline... Checking if we are on a comment or we are out of idx. Curr idx: {idx}")
         if idx >= len(data) or data[idx] != Comment:
             return
         stop_at[NewLine](data, idx)
@@ -670,13 +651,13 @@ def tp_eq(v: Tuple[String, String]) -> Bool:
 #             return
 
 
-def parse_multiline_collections(
+def parse_multiline_collections[log: Bool](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
     mut base: Toml.Table,
     # base_keys: Span[Span[Byte, data.origin]],
     # nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
-) -> Result[NoneType]:
+) -> Optional[Error]:
     # Assume current container is a table where I need to push each kv found
     var contexts: List[
         Tuple[
@@ -695,7 +676,7 @@ def parse_multiline_collections(
         #         "array" if is_array else "table",
         #         "]------------:",
         #     )
-        var keys_res = parse_multiline_keys(data, idx)
+        var keys_res = parse_multiline_keys[log](data, idx)
         if not keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
@@ -873,43 +854,29 @@ def parse_toml[
     *, log: Bool = False
 ](content: StringSlice) -> Result[Toml]:
     var data = content.as_bytes()
+    _printif[log](t"\n\n~~~*** Starting new parse -- content: '{content}'" )
 
     var idx = 0
     skip_blanks_and_comments(data, idx)
 
     if idx >= len(data):
-        comptime if log:
-            print("Empty table, just return an empty object.")
+        _printif[log]("Empty table, just return an empty object.")
         return Toml(Toml.Table(capacity=0))
 
-    comptime if log:
-        print("parsing initial kv pairs...")
+    _printif[log]("parsing initial kv pairs...")
     var base_res = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](data, idx)
     if not base_res:
         return base_res^.unsafe_take_error()
     var base = base_res^.unsafe_take_value()
 
-    comptime if log:
-        print(t"end parsing initial kv pairs... Current idx: {idx}")
+    _printif[log](t"end parsing initial kv pairs... Current idx: {idx}")
 
-    var multiline_parsing = parse_multiline_collections(data, idx, base)
-    if not multiline_parsing:
-        return multiline_parsing^.unsafe_take_error()
-    _ = multiline_parsing^.unsafe_take_value()
-        
+    var err_or_none = parse_multiline_collections[log](data, idx, base)
+    if err_or_none:
+        return err_or_none.unsafe_take()
 
-    comptime if log:
-        print("done parsing toml!")
-        print("final data is:", base)
+    _printif[log](t"done parsing toml!\nfinal data is: {base}")
 
-    # var t =Toml(base^)
-    # comptime if log:
-    #     print("Checking if it's stored...")
-    #     ref inner = t[Toml.Table]
-    #     print("check result:", inner)
-        # print("is a tale?", t.get_inner().)
-        # var c = String(t.get_inner()[toml.TomlTypes.Table])
-        # print("Result is:", c)
     return Toml(base^)
 
 

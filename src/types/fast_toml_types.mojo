@@ -1,6 +1,5 @@
 import std.os as os
 from std.builtin.rebind import downcast
-from std.sys.intrinsics import likely, _type_is_eq
 from std.utils import Variant
 from std.collections.dict import _DictEntryIter
 from std.hashlib import Hasher
@@ -166,13 +165,13 @@ struct TomlType[o: ImmutOrigin](
         return TomlListIter[toml=origin_of(self), data=Self.o](array)
 
     def isa[T: AnyType](self) -> Bool:
-        comptime if _type_is_eq[T, Self.Array]():
+        comptime if T == Self.Array:
             return self.inner.isa[Self.OpaqueArray]()
-        elif _type_is_eq[T, Self.Table]():
+        elif T == Self.Table:
             return self.inner.isa[Self.OpaqueTable]()
-        elif _type_is_eq[T, Self.OpaqueArray]():
+        elif T == Self.OpaqueArray:
             return False
-        elif _type_is_eq[T, Self.OpaqueTable]():
+        elif T == Self.OpaqueTable:
             return False
         else:
             return self.inner.isa[T]()

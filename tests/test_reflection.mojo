@@ -1,5 +1,4 @@
 from std.testing import TestSuite, assert_equal
-from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
 
 # from motoml.parser import parse_toml, parse_toml_raises
 from motoml.types.toml import Toml
@@ -145,7 +144,7 @@ struct AllTypes(Movable):
     var date: Toml.Date
     var time: Toml.Time
     var datetime: Toml.DateTime
-    # var list: List[Toml]
+    var list: List[Toml]
     var table: Table
 
 
@@ -171,7 +170,7 @@ def test_struct_all_types() raises:
             "date": date^,
             "time": time^,
             "datetime": datetime^,
-            # "list": Toml([Toml(1), Toml(2), Toml(3), Toml(4)]),
+            "list": Toml([Toml(1), Toml(2), Toml(3), Toml(4)]),
             "table": inner_tb^,
         }
     )
@@ -181,15 +180,17 @@ def test_struct_all_types() raises:
     assert_equal(tb["float"][Toml.Float], 3.1)
     assert_equal(tb["boolean"][Toml.Boolean], True)
     assert_equal(tb["datetime"][Toml.DateTime].date.day, 1)
+    assert_equal(tb["list"][Toml.Array][2][Toml.Integer], 3)
     assert_equal(tb["table"][Toml.Table]["key"][Toml.Integer], 32)
 
     var at = toml_to_type_raises[AllTypes](_toml_obj^)
 
-    # assert_equal(at.integer, 1)
-    # assert_equal(at.float, 3.1)
-    # assert_equal(at.boolean, True)
-    # assert_equal(at.datetime.date.day, 2)
-    # assert_equal(at.table.key, 32)
+    assert_equal(at.integer, 1)
+    assert_equal(at.float, 3.1)
+    assert_equal(at.boolean, True)
+    assert_equal(at.datetime.date.day, 1)
+    assert_equal(at.list[2], Toml(3))
+    assert_equal(at.table.key, 32)
 
 
 struct StructOptional(Movable):
@@ -249,14 +250,13 @@ def test_nested() raises:
         }
     )
 
+    var value = toml_to_type_raises[TestBuild](toml_obj^)
 
-#     var value = toml_to_type_raises[TestBuild](toml_obj^)
-
-#     assert_equal(value.name, "samuel")
-#     assert_equal(value.age, 30)
-#     assert_equal(value.language.info.name, "mojo")
-#     assert_equal(value.language.current_version.value(), 0.26)
-#     assert_equal(Bool(value.language.stable_version), False)
+    assert_equal(value.name, "samuel")
+    assert_equal(value.age, 30)
+    assert_equal(value.language.info.name, "mojo")
+    assert_equal(value.language.current_version.value(), 0.26)
+    assert_equal(Bool(value.language.stable_version), False)
 
 
 def main() raises:

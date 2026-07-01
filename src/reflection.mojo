@@ -6,12 +6,7 @@ TODO: Make it a single implementation.
 from .types.toml import Toml
 from .result import Result
 
-from std.sys import size_of
-from std.sys.intrinsics import _type_is_eq, _type_is_eq_parse_time
-from std.builtin.rebind import downcast
-from std.reflection import reflect, Reflected
-from std.utils import Variant
-from std.memory import stack_allocation, alloc, dealloc, Layout
+from std.memory import stack_allocation, alloc, dealloc
 
 
 @always_inline
@@ -61,7 +56,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
     var struct_ptr = alloc[T](1)
     # print("allocation done")
     # var struct_ptr = stack_allocation[1, T]()
-    var toml_tb = toml^.unsafe_take[Toml.Table]()
+    ref toml_tb = toml.unsafe_ref[Toml.Table]()
 
     # print("iterate all fields...")
     comptime for fi in range(field_count):
@@ -128,7 +123,7 @@ def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
     #     t" Base is: {Tr.base_name()}"
     # )
 
-    comptime if _type_is_eq[T, Toml]():
+    comptime if T == Toml:
         return rebind_var[T](toml^)
 
     elif Toml.AllTypes.contains[T]():

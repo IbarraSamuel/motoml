@@ -1,10 +1,6 @@
 from .tempo import Date, DateTime, Time
 
 from std.os import abort
-from std.sys.intrinsics import _type_is_eq_parse_time, _type_is_eq
-from std.sys.compile import codegen_unreachable
-from std.builtin.rebind import downcast
-from std.reflection.traits import AllWritable, AllEquatable, AllCopyable
 from std.memory import (
     stack_allocation,
     alloc,
@@ -55,7 +51,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
     @staticmethod
     def _get_type_idx[T: Movable]() -> Int where Self.AllTypes.contains[T]():
         comptime for idx in range(Self.AllTypes.size):
-            comptime if _type_is_eq[Self.AllTypes[idx], T]():
+            comptime if Self.AllTypes[idx] == T:
                 return idx
         return -1
 
@@ -126,14 +122,14 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             comptime assert conforms_to(T, Writable)
 
             if self.isa[T]():
-                comptime if _type_is_eq[T, Self.Array]():
+                comptime if T == Self.Array:
                     w.write("[")
                     for i, v in enumerate(self.unsafe_ref[Self.Array]()):
                         if i != 0:
                             w.write(", ")
                         w.write(v)
                     w.write("]")
-                elif _type_is_eq[T, Self.Table]():
+                elif T == Self.Table:
                     w.write("{")
                     for i, v in enumerate(
                         self.unsafe_ref[Self.Table]().items()

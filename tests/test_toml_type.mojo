@@ -1,6 +1,5 @@
 from std.testing import TestSuite, assert_equal, assert_true
 from motoml.types.toml import Toml
-from std.sys.intrinsics import _type_is_eq
 
 
 def test_string() raises:
