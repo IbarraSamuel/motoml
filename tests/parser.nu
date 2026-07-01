@@ -18,7 +18,7 @@ export def compare-toml-parser [
   nothing -> nothing,
   string -> nothing
 ] {
-  let should_fail = $expect_to == "pass"
+  let should_fail = $expect_to != "pass"
   let content: string = if $in != null {$in | to text} else if file != null {open $file --raw} else {raise "input not provided!"}
   "------- toml input ------" | print
   $content | print

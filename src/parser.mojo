@@ -670,27 +670,27 @@ def parse_multiline_collections[log: Bool](
         var is_array = data[idx + 1] == SquareBracketOpen
         idx += 1 + Int(is_array)
 
-        # comptime if log:
-        #     print(
-        #         "---------- multiline keys[",
-        #         "array" if is_array else "table",
-        #         "]------------:",
-        #     )
+        comptime if log:
+            print(
+                "---------- multiline keys[",
+                "array" if is_array else "table",
+                "]------------:",
+            )
         var keys_res = parse_multiline_keys[log](data, idx)
         if not keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
 
-        # comptime if log:
-        #     print(
-        #         "[" * (1 + Int(is_array)),
-        #         _repr_keys(keys),
-        #         "]" * (1 + Int(is_array)),
-        #         sep="",
-        #     )
+        comptime if log:
+            print(
+                "[" * (1 + (1 if is_array else 0)),
+                keys,
+                "]" * (1 + (1 if is_array else 0)),
+                sep="",
+            )
 
-        # comptime if log:
-        #     print("----------- multiline values -------------:")
+        comptime if log:
+            print("----------- multiline values -------------:")
         var values_res = parse_kv_pairs[NewLine, SquareBracketOpen](
             data, idx
         )
@@ -723,24 +723,24 @@ def parse_multiline_collections[log: Bool](
         var pair = contexts.pop()
         var base_keys, ctx = pair[0][:], pair[1]
 
-        # comptime if log:
-        #     print(" ????? Finding context to store table...")
+        comptime if log:
+            print(" ????? Finding context to store table...")
         while len(contexts) > 0:
-            # comptime if log:
-            #     print(
-            #         "compare: `{}` vs `{}`".format(
-            #             _repr_keys(base_keys), _repr_keys(keys)
-            #         )
-            #     )
+            comptime if log:
+                print(
+                    "compare: `{}` vs `{}`".format(
+                        base_keys, keys
+                    )
+                )
             if len(keys) > len(base_keys) and all(
                 map[tp_eq](zip(base_keys, keys))
             ):
-                # comptime if log:
-                #     print(
-                #         "found that current key is nested on key: `{}`".format(
-                #             _repr_keys(base_keys)
-                #         ),
-                #     )
+                comptime if log:
+                    print(
+                        "found that current key is nested on key: `{}`".format(
+                            base_keys
+                        ),
+                    )
                 break
 
             pair = contexts.pop()
@@ -762,24 +762,15 @@ def parse_multiline_collections[log: Bool](
 
         var rltv_keys = keys[len(base_keys) :]
 
-        # comptime if log:
-        #     print(
-        #         "[i] Keys used in the current store proc: ->>",
-        #         _repr_keys(rltv_keys),
-        #         "with the value to store as:",
-        #         [
-        #             "{}: {}".format(
-        #                 kv.key,
-        #                 String(kv.value.bitcast[
-        #                     toml.TomlType[data.origin]
-        #                 ]()[]),
-        #             )
-        #             for kv in values.items()
-        #         ],
-        #     )
+        comptime if log:
+            print(
+                "[i] Keys used in the current store proc: ->>",
+                rltv_keys,
+                "with the value to store as:", values
+            )
 
-        # comptime if log:
-        #     print(">> Getting container from ctx...")
+        comptime if log:
+            print(t">> Getting container from ctx with rltv: {rltv_keys}")
         var cont_res = get_table_ref(rltv_keys, ctx[], default=def_cont^)
         if not cont_res:
             return cont_res^.unsafe_take_error()
@@ -854,7 +845,7 @@ def parse_toml[
     *, log: Bool = False
 ](content: StringSlice) -> Result[Toml]:
     var data = content.as_bytes()
-    _printif[log](t"\n\n~~~*** Starting new parse -- content: '{content}'" )
+    _printif[log](t"\n\n~~~*** Starting new parse -- content: \n'''{content}'''" )
 
     var idx = 0
     skip_blanks_and_comments(data, idx)
