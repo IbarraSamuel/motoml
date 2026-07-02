@@ -434,7 +434,9 @@ def parse_keys[
     _printif[log](t"Len data is: {len(data)} and curr idx is: {idx}")
     while idx < len(data) and data[idx] != close_char:
         var chr = data[idx]
-        if chr == SingleQuote:
+        if chr != Space and chr != Tab and chr != Period and key:
+            return Error("Invalid Key Definition: Key is not closed.")
+        elif chr == SingleQuote:
             key = parse_quoted_string[SingleQuote, ignore_escape=True](data, idx).and_then(calc_value[o, lit=True, multi=False]).as_optional()
             idx += 1
             continue
@@ -460,6 +462,8 @@ def parse_keys[
             key_base.append(key.unsafe_take())
             # skip dot
             idx += 1
+            if data[idx] == close_char:
+                return Error("Error while creating nested table. No key defined after dot.")
             # Skip any space between parsed element and next key
             skip[Space, Tab](data, idx)
             # Return the inner element?
@@ -479,6 +483,7 @@ def parse_keys[
 
     var k = key.take()
     key_base.append(k)
+    _printif[log](t"Parsed key base: {key_base}")
     return key_base^
 
 

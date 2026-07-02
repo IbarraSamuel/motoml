@@ -13,7 +13,7 @@ export def parse-toml [file?: path] : [
 
 export def compare-toml-parser [
   file?: path,  # file location for the toml content
-  expect_to?: string = "pass"  # Tells the comparator what to expect from both binaries
+  --expect-to: string = "pass",  # Tells the comparator what to expect from both binaries. options: {fail, pass}
 ] : [
   nothing -> nothing,
   string -> nothing
