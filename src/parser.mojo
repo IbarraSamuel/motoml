@@ -347,16 +347,31 @@ def get_table_ref[
             k,
             Toml(Toml.Table(capacity=32)),
         )
-        if not inner_v.isa[Toml.Table]():
-            return Error("Container should be table, but is not.")
-        cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]())
+        if inner_v.isa[Toml.Array]():
+            ref inner_arr = inner_v.unsafe_ref[Toml.Array]()
+            if len(inner_arr) == 0:
+                inner_arr.append(Toml(Toml.Table(capacity=16)))
+            cont = Pointer(to=inner_arr[len(inner_arr) - 1].unsafe_ref[Toml.Table]())
+        elif inner_v.isa[Toml.Table]():
+            cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]())
+        else:
+            return Error("Toml type is not a container.")
 
     ref k = keys[len(keys) - 1]
+    if default.isa[Toml.Array]():
+        final_c = Pointer(to=cont[].setdefault(k, Toml(Toml.Array(capacity=16))))
+        if not final_c[].isa[Toml.Array]():
+            return Error("Container should be an array, but it's not.")
+        ref arr = final_c[].unsafe_ref[Toml.Array]()
+        arr.extend(default^.unsafe_take[Toml.Array]())
+        if len(arr) > 0:
+            final_c = Pointer(to=arr[len(arr) - 1])
+            
+    else:
+        final_c = Pointer(to=cont[].setdefault(k, default^))
 
-    # comptime if log:
-    #     print(t"|> k -> '{k.calc_value()}'")
-    # ref pre_last = cont[]
-    return Pointer(to=cont[].setdefault(k, default^))
+    return final_c
+
     # if not is_array:
     #     # just refer to the placeholder of the key.
     #     return last[]
@@ -658,13 +673,15 @@ def parse_multiline_collections[log: Bool](
     # base_keys: Span[Span[Byte, data.origin]],
     # nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
 ) -> Optional[Error]:
-    # Assume current container is a table where I need to push each kv found
-    var contexts: List[
-        Tuple[
-            List[String],
-            Pointer[Toml.Table, origin_of(base)],
-        ]
-    ] = [(List[String](), Pointer(to=base))]
+    # Let's try to access the toml data without context.
+    # If the item is an array, pick the last array value
+    # If the item is a table, just go with it.
+    # var contexts: List[
+    #     Tuple[
+    #         List[String],
+    #         Pointer[Toml.Table, origin_of(base)],
+    #     ]
+    # ] = [(List[String](), Pointer(to=base))]
 
     while idx < len(data):
         var is_array = data[idx + 1] == SquareBracketOpen
@@ -698,6 +715,8 @@ def parse_multiline_collections[log: Bool](
             return values_res^.unsafe_take_error()
         var values = values_res^.unsafe_take_value()
 
+        _printif[log](t"Multiline values: {values}")
+
         # comptime if log:
         #     print(
         #         {
@@ -708,9 +727,11 @@ def parse_multiline_collections[log: Bool](
         #             for kv in values.items()
         #         }
         #     )
-        var def_cont: Toml
+        # var def_cont: Toml
         if is_array:
-            def_cont=Toml(Toml.Array(capacity=16))
+            var arr = Toml.Array(capacity=16)
+            arr.append(Toml(Toml.Table(capacity=16)))
+            def_cont=Toml(arr^)
         else:
             def_cont=Toml(Toml.Table(capacity=16))
         # var def_cont = (
@@ -720,33 +741,33 @@ def parse_multiline_collections[log: Bool](
         # )
 
         # Check each last context and pop if current is not a subset untill it is.
-        var pair = contexts.pop()
-        var base_keys, ctx = pair[0][:], pair[1]
+        # var pair = contexts.pop()
+        # var base_keys, ctx = pair[0][:], pair[1]
 
-        comptime if log:
-            print(" ????? Finding context to store table...")
-        while len(contexts) > 0:
-            comptime if log:
-                print(
-                    "compare: `{}` vs `{}`".format(
-                        base_keys, keys
-                    )
-                )
-            if len(keys) > len(base_keys) and all(
-                map[tp_eq](zip(base_keys, keys))
-            ):
-                comptime if log:
-                    print(
-                        "found that current key is nested on key: `{}`".format(
-                            base_keys
-                        ),
-                    )
-                break
+        # comptime if log:
+        #     print(" ????? Finding context to store table...")
+        # while len(contexts) > 0:
+        #     comptime if log:
+        #         print(
+        #             "compare: `{}` vs `{}`".format(
+        #                 base_keys, keys
+        #             )
+        #         )
+        #     if len(keys) > len(base_keys) and all(
+        #         map[tp_eq](zip(base_keys, keys))
+        #     ):
+        #         comptime if log:
+        #             print(
+        #                 "found that current key is nested on key: `{}`".format(
+        #                     base_keys
+        #                 ),
+        #             )
+        #         break
 
-            pair = contexts.pop()
-            base_keys, ctx = pair[0][:], pair[1]
-        else:
-            pass
+        #     pair = contexts.pop()
+        #     base_keys, ctx = pair[0][:], pair[1]
+        # else:
+        #     pass
             # comptime if log:
             #     print(
             #         "using base container (root) with base keys:",
@@ -760,18 +781,17 @@ def parse_multiline_collections[log: Bool](
         #     and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
         # )
 
-        var rltv_keys = keys[len(base_keys) :]
+        # var rltv_keys = keys[len(base_keys) :]
 
-        comptime if log:
-            print(
-                "[i] Keys used in the current store proc: ->>",
-                rltv_keys,
-                "with the value to store as:", values
-            )
+        # comptime if log:
+        #     print(
+        #         "[i] Keys used in the current store proc: ->>",
+        #         rltv_keys,
+        #         "with the value to store as:", values
+        #     )
 
-        comptime if log:
-            print(t">> Getting container from ctx with rltv: {rltv_keys}")
-        var cont_res = get_table_ref(rltv_keys, ctx[], default=def_cont^)
+        _printif[log](t">> Getting container from ref: {keys}")
+        var cont_res = get_table_ref(keys, base, default=def_cont^)
         if not cont_res:
             return cont_res^.unsafe_take_error()
         var cont = cont_res^.unsafe_take_value()
@@ -779,14 +799,14 @@ def parse_multiline_collections[log: Bool](
         # comptime if log:
         #     print(">> store value into the container...")
 
-        if is_array:
-            if not cont[].isa[Toml.Array]():
-                return Error("container should be an array, but inner value isn't")
-            ref arr = cont[].unsafe_ref[Toml.Array]()
-            arr.append(Toml(Toml.Table(capacity=16)))
-            cont = Pointer(
-                to=arr[len(arr) - 1]
-            )
+        # if is_array:
+            # if not cont[].isa[Toml.Array]():
+            #     return Error("container should be an array, but inner value isn't")
+            # ref arr = cont[].unsafe_ref[Toml.Array]()
+            # arr.append(Toml(Toml.Table(capacity=16)))
+            # cont = Pointer(
+            #     to=arr[len(arr) - 1]
+            # )
 
         if not cont[].isa[Toml.Table]():
             return Error("container should be a table, but inner value isn't")
@@ -796,7 +816,7 @@ def parse_multiline_collections[log: Bool](
         #     ref holder = cont[][Toml.Table][kv.key]
         #     holder = kv.value^
 
-        cont[].unsafe_ref[Toml.Table]() = values^
+        cont[].unsafe_ref[Toml.Table]().update(values^)
 
         # cont = values^
 
@@ -816,29 +836,20 @@ def parse_multiline_collections[log: Bool](
         #             _repr_keys(base_keys),
         #         )
         #     )
-        contexts.append(pair^)
+        # contexts.append(pair^)
 
         # comptime if log:
         #     print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
-        var new_ctx = (keys^, Pointer(to=cont[].unsafe_ref[Toml.Table]()))
-        contexts.append(new_ctx^)
+        # var new_ctx = (keys^, Pointer(to=cont[].unsafe_ref[Toml.Table]()))
+        # contexts.append(new_ctx^)
 
-        # comptime if log:
-        #     print("Current base repr:", _repr_dict[data.origin](base))
-    return {None}
+        _printif[log](t"Current base repr: {base}")
+    return None
 
 
 def _repr_keys[o: ImmutOrigin](v: Span[StringRef[o], _]) -> String:
     var r = ".".join([StringSlice(unsafe_from_utf8=k.data) for k in v])
     return r
-
-
-def _repr_dict[o: ImmutOrigin](v: Toml.Table) -> String:
-    var r = [
-        String(t"{kv.key}: {String(kv.value)}")
-        for kv in v.items()
-    ]
-    return String(r)
 
 
 def parse_toml[
