@@ -371,48 +371,31 @@ def get_table_ref[
         final_c = Pointer(to=cont[].setdefault(k, default^))
 
     return final_c
-
-    # if not is_array:
-    #     # just refer to the placeholder of the key.
-    #     return last[]
-
-    # # Add a last element and refer to it. So we can modify the last element.
-    # ref arr = last[].as_opaque_array()
-    # arr.append(toml.TomlType[o].new_table().move_to_addr())
-    # return arr[len(arr) - 1].bitcast[toml.TomlType[o]]()[]
-
-
-# def store_in_container[
-#     o: Origin, //
-# ](
-#     keys: Span[Span[Byte, o]],
-#     mut base: toml.TomlType[o].OpaqueTable,
-#     *,
-#     var store_obj: toml.TomlType[o],
-# ):
-#     var cont = Pointer[origin=MutAnyOrigin](to=base)
-#     for k in keys[: len(keys) - 1]:
-#         ref inner_v = base.setdefault(
-#             StringSlice(unsafe_from_utf8=k),
-#             toml.TomlType[o].new_table().move_to_addr(),
-#         )
-#         cont = Pointer(
-#             to=inner_v.bitcast[toml.TomlType[o]]()
-#             .unsafe_origin_cast[MutAnyOrigin]()[]
-#             .inner[toml.TomlType[o].OpaqueTable]
-#         )
-
-#     var k = StringSlice(unsafe_from_utf8=keys[len(keys) - 1])
-#     ref pre_last = cont[]
-#     var default = toml.TomlType[o].new_table()
-#     var last = pre_last.setdefault(k, default^.move_to_addr()).bitcast[
-#         toml.TomlType[o]
-#     ]()
-#     last[] = store_obj^
-
-def to_string_ref[o: ImmutOrigin, lit: Bool, multi: Bool](v: Span[Byte, o]) -> StringRef[o]:
-        return StringRef(v, literal=lit, multiline=multi)
     
+def set_key_value[
+    log: Bool = False
+](
+    keys: Span[String, _],
+    mut base: Toml.Table,
+    *,
+    var value: Toml,
+) -> Optional[Error]:
+    var cont = Pointer(to=base)
+    for k in keys[: len(keys) - 1]:
+        _printif[log](t"|> k -> '{k}' ",end="")
+        var default = Toml(Toml.Table(capacity=8))
+        ref inner_v = cont[].setdefault(k,default^)
+        if not inner_v.isa[Toml.Table]():
+            return Error("Toml type is not a table container.")
+        cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]())
+
+    ref k = keys[len(keys) - 1]
+    if k in cont[]:
+        return Error("ERROR: Table value already defined!")
+
+    cont[][k] = value^
+
+    return None
 
 def parse_keys[
     o: ImmutOrigin, //, close_char: Byte, *, log: Bool
@@ -529,10 +512,9 @@ def parse_kv_pairs[
         _printif[log]("Getting container ref...")
         idx += 1
 
-        var table_ref = get_table_ref(keys, table, default=v^)
-        if not table_ref:
-            return table_ref^.unsafe_take_error()
-        _ = table_ref^.unsafe_take_value()
+        var opt_error = set_key_value(keys, table, value=v^)
+        if opt_error:
+            return opt_error.unsafe_take()
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
         _printif[log]("container found and data saved!")
@@ -609,84 +591,11 @@ def skip_blanks_and_comments[log: Bool = False](data: Span[Byte, _], mut idx: In
 def tp_eq(v: Tuple[String, String]) -> Bool:
     return v[0] == v[1]
 
-
-# def parse_multiline_collections_new[
-#     *, log: Bool = True
-# ](
-#     data: Span[Byte],
-#     mut idx: Int,
-#     mut base: toml.TomlType[data.origin],
-#     base_keys: Span[Span[Byte, data.origin]],
-#     nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
-# ) raises:
-#     # Assume current container is a table where I need to push each kv found
-#     while idx < len(data):
-#         var is_array = data[idx + 1] == SquareBracketOpen
-#         idx += 1 + Int(is_array)
-#         var keys = parse_multiline_keys(data, idx)
-#         var values = parse_kv_pairs[NewLine, SquareBracketOpen](data, idx)
-#         var def_cont = base.new_array() if is_array else base.new_table()
-
-#         var should_be_nested = (
-#             len(base_keys) > 0
-#             and len(keys[len(base_keys) :]) > 0
-#             and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
-#         )
-
-#         comptime if log:
-#             print(
-#                 "---------- multiline keys[",
-#                 "array" if is_array else "table",
-#                 "] [nested?:",
-#                 should_be_nested,
-#                 "]------------:",
-#             )
-#             print(
-#                 "[",
-#                 ".".join([StringSlice(unsafe_from_utf8=k) for k in keys]),
-#                 "]",
-#                 sep="",
-#             )
-#             print(
-#                 "----------- multiline values -------------:\n",
-#                 values.__repr__(),
-#             )
-
-#         var new_keys = keys[len(base_keys) :] if should_be_nested else keys
-#         var new_base = Pointer(to=nested[]) if should_be_nested else Pointer(
-#             to=base
-#         )
-
-#         ref cont = get_container_ref(new_keys, new_base[], default=def_cont^)
-#         cont = values^
-
-#         if is_array:
-#             print("going deeper...")
-#             parse_multiline_collections_new[log=log](
-#                 data, idx, new_base[], keys, UnsafePointer(to=cont)
-#             )
-
-#         if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
-#             print("going out...")
-#             return
-
-
 def parse_multiline_collections[log: Bool](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
     mut base: Toml.Table,
-    # base_keys: Span[Span[Byte, data.origin]],
-    # nested: UnsafePointer[toml.TomlType[data.origin], MutAnyOrigin],
 ) -> Optional[Error]:
-    # Let's try to access the toml data without context.
-    # If the item is an array, pick the last array value
-    # If the item is a table, just go with it.
-    # var contexts: List[
-    #     Tuple[
-    #         List[String],
-    #         Pointer[Toml.Table, origin_of(base)],
-    #     ]
-    # ] = [(List[String](), Pointer(to=base))]
 
     while idx < len(data):
         var is_array = data[idx + 1] == SquareBracketOpen
@@ -733,67 +642,10 @@ def parse_multiline_collections[log: Bool](
         #         }
         #     )
         # var def_cont: Toml
+        var def_cont = Toml(Toml.Table(capacity=16))
         if is_array:
-            var arr = Toml.Array(capacity=16)
-            arr.append(Toml(Toml.Table(capacity=16)))
-            def_cont=Toml(arr^)
-        else:
-            def_cont=Toml(Toml.Table(capacity=16))
-        # var def_cont = (
-        #     toml.TomlType
-        #     .new_array() if is_array else toml.TomlType
-        #     .new_table()
-        # )
-
-        # Check each last context and pop if current is not a subset untill it is.
-        # var pair = contexts.pop()
-        # var base_keys, ctx = pair[0][:], pair[1]
-
-        # comptime if log:
-        #     print(" ????? Finding context to store table...")
-        # while len(contexts) > 0:
-        #     comptime if log:
-        #         print(
-        #             "compare: `{}` vs `{}`".format(
-        #                 base_keys, keys
-        #             )
-        #         )
-        #     if len(keys) > len(base_keys) and all(
-        #         map[tp_eq](zip(base_keys, keys))
-        #     ):
-        #         comptime if log:
-        #             print(
-        #                 "found that current key is nested on key: `{}`".format(
-        #                     base_keys
-        #                 ),
-        #             )
-        #         break
-
-        #     pair = contexts.pop()
-        #     base_keys, ctx = pair[0][:], pair[1]
-        # else:
-        #     pass
-            # comptime if log:
-            #     print(
-            #         "using base container (root) with base keys:",
-            #         _repr_keys(base_keys),
-            #     )
-
-        # Here we are at the right context
-        # var should_be_nested = (
-        #     len(base_keys) > 0
-        #     and len(keys[len(base_keys) :]) > 0
-        #     and all(map[tp_eq[data.origin]](zip(base_keys, keys)))
-        # )
-
-        # var rltv_keys = keys[len(base_keys) :]
-
-        # comptime if log:
-        #     print(
-        #         "[i] Keys used in the current store proc: ->>",
-        #         rltv_keys,
-        #         "with the value to store as:", values
-        #     )
+            # Store the default in na list
+            def_cont = Toml([def_cont^])
 
         _printif[log](t">> Getting container from ref: {keys}")
         var cont_res = get_table_ref(keys, base, default=def_cont^)
@@ -801,54 +653,12 @@ def parse_multiline_collections[log: Bool](
             return cont_res^.unsafe_take_error()
         var cont = cont_res^.unsafe_take_value()
 
-        # comptime if log:
-        #     print(">> store value into the container...")
-
-        # if is_array:
-            # if not cont[].isa[Toml.Array]():
-            #     return Error("container should be an array, but inner value isn't")
-            # ref arr = cont[].unsafe_ref[Toml.Array]()
-            # arr.append(Toml(Toml.Table(capacity=16)))
-            # cont = Pointer(
-            #     to=arr[len(arr) - 1]
-            # )
-
         if not cont[].isa[Toml.Table]():
             return Error("container should be a table, but inner value isn't")
 
-        # for var kv in values.take_items():
-        # for var kv in values.take_items():
-        #     ref holder = cont[][Toml.Table][kv.key]
-        #     holder = kv.value^
-
         cont[].unsafe_ref[Toml.Table]().update(values^)
-
-        # cont = values^
-
-        # if is_array:
-        #     print("going deeper...")
-        #     parse_multiline_collections_new[log=log](
-        #         data, idx, new_base[], keys, UnsafePointer(to=cont)
-        #     )
-
-        # if not should_be_nested and Pointer(to=base) != Pointer(to=nested[]):
-        #     print("going out...")
-        #     return
-
-        # comptime if log:
-        #     print(
-        #         "append back base. `{}`".format(
-        #             _repr_keys(base_keys),
-        #         )
-        #     )
-        # contexts.append(pair^)
-
-        # comptime if log:
-        #     print("append new keys and ctx. `{}`".format(_repr_keys(keys)))
-        # var new_ctx = (keys^, Pointer(to=cont[].unsafe_ref[Toml.Table]()))
-        # contexts.append(new_ctx^)
-
         _printif[log](t"Current base repr: {base}")
+
     return None
 
 
