@@ -113,8 +113,7 @@ def main() raises:
 
 
 @fieldwise_init
-@explicit_destroy("run() or abandon() the TestSuite")
-struct PyTestSuite(Movable):
+struct PyTestSuite(ImplicitlyDeletable where False, Movable):
     var tests: List[Tuple[String, String]]
     var location: SourceLocation
 

@@ -17,8 +17,7 @@ from std.python import PythonObject, Python
 
 
 @fieldwise_init
-@explicit_destroy("run() or abandon() the TestSuite")
-struct UnifiedTestSuite[*ts: Movable](Movable):
+struct UnifiedTestSuite[*ts: Movable](ImplicitlyDeletable where False, Movable):
     var tests: Tuple[*Self.ts]
     var location: SourceLocation
 
@@ -76,8 +75,7 @@ struct UnifiedTestSuite[*ts: Movable](Movable):
 
 
 @fieldwise_init
-@explicit_destroy("run() or abandon() the TestSuite")
-struct TestSuite(Movable):
+struct TestSuite(ImplicitlyDeletable where False, Movable):
     var tests: List[Tuple[StaticString, def() raises thin]]
     var location: SourceLocation
 

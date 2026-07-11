@@ -1,10 +1,10 @@
 from std.utils import Variant
 
 
-@explicit_destroy("The Result must be consumed.")
 struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
     Boolable,
     Equatable where conforms_to(T, Equatable),
+    ImplicitlyDeletable where False,
     Movable,
     Writable,
 ):

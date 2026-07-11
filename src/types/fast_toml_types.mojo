@@ -186,7 +186,7 @@ struct TomlType[o: ImmutOrigin](
 
     def move_to_addr(var self) -> Opaque:
         var ptr = alloc[Self](1)
-        ptr.init_pointee_move(self^)
+        ptr.unsafe_write(self^)
         return ptr.bitcast[NoneType]()
 
     def to_addr(mut self) -> Opaque:

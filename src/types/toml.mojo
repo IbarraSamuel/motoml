@@ -16,9 +16,6 @@ struct NaN(Equatable, TrivialRegisterPassable, Writable):
     pass
 
 
-# @explicit_destroy(
-#     "Toml needs to be consumed. Or discard content with `destroy[T].`"
-# )
 struct Toml(Copyable, Equatable, Movable, Writable):
     comptime String = String
     comptime Integer = Int
@@ -81,7 +78,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
     ](out self, var value: T) where Self.AllTypes.contains[T]():
         # var ptr = stack_allocation[1, T]()
         var ptr = alloc[T](1)
-        ptr.init_pointee_move(value^)
+        ptr.unsafe_write(value^)
         self._inner = ptr.bitcast[NoneType]()
         self._id = self._get_type_idx[T]()
 
