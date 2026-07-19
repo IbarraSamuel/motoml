@@ -4,7 +4,7 @@ from motoml.result import Result
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
-struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
+struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
     comptime CommonEscape = [
         ("\b", "\\b"),
         ("\t", "\\t"),
@@ -90,7 +90,7 @@ struct StringRef[origin: ImmutOrigin](TrivialRegisterPassable):
 
 
 def _find_escapes[
-    o: ImmutOrigin, //, *chars: Tuple[Byte, Int]
+    o: ImmOrigin, //, *chars: Tuple[Byte, Int]
 ](ssb: Span[Byte, o], offset: Int) -> Tuple[Byte, Int, Span[Byte, o]]:
     for i, b in enumerate(ssb[offset:]):
         var ii = i + offset

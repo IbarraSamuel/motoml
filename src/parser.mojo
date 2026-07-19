@@ -398,7 +398,7 @@ def set_key_value[
     return None
 
 def parse_keys[
-    o: ImmutOrigin, //, close_char: Byte, *, log: Bool
+    o: ImmOrigin, //, close_char: Byte, *, log: Bool
 ](
     data: Span[Byte, o], mut idx: Int, var key_base: List[String]
 ) -> Result[List[String]]:
@@ -660,11 +660,6 @@ def parse_multiline_collections[log: Bool](
         _printif[log](t"Current base repr: {base}")
 
     return None
-
-
-def _repr_keys[o: ImmutOrigin](v: Span[StringRef[o], _]) -> String:
-    var r = ".".join([StringSlice(unsafe_from_utf8=k.data) for k in v])
-    return r
 
 
 def parse_toml[

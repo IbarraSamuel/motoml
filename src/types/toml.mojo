@@ -209,7 +209,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             comptime assert conforms_to(T, ImplicitlyDeletable)
             if self.isa[T]():
                 var typed = self._inner.bitcast[T]()
-                typed.destroy_pointee()
+                typed.unsafe_deinit_pointee()
                 typed.free()
                 return
         else:
