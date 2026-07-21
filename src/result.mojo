@@ -28,20 +28,23 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
             and self.unsafe_ref_value() == other.unsafe_ref_value()
         )
 
+    @__unsafe_nested_origins_read_only
     def __getitem__(
-        self,
+        ref self,
     ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
         if not self:
             raise "Result type doesn't hold a value."
         return self.unsafe_ref_value()
 
-    @always_inline
+    # @always_inline
+    @__unsafe_nested_origins_read_only
     def unsafe_ref_value(
-        self,
+        ref self,
     ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
         assert Bool(self), "Result type doesn't hold a value."
         return self.inner[Self.T]
 
+    @__unsafe_nested_origins_read_only
     def ref_error(
         ref self,
     ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
@@ -49,7 +52,8 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
             raise "Result Type doesn't have an Error value."
         return self.unsafe_ref_error()
 
-    @always_inline
+    # @always_inline
+    @__unsafe_nested_origins_read_only
     def unsafe_ref_error(
         ref self,
     ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
@@ -60,15 +64,6 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
 
     def forget(deinit self):
         pass
-        # if not self:
-        #     pass
-        #     var typed = self.inner.bitcast[Error]()
-        #     _ = typed.destroy_pointee()
-        #     typed.free()
-        # else:
-        #     var typed = self.inner.bitcast[Self.T]()
-        #     _ = typed.destroy_pointee()
-        #     typed.free()
 
     def unsafe_take[
         t: Movable
