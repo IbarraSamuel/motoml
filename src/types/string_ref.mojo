@@ -124,10 +124,10 @@ def _find_escapes[
 def parse_string_escape(v: StringSlice) -> Result[String]:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
-    var ssb = ss.as_bytes()
+    var ssb = ss.as_bytes().as_imm()
 
     comptime fesc = _find_escapes[
-        o=origin_of(ss),
+        o=origin_of(ss)._get_owned_interior["bytes"],
         (Byte(ord("x")), 2),
         (Byte(ord("u")), 4),
         (Byte(ord("U")), 8),
@@ -218,15 +218,13 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         else:
             return Error("error! value not found")
 
+        var f = String(StringSlice(unsafe_from_utf8=ssb[:init]))
         if next_idx < ss.byte_length():
-            ss = (
-                StringSlice(unsafe_from_utf8=ssb[:init])
-                + codepoint
-                + StringSlice(unsafe_from_utf8=ssb[next_idx:])
-            )
+            var e = String(StringSlice(unsafe_from_utf8=ssb[next_idx:]))
+            ss = f + codepoint + e
         else:
-            ss = StringSlice(unsafe_from_utf8=ssb[:init]) + codepoint
-        ssb = ss.as_bytes()
+            ss = f + codepoint
+        ssb = ss.as_bytes().as_imm()
         # should be handled distinct if you replace things up
         # search_base += init + 1
 
@@ -267,7 +265,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
             # print("Skipping...")
             esc += 1
 
-        ss = ss[byte=:last_esc] + ss[byte=esc:]
+        ss = String(ss[byte=:last_esc]) + String(ss[byte=esc:])
         # ssb = ss.as_bytes()
 
     last_qte = -1
@@ -284,7 +282,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
             continue
 
         last_qte += 1
-        ss = ss[byte=:qte] + "\\" + ss[byte=qte:]
+        ss = ss[byte=:qte] + "\\" + String(ss[byte=qte:])
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):

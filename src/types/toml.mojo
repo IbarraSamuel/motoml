@@ -47,13 +47,13 @@ struct Toml(Copyable, Equatable, Movable, Writable):
 
     @staticmethod
     def _get_type_idx[T: Movable]() -> Int where Self.AllTypes.contains[T]():
-        comptime for idx in range(Self.AllTypes.size):
+        comptime for idx in range(Self.AllTypes.length):
             comptime if Self.AllTypes[idx] == T:
                 return idx
         return -1
 
     def get_type_name(self) -> StaticString:
-        comptime for i in range(Self.AllTypes.size):
+        comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()
             if self.isa[T]():
@@ -62,7 +62,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         return "ERROR: NOT FOUND"
 
     def __init__(out self, *, copy: Self):
-        comptime for i in range(Self.AllTypes.size):
+        comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert conforms_to(T, Copyable)
             comptime assert Self.AllTypes.contains[T]()
@@ -113,7 +113,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         self._inner.free()
 
     def write_to(self, mut w: Some[Writer]):
-        comptime for i in range(Self.AllTypes.size):
+        comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()
             comptime assert conforms_to(T, Writable)
@@ -141,7 +141,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
                 return
 
     def __eq__(self, other: Toml) -> Bool:
-        comptime for i in range(Self.AllTypes.size):
+        comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()
             comptime assert other.AllTypes.contains[T]()
@@ -203,7 +203,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             return
 
     def __del__(deinit self):
-        comptime for i in range(Self.AllTypes.size):
+        comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()
             comptime assert conforms_to(T, ImplicitlyDeletable)

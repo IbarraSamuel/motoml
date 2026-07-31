@@ -28,41 +28,35 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
             and self.unsafe_ref_value() == other.unsafe_ref_value()
         )
 
-    @__unsafe_nested_origins_read_only
     def __getitem__(
-        ref self,
+        self,
     ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
         if not self:
             raise "Result type doesn't hold a value."
         return self.unsafe_ref_value()
 
-    # @always_inline
-    @__unsafe_nested_origins_read_only
     def unsafe_ref_value(
-        ref self,
+        self,
     ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
         assert Bool(self), "Result type doesn't hold a value."
         return self.inner[Self.T]
 
-    @__unsafe_nested_origins_read_only
     def ref_error(
-        ref self,
+        self,
     ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
         if self:
             raise "Result Type doesn't have an Error value."
         return self.unsafe_ref_error()
 
-    # @always_inline
-    @__unsafe_nested_origins_read_only
     def unsafe_ref_error(
-        ref self,
+        self,
     ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
         assert not self, "Result type doesn't hold an error."
         return self.inner[Self.E]
 
     # -- Destroy methods --
 
-    def forget(deinit self):
+    def forget(deinit self) where conforms_to(Self.T, ImplicitlyDeletable):
         pass
 
     def unsafe_take[
