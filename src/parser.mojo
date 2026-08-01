@@ -351,24 +351,25 @@ def get_table_ref[
             ref inner_arr = inner_v.unsafe_ref[Toml.Array]()
             if len(inner_arr) == 0:
                 inner_arr.append(Toml(Toml.Table(capacity=16)))
-            cont = Pointer(to=inner_arr[len(inner_arr) - 1].unsafe_ref[Toml.Table]())
+            cont = Pointer(to=inner_arr[len(inner_arr) - 1].unsafe_ref[Toml.Table]()).unsafe_origin_cast[origin_of(base)]()
         elif inner_v.isa[Toml.Table]():
-            cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]())
+            cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]()).unsafe_origin_cast[origin_of(base)]()
         else:
             return Error("Toml type is not a container.")
 
     ref k = keys[len(keys) - 1]
+    var final_c: Pointer[Toml, origin_of(base)]
     if default.isa[Toml.Array]():
-        final_c = Pointer(to=cont[].setdefault(k, Toml(Toml.Array(capacity=16))))
+        final_c = Pointer(to=cont[].setdefault(k, Toml(Toml.Array(capacity=16)))).unsafe_origin_cast[origin_of(base)]()
         if not final_c[].isa[Toml.Array]():
             return Error("Container should be an array, but it's not.")
         ref arr = final_c[].unsafe_ref[Toml.Array]()
         arr.extend(default^.unsafe_take[Toml.Array]())
         if len(arr) > 0:
-            final_c = Pointer(to=arr[len(arr) - 1])
+            final_c = Pointer(to=arr[len(arr) - 1]).unsafe_origin_cast[origin_of(base)]()
             
     else:
-        final_c = Pointer(to=cont[].setdefault(k, default^))
+        final_c = Pointer(to=cont[].setdefault(k, default^)).unsafe_origin_cast[origin_of(base)]()
 
     return final_c
     
@@ -387,7 +388,7 @@ def set_key_value[
         ref inner_v = cont[].setdefault(k,default^)
         if not inner_v.isa[Toml.Table]():
             return Error("Toml type is not a table container.")
-        cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]())
+        cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]()).unsafe_origin_cast[origin_of(base)]()
 
     ref k = keys[len(keys) - 1]
     if k in cont[]:
@@ -645,7 +646,7 @@ def parse_multiline_collections[log: Bool](
         var def_cont = Toml(Toml.Table(capacity=16))
         if is_array:
             # Store the default in na list
-            def_cont = Toml([def_cont^])
+            def_cont = Toml(List([def_cont^]))
 
         _printif[log](t">> Getting container from ref: {keys}")
         var cont_res = get_table_ref(keys, base, default=def_cont^)

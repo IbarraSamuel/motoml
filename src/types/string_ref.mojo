@@ -90,8 +90,8 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
 
 
 def _find_escapes[
-    o: ImmOrigin, //, *chars: Tuple[Byte, Int]
-](ssb: Span[Byte, o], offset: Int) -> Tuple[Byte, Int, Span[Byte, o]]:
+    *chars: Tuple[Byte, Int]
+](ssb: Span[Byte, _], offset: Int) -> Tuple[Byte, Int, Span[Byte, ssb.origin]]:
     for i, b in enumerate(ssb[offset:]):
         var ii = i + offset
         if b != Byte(ord("\\")):
@@ -124,17 +124,16 @@ def _find_escapes[
 def parse_string_escape(v: StringSlice) -> Result[String]:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
-    var ssb = ss.as_bytes().as_imm()
+    # var ssb = ss.as_bytes().as_imm()
 
     comptime fesc = _find_escapes[
-        o=origin_of(ss)._get_owned_interior["bytes"],
         (Byte(ord("x")), 2),
         (Byte(ord("u")), 4),
         (Byte(ord("U")), 8),
         (Byte(ord("e")), -1),
     ]
     # var search_base = 0
-    var char, init, spn = fesc(ssb, 0)
+    var char, init, spn = fesc(ss.as_bytes(), 0)
 
     # print(
     #     "First iter:",
@@ -200,9 +199,11 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
             #     "and byte length:",
             #     len(ssb),
             # )
-            if next_idx < len(ssb) and ssb[next_idx] == Byte(ord("[")):
+            if next_idx < len(ss.bytes()) and ss.as_bytes()[next_idx] == Byte(
+                ord("[")
+            ):
                 # print("bracket found! Seeing where to end it (an m)")
-                for bi, b in enumerate(ssb[next_idx + 1 :]):
+                for bi, b in enumerate(ss.as_bytes()[next_idx + 1 :]):
                     if b == Byte(ord("m")):
                         next_idx += bi + 1
                         break
@@ -218,17 +219,18 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         else:
             return Error("error! value not found")
 
-        var f = String(StringSlice(unsafe_from_utf8=ssb[:init]))
+        var f = String(StringSlice(unsafe_from_utf8=ss.as_bytes()[:init]))
         if next_idx < ss.byte_length():
-            var e = String(StringSlice(unsafe_from_utf8=ssb[next_idx:]))
+            var e = String(
+                StringSlice(unsafe_from_utf8=ss.as_bytes()[next_idx:])
+            )
             ss = f + codepoint + e
         else:
             ss = f + codepoint
-        ssb = ss.as_bytes().as_imm()
         # should be handled distinct if you replace things up
         # search_base += init + 1
 
-        char, init, spn = fesc(ssb, init + 1)
+        char, init, spn = fesc(ss.as_bytes(), init + 1)
         # print(
         #     "Next iter:",
         #     Codepoint(char),

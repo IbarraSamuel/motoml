@@ -75,8 +75,8 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
         ref field_ptr = Tr.field_ref[fi](struct_ptr[])
 
         comptime if RTYPE.base_name() == "Optional":
-            comptime assert conforms_to(TYPE, Iterator)
-            comptime Inner = TYPE.Element
+            comptime assert conforms_to(TYPE, Iterable)
+            comptime Inner = TYPE.IteratorType[origin_of()].Element
             comptime assert conforms_to(Inner, Movable & ImplicitlyDeletable)
 
             if NAME not in toml_tb:
@@ -88,7 +88,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
 
                 if not inner:
                     # TODO: Destroy properly
-                    struct_ptr.free()
+                    struct_ptr.unsafe_free()
                     return inner^.unsafe_take_error()
 
                 field_ptr = rebind_var[TYPE](
@@ -97,7 +97,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
         else:
             if NAME not in toml_tb:
                 # TODO: Destroy properly
-                struct_ptr.free()
+                struct_ptr.unsafe_free()
                 # dealloc(struct_ptr^)
                 return Error("Struct field doesn't exists in toml table.")
 
@@ -106,14 +106,14 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
             var inner = toml_to_type[TYPE](value^)
             if not inner:
                 # TODO: Destroy properly
-                _ = struct_ptr.free()
+                _ = struct_ptr.unsafe_free()
                 # dealloc(struct_ptr^)
                 return inner^.unsafe_take_error()
             field_ptr = inner^.unsafe_take_value()
         # print(t"Field {NAME} done!")
 
     # print("struct done!")
-    return struct_ptr.take_pointee()
+    return struct_ptr.unsafe_take_pointee()
 
 
 def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:

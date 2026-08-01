@@ -79,7 +79,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         # var ptr = stack_allocation[1, T]()
         var ptr = alloc[T](1)
         ptr.unsafe_write(value^)
-        self._inner = ptr.bitcast[NoneType]()
+        self._inner = ptr.unsafe_bitcast[NoneType]()
         self._id = self._get_type_idx[T]()
 
     def isa[T: Movable](self) -> Bool where Self.AllTypes.contains[T]():
@@ -96,7 +96,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         T: Movable
     ](ref self) -> ref[self] T where Self.AllTypes.contains[T]():
         assert self.isa[T]()
-        return self._inner.bitcast[T]()[]
+        return self._inner.unsafe_bitcast[T]()[]
 
     def take[
         T: Movable
@@ -109,8 +109,8 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         T: Movable
     ](deinit self, out o: T) where Self.AllTypes.contains[T]():
         assert self.isa[T]()
-        o = self._inner.bitcast[T]().take_pointee()
-        self._inner.free()
+        o = self._inner.unsafe_bitcast[T]().unsafe_take_pointee()
+        self._inner.unsafe_free()
 
     def write_to(self, mut w: Some[Writer]):
         comptime for i in range(Self.AllTypes.length):
@@ -208,9 +208,9 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             comptime assert Self.AllTypes.contains[T]()
             comptime assert conforms_to(T, ImplicitlyDeletable)
             if self.isa[T]():
-                var typed = self._inner.bitcast[T]()
+                var typed = self._inner.unsafe_bitcast[T]()
                 typed.unsafe_deinit_pointee()
-                typed.free()
+                typed.unsafe_free()
                 return
         else:
             abort("Unable to dealloc")

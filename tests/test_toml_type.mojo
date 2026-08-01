@@ -46,11 +46,13 @@ def test_time() raises:
 
 
 def test_array() raises:
-    var array = [
-        Toml(1),
-        Toml(2.0),
-        Toml(True),
-    ]
+    var array = List(
+        [
+            Toml(1),
+            Toml(2.0),
+            Toml(True),
+        ]
+    )
     var toml = Toml(array^)
 
     ref arr = toml[List[Toml]]

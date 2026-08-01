@@ -64,7 +64,7 @@ def test_float_list() raises:
     var f = Toml(3.12)
     var f2 = Toml(Toml.Float.MAX)
     var f3 = Toml(3e14)
-    var l = [f^, f2^, f3^]
+    var l = List([f^, f2^, f3^])
     var toml_list = Toml(l^)
     var result = toml_to_type_raises[List[Float64]](toml_list^)
     assert_equal(result[0], 3.12)
@@ -83,12 +83,14 @@ def test_int_list() raises:
 
 def test_string_list() raises:
     var string_v = String("hello")
-    var l = [
-        Toml(string_v),
-        Toml(string_v),
-        Toml(string_v),
-        Toml(string_v),
-    ]
+    var l = List(
+        [
+            Toml(string_v),
+            Toml(string_v),
+            Toml(string_v),
+            Toml(string_v),
+        ]
+    )
     var toml_list = Toml(l^)
     var result = toml_to_type_raises[List[String]](toml_list^)
     assert_equal(result[0], string_v)
@@ -99,12 +101,14 @@ def test_string_list() raises:
 
 def test_toml_list() raises:
     var string_v = Toml("hello")
-    var l = [
-        string_v.copy(),
-        string_v.copy(),
-        string_v.copy(),
-        string_v.copy(),
-    ]
+    var l = List(
+        [
+            string_v.copy(),
+            string_v.copy(),
+            string_v.copy(),
+            string_v.copy(),
+        ]
+    )
     var toml_list = Toml(l^)
     var result = toml_to_type_raises[List[Toml]](toml_list^)
     assert_equal(result[0], string_v)
@@ -170,7 +174,7 @@ def test_struct_all_types() raises:
             "date": date^,
             "time": time^,
             "datetime": datetime^,
-            "list": Toml([Toml(1), Toml(2), Toml(3), Toml(4)]),
+            "list": Toml(List([Toml(1), Toml(2), Toml(3), Toml(4)])),
             "table": inner_tb^,
         }
     )
@@ -230,11 +234,13 @@ def test_nested() raises:
             "name": Toml("samuel"),
             "age": Toml(30),
             "other_types": Toml(
-                [
-                    Toml(1.0),
-                    Toml(2.0),
-                    Toml(3.0),
-                ]
+                List(
+                    [
+                        Toml(1.0),
+                        Toml(2.0),
+                        Toml(3.0),
+                    ]
+                )
             ),
             "language": Toml(
                 {
