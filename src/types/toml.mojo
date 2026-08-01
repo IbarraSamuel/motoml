@@ -202,7 +202,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
             w.write("}")
             return
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()

@@ -65,7 +65,7 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
         Trait=Movable, Self.T, Self.E
     ].contains[t]():
         assert Bool(self), "No value found in the Result Type."
-        value = self.inner^.take[t]()
+        value = self.inner^.unwrap[t]()
 
     @always_inline
     def unsafe_take_value(deinit self) -> Self.T:
