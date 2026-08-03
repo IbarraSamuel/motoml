@@ -89,6 +89,11 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
 
+    def take(var self) raises -> Self.T:
+        if not self:
+            raise self^.unsafe_take_error()
+        return self^.unsafe_take_value()
+
     def take_value(var self) raises -> Self.T:
         """Take the value or raises otherwise."""
         if not self:

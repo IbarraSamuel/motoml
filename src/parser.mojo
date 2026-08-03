@@ -535,27 +535,6 @@ def parse_kv_pairs[
     return table^
 
 
-def parse_multiline_keys[log:Bool](
-    data: Span[mut=False, Byte, _], mut idx: Int
-) -> Result[List[String]]:
-    """Assume where are on the position to start parsing the multiline key.
-    But please skip spaces and tabs.
-    """
-    skip[Space, Tab](data, idx)
-    _printif[log](t"parsing multiline collection key. Curr idx: {idx}")
-    var keys = parse_keys[SquareBracketClose, log=log](data, idx, {})
-    if not keys:
-        return keys^.unsafe_take_error()
-
-    # In case you are on a list, just skip the second squarebracket open
-    idx += 1 + Int(data[idx] == SquareBracketOpen)
-
-    stop_at[NewLine, SquareBracketOpen](data, idx)
-    skip_blanks_and_comments(data, idx)
-    _printif[log]("Key parsed sucessfully")
-
-    return keys^
-
 
 @always_inline
 def skip[*chars: Byte, log: Bool = False](data: Span[Byte, _], mut idx: Int):
@@ -589,9 +568,6 @@ def skip_blanks_and_comments[log: Bool = False](data: Span[Byte, _], mut idx: In
         stop_at[NewLine](data, idx)
 
 
-def tp_eq(v: Tuple[String, String]) -> Bool:
-    return v[0] == v[1]
-
 def parse_multiline_collections[log: Bool](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
@@ -602,27 +578,31 @@ def parse_multiline_collections[log: Bool](
         var is_array = data[idx + 1] == SquareBracketOpen
         idx += 1 + Int(is_array)
 
-        comptime if log:
-            print(
-                "---------- multiline keys[",
-                "array" if is_array else "table",
-                "]------------:",
-            )
-        var keys_res = parse_multiline_keys[log](data, idx)
+        skip[Space, Tab](data, idx)
+        _printif[log](t"---------- multiline keys[{"array" if is_array else "table"}]------------:")
+        var keys_res = parse_keys[SquareBracketClose, log=log](data, idx, {})
+        _printif[log](t"Mutiline keys result: {keys_res}")
         if not keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
 
-        comptime if log:
-            print(
-                "[" * (1 + (1 if is_array else 0)),
-                keys,
-                "]" * (1 + (1 if is_array else 0)),
+        _printif[log](("[[" if is_array else "[")+String(keys)+"]]" if is_array else "]",
                 sep="",
             )
+        _printif[log](t">> Remaining: '''{StringSlice(unsafe_from_utf8=data[idx:])}'''")
+        _printif[log]("----------- multiline values -------------:")
 
-        comptime if log:
-            print("----------- multiline values -------------:")
+        # In case you are on a list, just skip the second squarebracket close
+        idx += 1 + Int(is_array)
+
+        skip[Space](data,idx)
+        if data[idx] != NewLine and data[idx] != Comment:
+            return Error(t"Characters not commented after key. Found char: `{data[idx]}` as `{Codepoint(data[idx])}`. Remainging: {StringSlice(unsafe_from_utf8=data[idx:])}")
+
+        stop_at[NewLine, SquareBracketOpen](data, idx)
+        skip_blanks_and_comments(data, idx)
+        _printif[log]("Key parsed sucessfully")
+
         var values_res = parse_kv_pairs[NewLine, SquareBracketOpen](
             data, idx
         )
@@ -686,6 +666,7 @@ def parse_toml[
 
     var err_or_none = parse_multiline_collections[log](data, idx, base)
     if err_or_none:
+        _printif[log](t"ERR IDENTIFIED {err_or_none}")
         return err_or_none.unsafe_take()
 
     _printif[log](t"done parsing toml!\nfinal data is: {base}")
@@ -696,7 +677,7 @@ def parse_toml[
 def parse_toml_raises[
     *, log: Bool = False
 ](content: StringSlice) raises -> Toml:
-    return parse_toml[log=log](content).take_value()
+    return parse_toml[log=log](content).take()
 
 
 def toml_to_tagged_json[
