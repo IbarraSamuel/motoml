@@ -42,7 +42,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         Self.Table,
     ]()
 
-    var _inner: UnsafePointer[NoneType, MutUntrackedOrigin]
+    var _inner: Pointer[NoneType, MutUntrackedOrigin]
     var _id: Int
 
     @staticmethod
@@ -77,9 +77,10 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         T: Movable, //
     ](out self, var value: T) where Self.AllTypes.contains[T]():
         # var ptr = stack_allocation[1, T]()
-        var ptr = alloc[T](1)
-        ptr.unsafe_write(value^)
-        self._inner = ptr.unsafe_bitcast[NoneType]()
+        var layout = Layout[T](count=1)
+        var alloc = alloc(layout)
+        alloc.unsafe_ptr().unsafe_write(value^)
+        self._inner = alloc^.unsafe_leak().unsafe_bitcast[NoneType]()
         self._id = self._get_type_idx[T]()
 
     def isa[T: Movable](self) -> Bool where Self.AllTypes.contains[T]():
@@ -206,7 +207,7 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         comptime for i in range(Self.AllTypes.length):
             comptime T = Self.AllTypes[i]
             comptime assert Self.AllTypes.contains[T]()
-            comptime assert conforms_to(T, ImplicitlyDeletable)
+            comptime assert conforms_to(T, Deinitable)
             if self.isa[T]():
                 var typed = self._inner.unsafe_bitcast[T]()
                 typed.unsafe_deinit_pointee()

@@ -81,10 +81,11 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
         # TODO: MOVE TO UNSAFE IN FUTURE
         return self^.unsafe_take[Self.E]()
 
-    def take_error(var self) raises -> Self.E:
+    def take_error(
+        var self,
+    ) raises -> Self.E where conforms_to(Self.T, Deinitable):
         """Take the error or raises otherwise."""
         if self:
-            comptime assert conforms_to(Self.T, ImplicitlyDeletable)
             _ = self^.unsafe_take_value()
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
@@ -108,17 +109,18 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
             return None
         return self^.unsafe_take_value()
 
-    def or_else(var self, var default: Self.T) -> Self.T:
+    def or_else(
+        var self, var default: Self.T
+    ) -> Self.T where conforms_to(Self.T, Deinitable):
         """Take the value or return a default value."""
         if not self:
             _ = self^.unsafe_take_error()
             return default^
-        comptime assert conforms_to(Self.T, ImplicitlyDeletable)
         _ = default^
         return self^.unsafe_take_value()
 
     def and_then[
-        O: Movable, e: Writable & Movable & ImplicitlyDeletable, //
+        O: Movable, e: Writable & Movable & Deinitable, //
     ](var self, func: def(var Self.T) thin -> Result[O, e]) -> Result[O, Error]:
         if not self:
             return Error(self^.unsafe_take_error())
