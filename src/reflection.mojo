@@ -6,12 +6,12 @@ TODO: Make it a single implementation.
 from .types.toml import Toml
 from .result import Result
 
-from std.memory import stack_allocation, alloc, dealloc
+from std.memory import stack_allocation, alloc, dealloc, Layout
 
 
 @always_inline
 def _rebind_toml_type[
-    T: Movable & ImplicitlyDeletable
+    T: Movable & Deinitable
 ](var toml: Toml) -> Result[T] where Toml.AllTypes.contains[T]():
     if not toml.isa[T]():
         return Error(
@@ -23,9 +23,7 @@ def _rebind_toml_type[
 
 
 @always_inline
-def _rebind_list[
-    T: Movable & ImplicitlyDeletable
-](var toml: Toml) -> Result[List[T]]:
+def _rebind_list[T: Movable & Deinitable](var toml: Toml) -> Result[List[T]]:
     if not toml.isa[Toml.Array]():
         return Error(
             t"[TYPE ERROR]: Toml Type is {toml.get_type_name()} but rebind type"
@@ -53,7 +51,8 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
         return Error("The toml value doesn't correspond to a Table.")
 
     # print(t"building struct allocation for struct : {Tr.name()}")
-    var struct_ptr = alloc[T](1)
+    var layout = Layout[T](count=1)
+    var allocation = alloc(layout)
     # print("allocation done")
     # var struct_ptr = stack_allocation[1, T]()
     ref toml_tb = toml.unsafe_ref[Toml.Table]()
@@ -63,21 +62,19 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
         comptime TYPE = field_types[fi]
         comptime RTYPE = reflect[TYPE]
         comptime NAME = field_names[fi]
-        comptime assert conforms_to(
-            TYPE, Movable & ImplicitlyDeletable
-        ), String(
+        comptime assert conforms_to(TYPE, Movable & Deinitable), String(
             t"Each type TYPE of the struct T with name: {Tr.name()} should"
             t" be Movable and ImplicitlyDeletable. field name: {NAME} with"
             t" idx: {fi}"
         )
 
         # print("Field name:", NAME)
-        ref field_ptr = Tr.field_ref[fi](struct_ptr[])
+        ref field_ptr = Tr.field_ref[fi](allocation.unsafe_ptr()[])
 
         comptime if RTYPE.base_name() == "Optional":
             comptime assert conforms_to(TYPE, Iterable)
             comptime Inner = TYPE.IteratorType[origin_of()].Element
-            comptime assert conforms_to(Inner, Movable & ImplicitlyDeletable)
+            comptime assert conforms_to(Inner, Movable & Deinitable)
 
             if NAME not in toml_tb:
                 field_ptr = rebind_var[TYPE](Optional[Inner](None))
@@ -88,7 +85,8 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
 
                 if not inner:
                     # TODO: Destroy properly
-                    struct_ptr.unsafe_free()
+                    dealloc(allocation^)
+                    # struct_ptr.unsafe_free()
                     return inner^.unsafe_take_error()
 
                 field_ptr = rebind_var[TYPE](
@@ -97,7 +95,8 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
         else:
             if NAME not in toml_tb:
                 # TODO: Destroy properly
-                struct_ptr.unsafe_free()
+                dealloc(allocation^)
+                # struct_ptr.unsafe_free()
                 # dealloc(struct_ptr^)
                 return Error("Struct field doesn't exists in toml table.")
 
@@ -106,17 +105,17 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
             var inner = toml_to_type[TYPE](value^)
             if not inner:
                 # TODO: Destroy properly
-                _ = struct_ptr.unsafe_free()
+                dealloc(allocation^)
                 # dealloc(struct_ptr^)
                 return inner^.unsafe_take_error()
             field_ptr = inner^.unsafe_take_value()
         # print(t"Field {NAME} done!")
 
     # print("struct done!")
-    return struct_ptr.unsafe_take_pointee()
+    return allocation^.unsafe_leak().unsafe_take_pointee()
 
 
-def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
+def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
     comptime Tr = reflect[T]
     # print(
     #     t"Syntetize type {Tr.name()} from toml type: {toml.get_type_name()}."
@@ -132,7 +131,7 @@ def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
     elif Tr.base_name() == "List":
         comptime assert conforms_to(T, Iterable)
         comptime Elem = T.IteratorType[origin_of()].Element
-        comptime assert conforms_to(Elem, Movable & ImplicitlyDeletable)
+        comptime assert conforms_to(Elem, Movable & Deinitable)
         var lst = _rebind_list[Elem](toml^)
         if not lst:
             return lst^.unsafe_take_error()
@@ -149,9 +148,7 @@ def toml_to_type[T: Movable & ImplicitlyDeletable](var toml: Toml) -> Result[T]:
 
 
 # Result Wrapper
-def toml_to_type_raises[
-    T: Movable & ImplicitlyDeletable
-](var toml: Toml) raises -> T:
+def toml_to_type_raises[T: Movable & Deinitable](var toml: Toml) raises -> T:
     var res = toml_to_type[T](toml^)
     if not res:
         raise res^.unsafe_take_error()

@@ -1,4 +1,4 @@
-from motoml.result import Result
+from ..result import Result
 
 
 struct Date(Equatable, TrivialRegisterPassable, Writable):
@@ -14,6 +14,9 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) -> Result[Self]:
+        var year_s: Int
+        var month: Int
+        var day: Int
         try:
             year_s = Int(v[byte=:4].removeprefix("0"))
             # var year = 0 if len(year_s) == 0 else Int(year_s)
@@ -59,6 +62,8 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
         else:
             return Error("sign not found for offset")
 
+        var hour_s: Int
+        var minute_s: Int
         try:
             hour_s = Int(v[byte=1:3].removeprefix("0"))
             # var hour = 0 if len(hour_s) == 0 else Int(hour_s)
@@ -93,6 +98,9 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) -> Result[Self]:
+        var hour_s: Int
+        var minute_s: Int
+        var second: Float64
         try:
             hour_s = Int(v[byte=0:2].removeprefix("0"))
             minute_s = Int(v[byte=3:5].removeprefix("0"))

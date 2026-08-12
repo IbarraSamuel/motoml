@@ -89,26 +89,23 @@ def parse_quoted_string[
     return data[value_init:idx]
 
 
-def parse_inline_array(
+def parse_inline_array[log: Bool](
     data: Span[mut=False, Byte, _], mut idx: Int
 ) -> Result[Toml.Array]:
     """Assumes the first char is already within the collection, but could be a space.
     """
     skip_blanks_and_comments(data, idx)
+    _printif[log]("Start array parsing")
 
     # var value = toml.TomlType.new_array()
-    var arr = Toml.Array(capacity=32)
+    var arr = Toml.Array(capacity=16)
     # ref arr = value[toml.TomlTypes.Array]
 
     while idx < len(data) and data[idx] != SquareBracketClose:
-        # print(
-        #     "parsing array value at idx:",
-        #     idx,
-        #     "and span: `{}`".format(
-        #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
-        #     ),
-        # )
-        var arr_item = parse_value[SquareBracketClose](data, idx)
+        _printif[log](
+            t"parsing array value at idx: {idx} and span `{StringSlice(unsafe_from_utf8=data[idx:idx + 30])}`"
+        )
+        var arr_item = parse_value[SquareBracketClose, log=log](data, idx)
         if not arr_item:
             return arr_item^.unsafe_take_error()
         # var s = String()
@@ -258,7 +255,7 @@ def string_to_type[
             return e^
 
     elif (
-        (dot := v_slice.find(".")) != -1
+        (var dot := v_slice.find(".")) != -1
         and v_slice[byte=Int(is_neg or is_pos) : dot]
         .replace("_", "")
         .is_ascii_digit()
@@ -280,7 +277,7 @@ def as_toml[T: Movable](var s: T) -> Toml where Toml.AllTypes.contains[T]():
 
 
 def parse_value[
-    end_char: Byte
+    end_char: Byte, *, log: Bool
 ](data: Span[mut=False, Byte, _], mut idx: Int) -> Result[Toml]:
     # Assumes the first char is the first value of the value to parse.
     if data[idx] == DoubleQuote:
@@ -313,12 +310,11 @@ def parse_value[
             return s^.and_then(calc_value[data.origin, lit=True, multi=False]).map(as_toml[String])
     elif data[idx] == SquareBracketOpen:
         idx += 1
-        # print("parsing inline array...")
-        return parse_inline_array(data, idx).map(as_toml[Toml.Array])
-        # print("last multiline array codepoint parsed is:", Codepoint(data[idx]))
+        _printif[log]("parsing inline array...")
+        return parse_inline_array[log=log](data, idx).map(as_toml[Toml.Array])
     elif data[idx] == CurlyBracketOpen:
         idx += 1
-        # print("parsing inline table...")
+        _printif[log]("parsing inline table...")
         skip_blanks_and_comments(data, idx)
         return parse_kv_pairs[
             separator=Comma, end_char=CurlyBracketClose
@@ -494,17 +490,14 @@ def parse_kv_pairs[
 
 
 
-        _printif[log](
-                t"inline keys -> '{",".join(keys)}'",
-                sep=""
-            )
+        _printif[log](t"inline keys -> '{",".join(keys)}'")
         idx += 1
         skip[Space, Tab](data, idx)
 
         if idx >= len(data):
             break
 
-        var v_r = parse_value[end_char](data, idx)
+        var v_r = parse_value[end_char, log=log](data, idx)
         if not v_r:
             return v_r^.unsafe_take_error()
         var v = v_r^.unsafe_take_value()

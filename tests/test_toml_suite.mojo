@@ -68,19 +68,24 @@ def toml_single_test(strpath: String) raises -> None:
 
     var py = Python()
     var json = py.import_module("json")
+
+    var py_expected: PythonObject
     try:
-        py_obj = PythonObject(expected_result)
+        var py_obj = PythonObject(expected_result)
         py_expected = json.loads(py_obj)
         py_expected = translate_json_to_types(py, py_expected)
     except:
         raise "[TESTCASE ERR]"
 
+    var r_obj: PythonObject
     try:
         var str_res = String()
         toml_result.to_json(str_res)
         r_obj = PythonObject(str_res)
     except:
         raise "[Python Interop Error] Failed to convert json result to python object."
+
+    var py_result: PythonObject
     try:
         py_result = json.loads(r_obj)
         py_result = translate_json_to_types(py, py_result)
@@ -113,7 +118,7 @@ def main() raises:
 
 
 @fieldwise_init
-struct PyTestSuite(ImplicitlyDeletable where False, Movable):
+struct PyTestSuite(Deinitable where False, Movable):
     var tests: List[Tuple[String, String]]
     var location: SourceLocation
 

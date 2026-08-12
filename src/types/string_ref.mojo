@@ -1,6 +1,6 @@
 from std.hashlib import Hasher
 from std.os import abort
-from motoml.result import Result
+from ..result import Result
 
 
 # Table key needs to be pre-process because could be changed by unicode escapes
@@ -97,7 +97,7 @@ def _find_escapes[
         if b != Byte(ord("\\")):
             continue
 
-        backslash_count = 1
+        var backslash_count = 1
         while backslash_count <= ii and ssb[ii - backslash_count] == Byte(
             ord("\\")
         ):
@@ -242,7 +242,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
     # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = 0
-    while (esc := ss.find("\\", last_esc)) != -1:
+    while (var esc := ss.find("\\", last_esc)) != -1:
         # print("escape found:...")
         # print("raw value is: `{}`".format(ss))
         last_esc = esc
@@ -270,9 +270,9 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         ss = String(ss[byte=:last_esc]) + String(ss[byte=esc:])
         # ssb = ss.as_bytes()
 
-    last_qte = -1
+    var last_qte = -1
     # print("Before quote replace:", ss)
-    while (qte := ss.find('"', last_qte + 1)) != -1:
+    while (var qte := ss.find('"', last_qte + 1)) != -1:
         last_qte = qte
 
         var esc_count = 0

@@ -1,14 +1,7 @@
 from .tempo import Date, DateTime, Time
 
 from std.os import abort
-from std.memory import (
-    stack_allocation,
-    alloc,
-    Layout,
-    Allocation,
-    dealloc,
-    ThinAllocation,
-)
+from std.memory.alloc import unsafe_alloc
 
 
 @fieldwise_init
@@ -77,10 +70,9 @@ struct Toml(Copyable, Equatable, Movable, Writable):
         T: Movable, //
     ](out self, var value: T) where Self.AllTypes.contains[T]():
         # var ptr = stack_allocation[1, T]()
-        var layout = Layout[T](count=1)
-        var alloc = alloc(layout)
-        alloc.unsafe_ptr().unsafe_write(value^)
-        self._inner = alloc^.unsafe_leak().unsafe_bitcast[NoneType]()
+        var ptr = unsafe_alloc[T](1)
+        ptr.unsafe_write(value^)
+        self._inner = ptr.unsafe_bitcast[NoneType]()
         self._id = self._get_type_idx[T]()
 
     def isa[T: Movable](self) -> Bool where Self.AllTypes.contains[T]():

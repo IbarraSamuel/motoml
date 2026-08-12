@@ -1,10 +1,10 @@
 from std.utils import Variant
 
 
-struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
+struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     Boolable,
+    Deinitable where False,
     Equatable where conforms_to(T, Equatable),
-    ImplicitlyDeletable where False,
     Movable,
     Writable,
 ):
@@ -56,7 +56,7 @@ struct Result[T: Movable, E: Movable & Writable & ImplicitlyDeletable = Error](
 
     # -- Destroy methods --
 
-    def forget(deinit self) where conforms_to(Self.T, ImplicitlyDeletable):
+    def forget(deinit self) where conforms_to(Self.T, Deinitable):
         pass
 
     def unsafe_take[
