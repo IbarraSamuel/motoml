@@ -14,6 +14,8 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) -> Result[Self]:
+        if v.byte_length() < 10:
+            return Error("Date String is too short")
         var year_s: Int
         var month: Int
         var day: Int
@@ -61,6 +63,9 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
             positive = True
         else:
             return Error("sign not found for offset")
+
+        if v.byte_length() < 6:
+            return Error("Offset value is not complete.")
 
         var hour_s: Int
         var minute_s: Int
@@ -189,12 +194,9 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         var neg = v.find("-", split)
         var pos = v.find("+", split)
 
-        var t_split = (
-            z if z
-            != -1 else neg if neg
-            != -1 else pos if pos
-            != -1 else v.byte_length()
-        )
+        var t_split = z if (z != -1) else neg if (neg != -1) else pos if (
+            pos != -1
+        ) else v.byte_length()
 
         var time_s = v[byte = split + 1 : t_split]
         # print("time is:", time_s)
@@ -203,7 +205,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         # print("date parse complete:", date)
         var time = Time.from_string(time_s)
         # print("time parse complete:", time)
-        # print("offset is:", v[t_split:], "or just a utc value")
+        # print("offset is:", v[byte=t_split:], "or just a utc value")
         var offset = Offset.utc if t_split == (
             v.byte_length()
         ) or z != -1 else Offset.from_string(v[byte=t_split:])

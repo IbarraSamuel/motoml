@@ -95,7 +95,6 @@ def parse_inline_array[log: Bool](
     """Assumes the first char is already within the collection, but could be a space.
     """
     skip_blanks_and_comments(data, idx)
-    _printif[log]("Start array parsing")
 
     # var value = toml.TomlType.new_array()
     var arr = Toml.Array(capacity=16)
@@ -103,9 +102,10 @@ def parse_inline_array[log: Bool](
 
     while idx < len(data) and data[idx] != SquareBracketClose:
         _printif[log](
-            t"parsing array value at idx: {idx} and span `{StringSlice(unsafe_from_utf8=data[idx:idx + 30])}`"
+            t"parsing array value at idx: {idx} and span `{StringSlice(unsafe_from_utf8=data[idx:min(idx + 30, len(data))])}`"
         )
-        var arr_item = parse_value[SquareBracketClose, log=log](data, idx)
+        var arr_item = parse_value[Comma, log=log](data, idx)
+        _printif[log]("parse completed")
         if not arr_item:
             return arr_item^.unsafe_take_error()
         # var s = String()
@@ -130,44 +130,39 @@ def parse_inline_array[log: Bool](
 
 
 def string_to_type[
-    end_char: Byte
+    end_char: Byte, *, log: Bool
 ](data: Span[mut=False, Byte, _], mut idx: Int) -> Result[Toml]:
     """Returns end of value + 1."""
-    # print("parsing value at idx: ", idx)
-    # print(
-    #     "value starts with: `{}...`".format(
-    #         StringSlice(unsafe_from_utf8=data[idx : idx + 30])
-    #     )
-    # )
+    _printif[log](t"start parse at idx: {idx}")
     # comptime INT_AGG, DEC_AGG = 10.0, 0.1
     # comptime neg, pos = Byte(ord("-")), Byte(ord("+"))
     # var all_is_digit = True
     # var has_period = False
-
-    if data[idx : idx + 4] == "true".as_bytes():
+    var max_idx = len(data)
+    if data[idx : min(idx + 4, max_idx)] == "true".as_bytes():
         idx += 3
         return Toml(True)
 
-    elif data[idx : idx + 5] == "false".as_bytes():
+    elif data[idx : min(idx + 5, max_idx)] == "false".as_bytes():
         idx += 4
         return Toml(value=False)
 
-    elif data[idx : idx + 3] == "nan".as_bytes():
+    elif data[idx : min(idx + 3, max_idx)] == "nan".as_bytes():
         idx += 2
         return Toml(Toml.NaN())
-    elif data[idx : idx + 4] == "+nan".as_bytes():
+    elif data[idx : min(idx + 4, max_idx)] == "+nan".as_bytes():
         idx += 3
         return Toml(Toml.NaN())
-    elif data[idx : idx + 4] == "-nan".as_bytes():
+    elif data[idx : min(idx + 4, max_idx)] == "-nan".as_bytes():
         idx += 3
         return Toml(Toml.NaN())
-    elif data[idx : idx + 3] == "inf".as_bytes():
+    elif data[idx : min(idx + 3, max_idx)] == "inf".as_bytes():
         idx += 2
         return Toml(Float64.MAX)
-    elif data[idx : idx + 4] == "+inf".as_bytes():
+    elif data[idx : min(idx + 4, max_idx)] == "+inf".as_bytes():
         idx += 3
         return Toml(Float64.MAX)
-    elif data[idx : idx + 4] == "-inf".as_bytes():
+    elif data[idx : min(idx + 4, max_idx)] == "-inf".as_bytes():
         idx += 3
         return Toml(Float64.MIN)
 
@@ -219,34 +214,35 @@ def string_to_type[
         
 
         idx += 1
-        if idx < len(data) and data[idx] == Space and lower <= data[idx + 1] <= upper:
+        if dashes > 0 and idx < len(data) and data[idx] == Space and lower <= data[idx + 1] <= upper:
+            _printif[log]("the value is a date... dash exists")
             datetime_split = idx
             idx += 1
 
     var v_span = data[v_init:idx]
     var v_slice = StringSlice(unsafe_from_utf8=v_span)
     # Roll back one step because we finalized all time in the next item
-    # print("Value is:", v_slice)
+    _printif[log=log](t"Value is: {v_slice}")
 
     idx -= 1
-    if (
+    if dashes > 1 and colons > 0 and (
         datetime_split != -1
         or Byte(ord("T")) in v_span
         or Byte(ord("t")) in v_span
     ):
-        # print("parsing datetime")
+        _printif[log]("parsing datetime")
         return Toml.DateTime.from_string(v_slice).map(as_toml[Toml.DateTime])
 
     elif dashes == 2 and len(v_span) == 10:
-        # print("parsing date")
+        _printif[log]("parsing date")
         return Toml.Date.from_string(v_slice).map(as_toml[Toml.Date])
 
     elif colons > 0:
-        # print("psrgin time")
+        _printif[log]("psrgin time")
         return Toml.Time.from_string(v_slice).map(as_toml[Toml.Time])
 
     elif is_ascii_digit or is_hex or is_bin or is_oct:
-        # print("parsing int")
+        _printif[log]("parsing int")
         var v = v_slice[byte=2 if is_hex or is_bin or is_oct else 0 :].replace("_", "")
         var base = 16 if is_hex else 8 if is_oct else 2 if is_bin else 10
         try:
@@ -261,6 +257,7 @@ def string_to_type[
         .is_ascii_digit()
         and v_slice[byte=dot + 1 :].replace("_", "").is_ascii_digit()
     ) or "e" in v_slice or "E" in v_slice:
+        _printif[log]("try parse float")
         try:
             return Toml(atof(v_slice.replace("_", "")))
         except e:
@@ -321,7 +318,7 @@ def parse_value[
         ](data, idx).map(as_toml[Toml.Table])
         # print("last multiline table codepoint parsed is:", Codepoint(data[idx]))
     else:
-        return string_to_type[end_char](data, idx)
+        return string_to_type[end_char, log=log](data, idx)
 
 
 def get_table_ref[
