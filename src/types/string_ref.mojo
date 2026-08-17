@@ -91,7 +91,13 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
 
 def _find_escapes[
     *chars: Tuple[Byte, Int]
-](ssb: Span[Byte, _], offset: Int) -> Tuple[Byte, Int, Span[Byte, ssb.origin]]:
+](ssb: Span[Byte, _], offset: Int) -> Result[
+    Tuple[Byte, Int, Span[Byte, ssb.origin]]
+]:
+    print("len is:", len(ssb), "and offset is:", offset)
+    # if len(ssb) < offset:
+    #     return Error("Escape offset is out of bounds.")
+
     for i, b in enumerate(ssb[offset:]):
         var ii = i + offset
         if b != Byte(ord("\\")):
@@ -113,12 +119,16 @@ def _find_escapes[
         comptime for char, span_len in chars:
             if c == char:
                 comptime if char == Byte(ord("e")):
-                    return char, ii, {}
+                    return Tuple[Byte, Int, Span[Byte, ssb.origin]](
+                        char, ii, {}
+                    )
                 else:
+                    if len(ssb) < ii + 2 + span_len:
+                        return Error("Escape offset is out of bounds.")
                     var sp = ssb[ii + 2 : ii + 2 + span_len]
                     return char, ii, sp
 
-    return Byte(), -1, {}
+    return Tuple[Byte, Int, Span[Byte, ssb.origin]](Byte(), -1, {})
 
 
 def parse_string_escape(v: StringSlice) -> Result[String]:
@@ -133,7 +143,10 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         (Byte(ord("e")), -1),
     ]
     # var search_base = 0
-    var char, init, spn = fesc(ss.as_bytes(), 0)
+    var fesc_res = fesc(ss.as_bytes(), 0)
+    if not fesc_res:
+        return fesc_res^.unsafe_take_error()
+    var char, init, spn = fesc_res^.unsafe_take_value()
 
     # print(
     #     "First iter:",
@@ -230,7 +243,10 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         # should be handled distinct if you replace things up
         # search_base += init + 1
 
-        char, init, spn = fesc(ss.as_bytes(), init + 1)
+        var fesc_res = fesc(ss.as_bytes(), init + 1)
+        if not fesc_res:
+            return fesc_res^.unsafe_take_error()
+        char, init, spn = fesc_res^.unsafe_take_value()
         # print(
         #     "Next iter:",
         #     Codepoint(char),

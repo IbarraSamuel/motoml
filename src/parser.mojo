@@ -194,6 +194,7 @@ def string_to_type[
     while (
         idx < len(data)
         and data[idx] != end_char
+        and data[idx] != SquareBracketClose
         and data[idx] != Comment
         and data[idx] != NewLine
         and data[idx] != Space

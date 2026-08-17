@@ -47,7 +47,7 @@ def test_struct_all_types() raises:
     table = {key=32, key2=84}
     """
 
-    var toml_obj = parse_toml_raises(test_table)
+    var toml_obj = parse_toml_raises[log=True](test_table)
     # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
     assert_equal(toml_obj[Toml.Table]["integer"][Toml.Integer], 1)
