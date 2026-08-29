@@ -52,8 +52,8 @@ tests = { depends-on = [
 
 # Build tasks
 build_python = "mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"
-build = { cmd = "pixi run mojo build stdin_parser.mojo -o ../motoml", cwd = "tests" }
-debug_build = { cmd = "pixi run mojo build stdin_parser.mojo -o ../motoml_debug -D LOG=1", cwd = "tests" }
+build = { cmd = "mojo build stdin_parser.mojo -o ../motoml", cwd = "tests", depends-on = ["package", "move-to-test"] }
+debug_build = { cmd = "mojo build stdin_parser.mojo -o ../motoml_debug -D LOG=1", cwd = "tests", depends-on = ["package", "move-to-test"] }
 package = "mojo precompile src/ -o motoml.mojoc"
 move-to-test = "mv motoml.mojoc tests/motoml.mojoc"
  
