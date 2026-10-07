@@ -226,6 +226,7 @@ def string_to_type[
     _printif[log=log](t"Value is: {v_slice}")
 
     idx -= 1
+    var _dot = v_slice.find(".")
     if dashes > 1 and colons > 0 and (
         datetime_split != -1
         or Byte(ord("T")) in v_span
@@ -252,11 +253,11 @@ def string_to_type[
             return e^
 
     elif (
-        (var dot := v_slice.find(".")) != -1
-        and v_slice[byte=Int(is_neg or is_pos) : dot]
+        _dot != -1
+        and v_slice[byte=Int(is_neg or is_pos) : _dot]
         .replace("_", "")
         .is_ascii_digit()
-        and v_slice[byte=dot + 1 :].replace("_", "").is_ascii_digit()
+        and v_slice[byte=_dot + 1 :].replace("_", "").is_ascii_digit()
     ) or "e" in v_slice or "E" in v_slice:
         _printif[log]("try parse float")
         try:
@@ -268,7 +269,10 @@ def string_to_type[
 
 
 def calc_value[o: Origin, lit:Bool, multi: Bool](var s: Span[Byte, o]) -> Result[String]:
-    return StringRef(s, literal=lit, multiline=multi).calc_value()
+    _printif[True](t"Codepoint to calc value is: `{StringSlice(unsafe_from_utf8=s)}`")
+    var sr = StringRef(s, literal=lit, multiline=multi).calc_value()
+    print(t"Value is: `{sr}`")
+    return sr^
 
 def as_toml[T: Movable](var s: T) -> Toml where Toml.AllTypes.contains[T]():
     return Toml(s^)
@@ -280,14 +284,14 @@ def parse_value[
     # Assumes the first char is the first value of the value to parse.
     if data[idx] == DoubleQuote:
         if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
-            # print("value is a triple double quote string")
+            _printif[log]("value is a triple double quote string")
             var s = parse_multiline_string[DoubleQuote, ignore_escape=False](
                 data, idx
             )
             return s^.and_then(calc_value[data.origin, lit=False, multi=True]).map(as_toml[String])
 
         else:
-            # print("value is double quote string")
+            _printif[log]("value is double quote string")
             var s = parse_quoted_string[DoubleQuote, ignore_escape=False](
                 data, idx
             )
@@ -295,13 +299,13 @@ def parse_value[
 
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
-            # print("value is a triple single quote string")
+            _printif[log]("value is a triple single quote string")
             var s = parse_multiline_string[SingleQuote, ignore_escape=True](
                 data, idx
             )
             return s^.and_then(calc_value[data.origin, lit=True, multi=True]).map(as_toml[String])
         else:
-            # print("value is single quote string")
+            _printif[log]("value is single quote string")
             var s = parse_quoted_string[SingleQuote, ignore_escape=True](
                 data, idx
             )

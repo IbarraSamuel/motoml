@@ -258,7 +258,8 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
     # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = 0
-    while (var esc := ss.find("\\", last_esc)) != -1:
+    var esc = ss.find("\\", last_esc)
+    while esc != -1:
         # print("escape found:...")
         # print("raw value is: `{}`".format(ss))
         last_esc = esc
@@ -285,10 +286,12 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
         ss = String(ss[byte=:last_esc]) + String(ss[byte=esc:])
         # ssb = ss.as_bytes()
+        esc = ss.find("\\", last_esc)
 
     var last_qte = -1
+    var qte = ss.find('"', last_qte + 1)
     # print("Before quote replace:", ss)
-    while (var qte := ss.find('"', last_qte + 1)) != -1:
+    while qte != -1:
         last_qte = qte
 
         var esc_count = 0
@@ -301,6 +304,8 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
         last_qte += 1
         ss = ss[byte=:qte] + "\\" + String(ss[byte=qte:])
+
+        qte = ss.find('"', last_qte + 1)
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):
