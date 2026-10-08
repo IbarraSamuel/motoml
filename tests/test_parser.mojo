@@ -11,7 +11,7 @@ from motoml.types.toml import Toml
 
 def test_empty_table() raises:
     var empty_data = ""
-    var empty_toml = parse_toml_raises[log=True](empty_data)
+    var empty_toml = parse_toml_raises[log=False](empty_data)
     assert_true(empty_toml.isa[Toml.Table]())
     assert_equal(len(empty_toml[Toml.Table]), 0)
 
@@ -40,14 +40,14 @@ def test_struct_all_types() raises:
     multiline_lit = '''
     hi my friend.
     '''
-    date = 2024-21-02
+    date = 2024-11-02
     time = 22:01:04
     datetime = 2026-02-01T22:01:38-05:00
     array = [1,2,3,4]
     table = {key=32, key2=84}
     """
 
-    var toml_obj = parse_toml_raises[log=True](test_table)
+    var toml_obj = parse_toml_raises[log=False](test_table)
     # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
     assert_equal(toml_obj[Toml.Table]["integer"][Toml.Integer], 1)

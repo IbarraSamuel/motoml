@@ -14,19 +14,38 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) -> Result[Self]:
-        if v.byte_length() < 10:
-            return Error("Date String is too short")
+        if (
+            v.byte_length() != 10
+            or v.as_bytes()[4] != Byte(ord("-"))
+            or v.as_bytes()[7] != Byte(ord("-"))
+            or not v[byte=:4].is_ascii_digit()
+            or not v[byte=5:7].is_ascii_digit()
+            or not v[byte=8:10].is_ascii_digit()
+        ):
+            return Error("Invalid date format.")
+
         var year_s: Int
         var month: Int
         var day: Int
         try:
-            year_s = Int(v[byte=:4].removeprefix("0"))
-            # var year = 0 if len(year_s) == 0 else Int(year_s)
-
-            month = Int(v[byte=5:7].removeprefix("0"))
-            day = Int(v[byte=8:10].removeprefix("0"))
+            year_s = Int(v[byte=:4])
+            month = Int(v[byte=5:7])
+            day = Int(v[byte=8:10])
         except e:
             return e^
+
+        if month < 1 or month > 12:
+            return Error("Month is out of range.")
+        var days_in_month = 31
+        if month == 4 or month == 6 or month == 9 or month == 11:
+            days_in_month = 30
+        elif month == 2:
+            var leap_year = year_s % 4 == 0 and (
+                year_s % 100 != 0 or year_s % 400 == 0
+            )
+            days_in_month = 29 if leap_year else 28
+        if day < 1 or day > days_in_month:
+            return Error("Day is out of range for month.")
 
         return Self(year=year_s, month=month, day=day)
 
@@ -64,7 +83,12 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
         else:
             return Error("sign not found for offset")
 
-        if v.byte_length() < 6:
+        if (
+            v.byte_length() != 6
+            or v.as_bytes()[3] != Byte(ord(":"))
+            or not v[byte=1:3].is_ascii_digit()
+            or not v[byte=4:6].is_ascii_digit()
+        ):
             return Error("Offset value is not complete.")
 
         var hour_s: Int
@@ -76,6 +100,9 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
             # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
         except e:
             return e^
+
+        if hour_s > 23 or minute_s > 59:
+            return Error("Offset is out of range.")
 
         return Offset(hour=hour_s, minute=minute_s, positive=positive)
 
@@ -103,6 +130,27 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSlice) -> Result[Self]:
+        if (
+            (v.byte_length() != 5 and v.byte_length() < 8)
+            or v.as_bytes()[2] != Byte(ord(":"))
+            or not v[byte=0:2].is_ascii_digit()
+            or not v[byte=3:5].is_ascii_digit()
+            or (
+                v.byte_length() != 5
+                and (
+                    v.as_bytes()[5] != Byte(ord(":"))
+                    or not v[byte=6:8].is_ascii_digit()
+                )
+            )
+        ):
+            return Error("Invalid time format.")
+        if v.byte_length() > 8 and (
+            v.as_bytes()[8] != Byte(ord("."))
+            or v.byte_length() == 9
+            or not v[byte=9:].is_ascii_digit()
+        ):
+            return Error("Invalid fractional seconds.")
+
         var hour_s: Int
         var minute_s: Int
         var second: Float64
@@ -115,6 +163,9 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
                 second = 0.0
         except e:
             return e^
+
+        if hour_s > 23 or minute_s > 59 or second > 60.0:
+            return Error("Time is out of range.")
 
         return Time(hour=hour_s, minute=minute_s, second=second)
 

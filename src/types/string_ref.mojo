@@ -73,6 +73,9 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
             # print("Is literal: -> ", s)
             ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
         else:
+            var escape_error = validate_string_escapes(s, self.is_multiline)
+            if escape_error:
+                return escape_error.unsafe_take()
             var se = parse_string_escape(s)
             if not se:
                 return se^.unsafe_take_error()
@@ -89,12 +92,108 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
     #         abort("Bad string in toml.")
 
 
+def validate_string_escapes(
+    value: StringSlice, multiline: Bool
+) -> Optional[Error]:
+    var bytes = value.as_bytes()
+    var i = 0
+    while i < len(bytes):
+        if bytes[i] != Byte(ord("\\")):
+            i += 1
+            continue
+
+        i += 1
+        if i >= len(bytes):
+            return Error("String ends with an incomplete escape.")
+        var escape = bytes[i]
+
+        if (
+            escape == Byte(ord("x"))
+            or escape == Byte(ord("u"))
+            or escape == Byte(ord("U"))
+        ):
+            var count = (
+                2 if escape == Byte(ord("x"))
+                else 4 if escape == Byte(ord("u"))
+                else 8
+            )
+            if i + count >= len(bytes):
+                return Error("Unicode escape has too few digits.")
+            var codepoint: UInt32 = 0
+            for j in range(i + 1, i + count + 1):
+                var digit: UInt32
+                if Byte(ord("0")) <= bytes[j] <= Byte(ord("9")):
+                    digit = UInt32(bytes[j] - Byte(ord("0")))
+                elif Byte(ord("a")) <= bytes[j] <= Byte(ord("f")):
+                    digit = 10 + UInt32(bytes[j] - Byte(ord("a")))
+                elif Byte(ord("A")) <= bytes[j] <= Byte(ord("F")):
+                    digit = 10 + UInt32(bytes[j] - Byte(ord("A")))
+                else:
+                    return Error("Unicode escape contains a non-hex digit.")
+                codepoint = codepoint * 16 + digit
+            if (
+                codepoint > UInt32(0x10FFFF)
+                or (
+                    UInt32(0xD800) <= codepoint
+                    and codepoint <= UInt32(0xDFFF)
+                )
+            ):
+                return Error("Unicode escape is not a Unicode scalar value.")
+            i += count + 1
+            continue
+
+        if multiline and (
+            escape == Byte(ord(" ")) or escape == Byte(ord("\t"))
+        ):
+            while i < len(bytes) and (
+                bytes[i] == Byte(ord(" ")) or bytes[i] == Byte(ord("\t"))
+            ):
+                i += 1
+            if i >= len(bytes) or (
+                bytes[i] != Byte(ord("\n"))
+                and bytes[i] != Byte(ord("\r"))
+            ):
+                return Error("Whitespace escape must continue onto a new line.")
+            escape = bytes[i]
+
+        if multiline and (
+            escape == Byte(ord("\n")) or escape == Byte(ord("\r"))
+        ):
+            if escape == Byte(ord("\r")):
+                if i + 1 >= len(bytes) or bytes[i + 1] != Byte(ord("\n")):
+                    return Error("Carriage return escape must be CRLF.")
+                i += 1
+            i += 1
+            while i < len(bytes) and (
+                bytes[i] == Byte(ord(" "))
+                or bytes[i] == Byte(ord("\t"))
+                or bytes[i] == Byte(ord("\n"))
+                or bytes[i] == Byte(ord("\r"))
+            ):
+                i += 1
+            continue
+
+        if (
+            escape != Byte(ord('"'))
+            and escape != Byte(ord("\\"))
+            and escape != Byte(ord("b"))
+            and escape != Byte(ord("t"))
+            and escape != Byte(ord("n"))
+            and escape != Byte(ord("f"))
+            and escape != Byte(ord("r"))
+            and escape != Byte(ord("e"))
+        ):
+            return Error("Unknown string escape.")
+        i += 1
+    return None
+
+
 def _find_escapes[
     *chars: Tuple[Byte, Int]
 ](ssb: Span[Byte, _], offset: Int) -> Result[
     Tuple[Byte, Int, Span[Byte, ssb.origin]]
 ]:
-    print("len is:", len(ssb), "and offset is:", offset)
+    # print("len is:", len(ssb), "and offset is:", offset)
     # if len(ssb) < offset:
     #     return Error("Escape offset is out of bounds.")
 

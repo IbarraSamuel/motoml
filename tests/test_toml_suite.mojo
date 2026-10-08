@@ -47,18 +47,24 @@ def toml_single_test(strpath: String) raises -> None:
     var file = toml_files() / strpath
     if not file.exists():
         raise "file not exists: " + String(file)
-    var content = file.read_text()
+    var content: String
+    try:
+        content = file.read_text()
+    except e:
+        if "invalid/encoding/" in strpath:
+            return
+        raise e^
 
     # print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var toml_r = parse_toml_raises[log=True](content)
+            var toml_r = parse_toml_raises[log=False](content)
             var w = String()
             toml_r.to_json(w)
             # print(w)
         return
 
-    var toml_result = parse_toml_raises[log=True](content)
+    var toml_result = parse_toml_raises[log=False](content)
 
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not exp_file.exists():
