@@ -67,6 +67,34 @@ def test_struct_optional() raises:
     assert_equal(toml_obj[Toml.Table]["value_1"][Toml.String], "hello")
 
 
+def test_multiline_quote_escapes() raises:
+    var test_content = r'''
+    str4 = """Here are two quotation marks: "". Simple enough."""
+    str5 = """Here are three quotation marks: ""\"."""
+    str6 = """Here are fifteen quotation marks: ""\"""\"""\"""\"""\"."""
+    str7 = """"This," she said, "is just a pointless statement.""""
+    '''
+    var toml_obj = parse_toml_raises(test_content)
+    ref values = toml_obj[Toml.Table]
+
+    assert_equal(
+        values["str4"][Toml.String],
+        r"Here are two quotation marks: \"\". Simple enough.",
+    )
+    assert_equal(
+        values["str5"][Toml.String],
+        r"Here are three quotation marks: \"\"\".",
+    )
+    assert_equal(
+        values["str6"][Toml.String],
+        r"Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".",
+    )
+    assert_equal(
+        values["str7"][Toml.String],
+        r"\"This,\" she said, \"is just a pointless statement.\"",
+    )
+
+
 def test_nested() raises:
     var TOML_CONTENT = """
     name = "samuel"

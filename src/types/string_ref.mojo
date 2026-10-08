@@ -275,6 +275,8 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         if not ss[byte=esc + 1].isspace():
             # if it's a scape, skip by 2
             last_esc += 1 + Int(ss[byte=esc + 1] == "\\")
+            # Continue after this escape so the loop cannot find it again.
+            esc = ss.find("\\", last_esc)
             # print("Next value after escape is not a space, skipping...")
             continue
 
@@ -300,6 +302,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
         # print("for string: '{}' esc count:".format(ss), esc_count)
         if esc_count != 0 and esc_count % 2 != 0:
+            qte = ss.find('"', qte + 1)
             continue
 
         last_qte += 1
