@@ -159,7 +159,7 @@ struct Table(Movable):
 
 def test_struct_all_types() raises:
     var inner_tb = Toml({"key": Toml(32), "key2": Toml(84)})
-    var date = Toml(Toml.Date.from_string("2024-21-02").take_value())
+    var date = Toml(Toml.Date.from_string("2024-02-21").take_value())
     var time = Toml(Toml.Time.from_string("22:01:04").take_value())
     var datetime = Toml(
         Toml.DateTime.from_string("2026-02-01T22:01:38-05:00").take_value()
