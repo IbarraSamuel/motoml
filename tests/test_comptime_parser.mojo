@@ -45,16 +45,30 @@ def test_all_toml_types() raises:
     comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
     # var res = parse_toml(TOML_TYPES)
     var res = materialize[TOML_TYPES_RES]()
-    if not res:
-        var err = res^.take_error()
-        raise err^
+    __match res^.variants():
+        case .Err(err):
+            # var err = res^.take_error()
+            raise err
+        case .Ok(r):
+            # var r = res^.take_value()
+            print("Parsed and saved!")
+            ref tb = r[Toml.Table]
+            assert_equal(tb["string"][Toml.String], "abcd")
+            assert_equal(tb["string_with_scape"][Toml.String], r"ab\"cd")
+            assert_equal(
+                tb["multiline_string"][Toml.String], desired_multiline_string
+            )
 
-    var r = res^.take_value()
-    print("Parsed and saved!")
-    ref tb = r[Toml.Table]
-    assert_equal(tb["string"][Toml.String], "abcd")
-    assert_equal(tb["string_with_scape"][Toml.String], r"ab\"cd")
-    assert_equal(tb["multiline_string"][Toml.String], desired_multiline_string)
+    # if not res:
+    #     var err = res^.take_error()
+    #     raise err^
+
+    # var r = res^.take_value()
+    # print("Parsed and saved!")
+    # ref tb = r[Toml.Table]
+    # assert_equal(tb["string"][Toml.String], "abcd")
+    # assert_equal(tb["string_with_scape"][Toml.String], r"ab\"cd")
+    # assert_equal(tb["multiline_string"][Toml.String], desired_multiline_string)
 
 
 def main() raises:

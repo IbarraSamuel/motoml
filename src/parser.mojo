@@ -6,6 +6,8 @@ Dotted keys, can create a dictionary grouping the values.
 from .result import Result
 from .types.toml import Toml
 from .types.string_ref import StringRef
+from .mmap_file import MappedFile
+from std.collections.string._utf8 import _is_valid_utf8
 
 comptime SquareBracketOpen = Byte(ord("["))
 comptime SquareBracketClose = Byte(ord("]"))
@@ -1062,6 +1064,9 @@ def validate_control_characters(data: Span[Byte, _]) -> Optional[Error]:
 
 def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     var data = content.as_bytes()
+    if not _is_valid_utf8(data):
+        return Error("TOML document is not valid UTF-8.")
+
     _printif[log](
         t"\n\n~~~*** Starting new parse -- content: \n'''{content}'''"
     )
@@ -1105,6 +1110,14 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     _printif[log](t"done parsing toml!\nfinal data is: {base}")
 
     return Toml(base^)
+
+
+def parse_toml_file[
+    *, log: Bool = False
+](path: StringSlice) raises -> Result[Toml]:
+    """Parse a TOML file through a read-only memory mapping."""
+    var mapped_file = MappedFile(path)
+    return parse_toml[log=log](mapped_file.unsafe_view())
 
 
 def parse_toml_raises[

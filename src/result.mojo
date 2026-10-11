@@ -1,6 +1,32 @@
 from std.utils import Variant
 
 
+@fieldwise_init
+struct ResultVariants[
+    T: Movable & Deinitable, E: Movable & Writable & Deinitable = Error
+](
+    EnumLike,
+    Movable,
+    Writable,
+):
+    var inner: Variant[Self.T, Self.E]
+
+    comptime _enum_case_names = ParameterList.of["Ok".value, "Err".value].values
+    comptime _enum_case_types = TypeList.of[Self.T, Self.E].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(not self.inner.isa[Self.T]())
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        return Pointer(
+            to=self.inner[TypeList[Trait=AnyType, Self._enum_case_types]()[id]]
+        ).unsafe_origin_cast[origin_of(self)]()[]
+
+
 struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     Boolable,
     Deinitable where False,
@@ -9,6 +35,13 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     Writable,
 ):
     var inner: Variant[Self.T, Self.E]
+
+    def variants(
+        deinit self,
+    ) -> ResultVariants[Self.T, Self.E] where conforms_to(
+        Self.T, Movable & Deinitable
+    ):
+        return ResultVariants[Self.T, Self.E](self.inner^)
 
     @implicit
     def __init__(out self, var value: Self.T):

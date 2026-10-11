@@ -1,6 +1,7 @@
 from std.testing import assert_equal, TestSuite, assert_true
 
-from motoml.parser import parse_toml_raises
+from motoml.mmap_file import MappedFile
+from motoml.parser import parse_toml_file, parse_toml_raises
 from motoml.types.toml import Toml
 
 
@@ -14,6 +15,25 @@ def test_empty_table() raises:
     var empty_toml = parse_toml_raises[log=False](empty_data)
     assert_true(empty_toml.isa[Toml.Table]())
     assert_equal(len(empty_toml[Toml.Table]), 0)
+
+
+def test_parse_mapped_file() raises:
+    var mapped_file = MappedFile("toml_files/valid/example.toml")
+    assert_true(len(mapped_file.bytes()) > 0)
+    mapped_file.close()
+    assert_equal(len(mapped_file), 0)
+    mapped_file.close()
+
+    var empty_file = MappedFile("toml_files/valid/empty-nothing.toml")
+    assert_equal(len(empty_file.bytes()), 0)
+    empty_file.close()
+
+    var result = parse_toml_file("toml_files/valid/example.toml")
+    var toml_obj = result^.take()
+    assert_equal(
+        toml_obj[Toml.Table]["numtheory"][Toml.Table]["boring"][Toml.Boolean],
+        False,
+    )
 
 
 def test_simple_struct() raises:

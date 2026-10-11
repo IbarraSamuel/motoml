@@ -1,5 +1,6 @@
 from motoml.parser import parse_toml_raises
 from motoml.types.toml import Toml
+from motoml.mmap_file import MappedFile
 from json_parser import parse_json, translate_json_to_types
 from files_to_test import TOML_FILES
 from std.pathlib import Path
@@ -15,13 +16,8 @@ def toml_single_test(strpath: String) raises -> None:
     var file = toml_files() / strpath
     if not file.exists():
         raise "file not exists: " + String(file)
-    var content: String
-    try:
-        content = file.read_text()
-    except e:
-        if "invalid/encoding/" in strpath:
-            return
-        raise e^
+    var fmap = MappedFile(file)
+    var content = fmap.unsafe_view()
 
     # print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
