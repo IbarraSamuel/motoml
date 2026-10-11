@@ -113,9 +113,9 @@ def validate_string_escapes(
             or escape == Byte(ord("U"))
         ):
             var count = (
-                2 if escape == Byte(ord("x"))
-                else 4 if escape == Byte(ord("u"))
-                else 8
+                2 if escape
+                == Byte(ord("x")) else 4 if escape
+                == Byte(ord("u")) else 8
             )
             if i + count >= len(bytes):
                 return Error("Unicode escape has too few digits.")
@@ -131,12 +131,8 @@ def validate_string_escapes(
                 else:
                     return Error("Unicode escape contains a non-hex digit.")
                 codepoint = codepoint * 16 + digit
-            if (
-                codepoint > UInt32(0x10FFFF)
-                or (
-                    UInt32(0xD800) <= codepoint
-                    and codepoint <= UInt32(0xDFFF)
-                )
+            if codepoint > UInt32(0x10FFFF) or (
+                UInt32(0xD800) <= codepoint and codepoint <= UInt32(0xDFFF)
             ):
                 return Error("Unicode escape is not a Unicode scalar value.")
             i += count + 1
@@ -150,8 +146,7 @@ def validate_string_escapes(
             ):
                 i += 1
             if i >= len(bytes) or (
-                bytes[i] != Byte(ord("\n"))
-                and bytes[i] != Byte(ord("\r"))
+                bytes[i] != Byte(ord("\n")) and bytes[i] != Byte(ord("\r"))
             ):
                 return Error("Whitespace escape must continue onto a new line.")
             escape = bytes[i]
@@ -371,7 +366,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         #     continue
 
         # if the next value is not identified as a "space"
-        if not ss[byte=esc + 1].isspace():
+        if not ss[byte=esc + 1].is_ascii_whitespace():
             # if it's a scape, skip by 2
             last_esc += 1 + Int(ss[byte=esc + 1] == "\\")
             # Continue after this escape so the loop cannot find it again.
@@ -381,7 +376,10 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
         esc += 1
 
-        while esc < ss.byte_length() and ss[byte=esc].isspace[True]():
+        while (
+            esc < ss.byte_length()
+            and ss[byte=esc].is_ascii_whitespace[single_character=True]()
+        ):
             # print("Skipping...")
             esc += 1
 
