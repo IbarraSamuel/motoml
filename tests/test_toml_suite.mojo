@@ -1,45 +1,13 @@
 from motoml.parser import parse_toml_raises
+from motoml.types.toml import Toml
+from json_parser import parse_json, translate_json_to_types
 from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location, SourceLocation, source_location
-from std.python import Python, PythonObject
-from std.testing import assert_equal, assert_true, assert_raises
+from std.testing import assert_true, assert_raises
 from std.testing.suite import TestReport, TestResult, TestSuiteReport
 
 from std.time import perf_counter_ns
-
-
-def translate_json_to_types(
-    py: Python, json: PythonObject
-) raises -> PythonObject:
-    if "type" in json and "value" in json and len(json) == 2:
-        var type = json["type"]
-        var str_v = json["value"]
-
-        var value: PythonObject
-        if type == "float":
-            if str_v == "nan":
-                value = py.none()
-            else:
-                value = py.float(str_v)
-        elif type == "integer":
-            value = py.int(str_v)
-        else:
-            value = str_v
-        return {"type": json["type"], "value": value}
-
-    if py.type(json) is py.evaluate("list"):
-        var new_list = py.list()
-        for it in json:
-            new_list.append(translate_json_to_types(py, it))
-        return new_list
-    elif py.type(json) is py.evaluate("dict"):
-        var new_dict = py.dict()
-        for kv in json.items():
-            new_dict[kv[0]] = translate_json_to_types(py, kv[1])
-        return new_dict
-    else:
-        return json
 
 
 def toml_single_test(strpath: String) raises -> None:
@@ -72,35 +40,27 @@ def toml_single_test(strpath: String) raises -> None:
 
     var expected_result = exp_file.read_text()
 
-    var py = Python()
-    var json = py.import_module("json")
-
-    var py_expected: PythonObject
+    var expected: Toml
     try:
-        var py_obj = PythonObject(expected_result)
-        py_expected = json.loads(py_obj)
-        py_expected = translate_json_to_types(py, py_expected)
+        expected = translate_json_to_types(parse_json(expected_result))
     except:
         raise "[TESTCASE ERR]"
 
-    var r_obj: PythonObject
+    var result_json = String()
     try:
-        var str_res = String()
-        toml_result.to_json(str_res)
-        r_obj = PythonObject(str_res)
+        toml_result.to_json(result_json)
     except:
-        raise "[Python Interop Error] Failed to convert json result to python object."
+        raise "[JSON Serialization Error] Failed to convert parser result to JSON."
 
-    var py_result: PythonObject
+    var result: Toml
     try:
-        py_result = json.loads(r_obj)
-        py_result = translate_json_to_types(py, py_result)
+        result = translate_json_to_types(parse_json(result_json))
     except:
-        raise t"[OUTPUT ERR] Error parsing json output from parser: {r_obj}"
+        raise t"[OUTPUT ERR] Error parsing json output from parser: {result_json}"
     try:
-        assert_true(py_result == py_expected)
+        assert_true(result == expected)
     except:
-        raise t"Values are not equal.\nresult:\n{py_result}\nexpected:\n{py_expected}"
+        raise t"Values are not equal.\nresult:\n{result}\nexpected:\n{expected}"
 
 
 @always_inline
