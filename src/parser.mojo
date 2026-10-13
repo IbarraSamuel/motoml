@@ -123,7 +123,7 @@ def parse_inline_array[
             data, idx, inline_table_paths, dotted_table_paths, prefix
         )
         _printif[log]("parse completed")
-        if not arr_item:
+        if case .Err = arr_item:
             return arr_item^.unsafe_take_error()
         # var s = String()
         # arr_item.write_tagged_json_to(s)
@@ -672,7 +672,7 @@ def parse_keys[
             var quoted = parse_quoted_string[SingleQuote, ignore_escape=True](
                 data, idx
             )
-            if not quoted:
+            if case .Err = quoted:
                 return quoted^.unsafe_take_error()
             var quoted_span = quoted^.unsafe_take_value()
             if NewLine in quoted_span or Enter in quoted_span:
@@ -688,7 +688,7 @@ def parse_keys[
             var quoted = parse_quoted_string[DoubleQuote, ignore_escape=False](
                 data, idx
             )
-            if not quoted:
+            if case .Err = quoted:
                 return quoted^.unsafe_take_error()
             var quoted_span = quoted^.unsafe_take_value()
             if NewLine in quoted_span or Enter in quoted_span:
@@ -793,7 +793,7 @@ def parse_kv_pairs[
         _printif[log]("Parsing inline keys...")
 
         var keys_res = parse_keys[Equal, log=log](data, idx, key_base^)
-        if not keys_res:
+        if case .Err = keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
 
@@ -812,7 +812,7 @@ def parse_kv_pairs[
         var v_r = parse_value[end_char, log=log](
             data, idx, inline_table_paths, dotted_table_paths, value_path
         )
-        if not v_r:
+        if case .Err = v_r:
             return v_r^.unsafe_take_error()
         var v = v_r^.unsafe_take_value()
 
@@ -940,7 +940,7 @@ def parse_multiline_collections[
         )
         var keys_res = parse_keys[SquareBracketClose, log=log](data, idx, {})
         _printif[log](t"Mutiline keys result: {keys_res}")
-        if not keys_res:
+        if case .Err = keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
         var table_path = toml_key_path("", keys)
@@ -990,7 +990,7 @@ def parse_multiline_collections[
             dotted_table_paths,
             scoped_table_path,
         )
-        if not values_res:
+        if case .Err = values_res:
             return values_res^.unsafe_take_error()
         var values = values_res^.unsafe_take_value()
 
@@ -1025,7 +1025,7 @@ def parse_multiline_collections[
             array_table_paths=array_table_paths,
             inline_table_paths=inline_table_paths,
         )
-        if not cont_res:
+        if case .Err = cont_res:
             return cont_res^.unsafe_take_error()
         var cont = cont_res^.unsafe_take_value()
 
@@ -1042,7 +1042,7 @@ def parse_multiline_collections[
             if kv.key in cont[].unsafe_ref[Toml.Table]():
                 return Error(t"Table key already defined: {kv.key}")
 
-        cont[].unsafe_ref[Toml.Table]().update(values^)
+        cont[].unsafe_ref[Toml.Table]().update(values)
         _printif[log](t"Current base repr: {base}")
 
     return None
@@ -1089,7 +1089,7 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     var base_res = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](
         data, idx, inline_table_paths, dotted_table_paths, ""
     )
-    if not base_res:
+    if case .Err = base_res:
         return base_res^.unsafe_take_error()
     var base = base_res^.unsafe_take_value()
 
@@ -1123,7 +1123,7 @@ def parse_toml_file[
 def parse_toml_raises[
     *, log: Bool = False
 ](content: StringSlice) raises -> Toml:
-    return parse_toml[log=log](content).take()
+    return parse_toml[log=log](content).take_value()
 
 
 def toml_to_tagged_json[

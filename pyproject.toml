@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "Samuel Ibarra", email = "ing.samuelibarra@gmail.com" }]
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 
 [project.scripts]
 motoml = "motoml:main"
@@ -30,16 +30,16 @@ description = "TOML Reader for Mojo."
 backend = { name = "pixi-build-mojo", version = "0.*" }
 
 [tool.pixi.package.host-dependencies]
-mojo-compiler = "1.*"
+mojo-compiler = "*"
 
 [tool.pixi.package.build-dependencies]
-mojo-compiler = "1.*"
+mojo-compiler = "*"
 
 [tool.pixi.package.run-dependencies]
-mojo-compiler = "1.*"
+mojo-compiler = "*"
 
 [tool.pixi.dependencies]
-mojo = { version = "1.*" }
+mojo = "*"
 # [tasks]
 # test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
 # test-parser = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_parser.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }

@@ -29,7 +29,7 @@ def test_parse_mapped_file() raises:
     empty_file.close()
 
     var result = parse_toml_file("toml_files/valid/example.toml")
-    var toml_obj = result^.take()
+    var toml_obj = result^.take_value()
     assert_equal(
         toml_obj[Toml.Table]["numtheory"][Toml.Table]["boring"][Toml.Boolean],
         False,

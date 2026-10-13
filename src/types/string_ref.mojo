@@ -77,7 +77,7 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
             if escape_error:
                 return escape_error.unsafe_take()
             var se = parse_string_escape(s)
-            if not se:
+            if case .Err = se:
                 return se^.unsafe_take_error()
             ss = se^.unsafe_take_value()
 
@@ -238,7 +238,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
     ]
     # var search_base = 0
     var fesc_res = fesc(ss.as_bytes(), 0)
-    if not fesc_res:
+    if case .Err = fesc_res:
         return fesc_res^.unsafe_take_error()
     var char, init, spn = fesc_res^.unsafe_take_value()
 
@@ -338,7 +338,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         # search_base += init + 1
 
         var fesc_res = fesc(ss.as_bytes(), init + 1)
-        if not fesc_res:
+        if case .Err = fesc_res:
             return fesc_res^.unsafe_take_error()
         char, init, spn = fesc_res^.unsafe_take_value()
         # print(

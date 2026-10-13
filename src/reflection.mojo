@@ -33,7 +33,7 @@ def _rebind_list[T: Movable & Deinitable](var toml: Toml) -> Result[List[T]]:
     var new_lst = List[T](capacity=len(lst))
     for var v in lst^:
         var new_v = toml_to_type[T](v^)
-        if not new_v:
+        if case .Err = new_v:
             return new_v^.unsafe_take_error()
         new_lst.append(new_v^.unsafe_take_value())
 
@@ -83,7 +83,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 var value = toml_tb.pop(NAME, {Toml.NaN()})
                 var inner = toml_to_type[Inner](value^)
 
-                if not inner:
+                if case .Err = inner:
                     # TODO: Destroy properly
                     dealloc(allocation^)
                     # struct_ptr.unsafe_free()
@@ -103,7 +103,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
             var value = toml_tb.pop(NAME, {Toml.NaN()})
 
             var inner = toml_to_type[TYPE](value^)
-            if not inner:
+            if case .Err = inner:
                 # TODO: Destroy properly
                 dealloc(allocation^)
                 # dealloc(struct_ptr^)
@@ -133,7 +133,7 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
         comptime Elem = T.IteratorType[origin_of()].Element
         comptime assert conforms_to(Elem, Movable & Deinitable)
         var lst = _rebind_list[Elem](toml^)
-        if not lst:
+        if case .Err = lst:
             return lst^.unsafe_take_error()
         return rebind_var[T](lst^.unsafe_take_value())
 
@@ -150,6 +150,6 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
 # Result Wrapper
 def toml_to_type_raises[T: Movable & Deinitable](var toml: Toml) raises -> T:
     var res = toml_to_type[T](toml^)
-    if not res:
+    if case .Err = res:
         raise res^.unsafe_take_error()
     return res^.unsafe_take_value()

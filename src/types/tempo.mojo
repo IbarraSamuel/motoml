@@ -208,15 +208,15 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         var offset: Result[Offset],
         _is_local: Bool,
     ) raises:
-        if not date:
+        if case .Err = date:
             time^.forget()
             offset^.forget()
             raise date^.unsafe_take_error()
-        if not time:
+        if case .Err = time:
             date^.forget()
             offset^.forget()
             raise time^.unsafe_take_error()
-        if not offset:
+        if case .Err = offset:
             date^.forget()
             time^.forget()
             raise offset^.unsafe_take_error()

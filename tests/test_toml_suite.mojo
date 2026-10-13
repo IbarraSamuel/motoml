@@ -73,7 +73,7 @@ def main() raises:
         if not fpath.endswith(".toml"):
             continue
         var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
-        suite.add_test(name=root_fpath^, location=fpath)
+        suite.add_test(name=root_fpath, location=fpath)
 
     # print("Running tests...")
     suite^.run()
@@ -125,6 +125,6 @@ struct PyTestSuite(Deinitable where False, Movable):
         var report = TestSuiteReport(reports=reports^, location=self.location)
 
         if report.failures > 0:
-            raise Error(report^)
+            raise Error(report)
 
         print(report)

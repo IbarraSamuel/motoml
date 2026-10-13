@@ -1,16 +1,14 @@
 from std.utils import Variant
 
 
-@fieldwise_init
-struct ResultVariants[
-    T: Movable & Deinitable, E: Movable & Writable & Deinitable = Error
-](
+struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
+    Deinitable where False,
     EnumLike,
+    Equatable where conforms_to(T, Equatable),
     Movable,
     Writable,
 ):
     var inner: Variant[Self.T, Self.E]
-
     comptime _enum_case_names = ParameterList.of["Ok".value, "Err".value].values
     comptime _enum_case_types = TypeList.of[Self.T, Self.E].values
 
@@ -26,22 +24,12 @@ struct ResultVariants[
             to=self.inner[TypeList[Trait=AnyType, Self._enum_case_types]()[id]]
         ).unsafe_origin_cast[origin_of(self)]()[]
 
-
-struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
-    Boolable,
-    Deinitable where False,
-    Equatable where conforms_to(T, Equatable),
-    Movable,
-    Writable,
-):
-    var inner: Variant[Self.T, Self.E]
-
-    def variants(
-        deinit self,
-    ) -> ResultVariants[Self.T, Self.E] where conforms_to(
-        Self.T, Movable & Deinitable
-    ):
-        return ResultVariants[Self.T, Self.E](self.inner^)
+    # def variants(
+    #     deinit self,
+    # ) -> ResultVariants[Self.T, Self.E] where conforms_to(
+    #     Self.T, Movable & Deinitable
+    # ):
+    #     return ResultVariants[Self.T, Self.E](self.inner^)
 
     @implicit
     def __init__(out self, var value: Self.T):
@@ -51,41 +39,31 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     def __init__(out self, var error: Self.E):
         self.inner = error^
 
-    def __bool__(self) -> Bool:
-        return self.inner.isa[Self.T]()
+    # def __getitem__(
+    #     self,
+    # ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
+    #     if case .Err = self:
+    #         raise "Result type doesn't hold a value."
+    #     return self.unsafe_ref_value()
 
-    def __eq__(self, other: Self) -> Bool where conforms_to(Self.T, Equatable):
-        return (
-            Bool(self)
-            and Bool(other)
-            and self.unsafe_ref_value() == other.unsafe_ref_value()
-        )
+    # def unsafe_ref_value(
+    #     self,
+    # ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
+    #     assert self.inner.isa[Self.T](), "Result type doesn't hold a value."
+    #     return self.inner[Self.T]
 
-    def __getitem__(
-        self,
-    ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
-        if not self:
-            raise "Result type doesn't hold a value."
-        return self.unsafe_ref_value()
+    # def ref_error(
+    #     self,
+    # ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
+    #     if case .Ok = self:
+    #         raise "Result Type doesn't have an Error value."
+    #     return self.unsafe_ref_error()
 
-    def unsafe_ref_value(
-        self,
-    ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.T:
-        assert Bool(self), "Result type doesn't hold a value."
-        return self.inner[Self.T]
-
-    def ref_error(
-        self,
-    ) raises -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
-        if self:
-            raise "Result Type doesn't have an Error value."
-        return self.unsafe_ref_error()
-
-    def unsafe_ref_error(
-        self,
-    ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
-        assert not self, "Result type doesn't hold an error."
-        return self.inner[Self.E]
+    # def unsafe_ref_error(
+    #     self,
+    # ) -> ref[origin_of(self.inner)._get_owned_interior["value"]] Self.E:
+    #     assert self.inner.isa[Self.E](), "Result type doesn't hold an error."
+    #     return self.inner[Self.E]
 
     # -- Destroy methods --
 
@@ -97,7 +75,7 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     ](deinit self, out value: t) where TypeList.of[
         Trait=Movable, Self.T, Self.E
     ].contains[t]():
-        assert Bool(self), "No value found in the Result Type."
+        assert self.inner.isa[t](), "No value found in the Result Type."
         value = self.inner^.unwrap[t]()
 
     @always_inline
@@ -118,26 +96,19 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         var self,
     ) raises -> Self.E where conforms_to(Self.T, Deinitable):
         """Take the error or raises otherwise."""
-        if self:
+        if case .Ok = self:
             _ = self^.unsafe_take_value()
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
 
-    def take(var self) raises -> Self.T:
-        if not self:
-            raise self^.unsafe_take_error()
-        return self^.unsafe_take_value()
-
     def take_value(var self) raises -> Self.T:
-        """Take the value or raises otherwise."""
-        if not self:
-            _ = self^.unsafe_take_error()
-            raise "Result type has an error, not a value T."
+        if case .Err = self:
+            raise self^.unsafe_take_error()
         return self^.unsafe_take_value()
 
     def as_optional(var self) -> Optional[Self.T]:
         """Convert to an Optional type."""
-        if not self:
+        if case .Err = self:
             _ = self^.unsafe_take_error()
             return None
         return self^.unsafe_take_value()
@@ -146,7 +117,7 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         var self, var default: Self.T
     ) -> Self.T where conforms_to(Self.T, Deinitable):
         """Take the value or return a default value."""
-        if not self:
+        if case .Err = self:
             _ = self^.unsafe_take_error()
             return default^
         _ = default^
@@ -155,16 +126,16 @@ struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     def and_then[
         O: Movable, e: Writable & Movable & Deinitable, //
     ](var self, func: def(var Self.T) thin -> Result[O, e]) -> Result[O, Error]:
-        if not self:
+        if case .Err = self:
             return Error(self^.unsafe_take_error())
         var new_result = func(self^.unsafe_take_value())
-        if not new_result:
+        if case .Err = new_result:
             return Error(new_result^.unsafe_take_error())
         return new_result^.unsafe_take_value()
 
     def map[
         O: Movable, //
     ](var self, func: def(var Self.T) thin -> O) -> Result[O, Self.E]:
-        if not self:
+        if case .Err = self:
             return self^.unsafe_take_error()
         return func(self^.unsafe_take_value())
