@@ -50,7 +50,7 @@ def test_all_toml_types() raises:
         var err = res^.take_error()
         raise err
 
-    var r = res^.take_value()
+    var r = res^.take()
     print("Parsed and saved!")
     ref tb = r[Toml.Table]
     assert_equal(tb["string"][Toml.String], "abcd")

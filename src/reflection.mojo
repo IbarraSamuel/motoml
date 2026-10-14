@@ -14,18 +14,18 @@ def _rebind_toml_type[
     T: Movable & Deinitable
 ](var toml: Toml) -> Result[T] where Toml.AllTypes.contains[T]():
     if not toml.isa[T]():
-        return Error(
+        return .Err(
             "[TYPE ERROR]: Toml Type is {toml.get_type_name()} but rebind type"
             " is {reflect[T].name()}"
         )
 
-    return toml^.unsafe_take[T]()
+    return .Ok(toml^.unsafe_take[T]())
 
 
 @always_inline
 def _rebind_list[T: Movable & Deinitable](var toml: Toml) -> Result[List[T]]:
     if not toml.isa[Toml.Array]():
-        return Error(
+        return .Err(
             t"[TYPE ERROR]: Toml Type is {toml.get_type_name()} but rebind type"
             t" is a List"
         )
@@ -34,10 +34,10 @@ def _rebind_list[T: Movable & Deinitable](var toml: Toml) -> Result[List[T]]:
     for var v in lst^:
         var new_v = toml_to_type[T](v^)
         if case .Err = new_v:
-            return new_v^.unsafe_take_error()
+            return .Err(new_v^.unsafe_take_error())
         new_lst.append(new_v^.unsafe_take_value())
 
-    return new_lst^
+    return .Ok(new_lst^)
 
 
 @always_inline
@@ -48,7 +48,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
     comptime field_names = Tr.field_names()
 
     if not toml.isa[Toml.Table]():
-        return Error("The toml value doesn't correspond to a Table.")
+        return .Err("The toml value doesn't correspond to a Table.")
 
     # print(t"building struct allocation for struct : {Tr.name()}")
     var layout = Layout[T](count=1)
@@ -87,7 +87,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                     # TODO: Destroy properly
                     dealloc(allocation^)
                     # struct_ptr.unsafe_free()
-                    return inner^.unsafe_take_error()
+                    return .Err(inner^.unsafe_take_error())
 
                 field_ptr = rebind_var[TYPE](
                     Optional[Inner](inner^.unsafe_take_value())
@@ -98,7 +98,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 dealloc(allocation^)
                 # struct_ptr.unsafe_free()
                 # dealloc(struct_ptr^)
-                return Error("Struct field doesn't exists in toml table.")
+                return .Err("Struct field doesn't exists in toml table.")
 
             var value = toml_tb.pop(NAME, {Toml.NaN()})
 
@@ -107,12 +107,12 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 # TODO: Destroy properly
                 dealloc(allocation^)
                 # dealloc(struct_ptr^)
-                return inner^.unsafe_take_error()
+                return .Err(inner^.unsafe_take_error())
             field_ptr = inner^.unsafe_take_value()
         # print(t"Field {NAME} done!")
 
     # print("struct done!")
-    return allocation^.unsafe_leak().unsafe_take_pointee()
+    return .Ok(allocation^.unsafe_leak().unsafe_take_pointee())
 
 
 def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
@@ -123,7 +123,7 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
     # )
 
     comptime if T == Toml:
-        return rebind_var[T](toml^)
+        return .Ok(rebind_var[T](toml^))
 
     elif Toml.AllTypes.contains[T]():
         return _rebind_toml_type[T](toml^)
@@ -134,17 +134,17 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
         comptime assert conforms_to(Elem, Movable & Deinitable)
         var lst = _rebind_list[Elem](toml^)
         if case .Err = lst:
-            return lst^.unsafe_take_error()
-        return rebind_var[T](lst^.unsafe_take_value())
+            return .Err(lst^.unsafe_take_error())
+        return .Ok(rebind_var[T](lst^.unsafe_take_value()))
 
     elif Tr.is_struct():
         return _rebind_struct[T](toml^)
 
     elif Tr.base_name() == "Variant":
-        return Error("Variant types not supported yet!")
+        return .Err("Variant types not supported yet!")
 
     else:
-        return Error("Type Not Supported!")
+        return .Err("Type Not Supported!")
 
 
 # Result Wrapper

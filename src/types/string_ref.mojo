@@ -75,15 +75,15 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
         else:
             var escape_error = validate_string_escapes(s, self.is_multiline)
             if escape_error:
-                return escape_error.unsafe_take()
+                return .Err(escape_error.unsafe_take())
             var se = parse_string_escape(s)
             if case .Err = se:
-                return se^.unsafe_take_error()
+                return .Err(se^.unsafe_take_error())
             ss = se^.unsafe_take_value()
 
         comptime for f, t in Self.CommonEscape:
             ss = ss.replace(f, t)
-        return ss
+        return .Ok(ss)
 
     # fn write_to(self, mut w: Some[Writer]):
     #     try:
@@ -213,16 +213,17 @@ def _find_escapes[
         comptime for char, span_len in chars:
             if c == char:
                 comptime if char == Byte(ord("e")):
-                    return Tuple[Byte, Int, Span[Byte, ssb.origin]](
-                        char, ii, {}
+                    return .Ok(
+                        Tuple[Byte, Int, Span[Byte, ssb.origin]](char, ii, {})
                     )
                 else:
                     if len(ssb) < ii + 2 + span_len:
-                        return Error("Escape offset is out of bounds.")
+                        return .Err("Escape offset is out of bounds.")
                     var sp = ssb[ii + 2 : ii + 2 + span_len]
-                    return char, ii, sp
+                    var result = char, ii, sp
+                    return .Ok(result)
 
-    return Tuple[Byte, Int, Span[Byte, ssb.origin]](Byte(), -1, {})
+    return .Ok({Byte(), -1, {}})
 
 
 def parse_string_escape(v: StringSlice) -> Result[String]:
@@ -239,7 +240,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
     # var search_base = 0
     var fesc_res = fesc(ss.as_bytes(), 0)
     if case .Err = fesc_res:
-        return fesc_res^.unsafe_take_error()
+        return .Err(fesc_res^.unsafe_take_error())
     var char, init, spn = fesc_res^.unsafe_take_value()
 
     # print(
@@ -269,7 +270,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
                 elif min_c <= byte and byte <= max_c:
                     rtv = 10 + byte - min_c
                 else:
-                    return Error("Span doesn't contain a valid hex value")
+                    return .Err("Span doesn't contain a valid hex value")
                 value += UInt32(rtv) * UInt32(16**ii)
 
             if value == 8:
@@ -315,7 +316,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
                         next_idx += bi + 1
                         break
                 else:
-                    return Error(
+                    return .Err(
                         "\\e scape found, and [ found but not found m at the"
                         " end."
                     )
@@ -324,7 +325,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
                 codepoint = "\\u001b"
             # print("e modifications done!")
         else:
-            return Error("error! value not found")
+            return .Err("error! value not found")
 
         var f = String(StringSlice(unsafe_from_utf8=ss.as_bytes()[:init]))
         if next_idx < ss.byte_length():
@@ -339,7 +340,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
 
         var fesc_res = fesc(ss.as_bytes(), init + 1)
         if case .Err = fesc_res:
-            return fesc_res^.unsafe_take_error()
+            return .Err(fesc_res^.unsafe_take_error())
         char, init, spn = fesc_res^.unsafe_take_value()
         # print(
         #     "Next iter:",
@@ -410,4 +411,4 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):
     #     ss = String(ss[: len(ss) - 1])
-    return ss
+    return .Ok(ss)

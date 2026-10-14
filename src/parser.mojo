@@ -55,7 +55,7 @@ def parse_multiline_string[
         idx += 1
 
     if idx >= len(data):
-        return Error("Multiline not closed.")
+        return .Err("Multiline not closed.")
 
     # move two if there is a end like: """""
     # comptime if ignore_escape:
@@ -66,7 +66,7 @@ def parse_multiline_string[
     if len(data) > idx + 1 and data[idx + 1] == quote_type:
         idx += 1
     # When it stopped, the value already have two quotes, remove them from value
-    return data[value_init : idx - 2]
+    return .Ok(data[value_init : idx - 2])
 
 
 def parse_quoted_string[
@@ -75,15 +75,15 @@ def parse_quoted_string[
     idx += 1
     var value_init = idx
     if idx >= len(data):
-        return Error("String not closed.")
+        return .Err("String not closed.")
 
     while data[idx] != quote_type:
         if data[idx] == NewLine or data[idx] == Enter:
-            return Error("Newlines are not allowed in single-line strings.")
+            return .Err("Newlines are not allowed in single-line strings.")
         idx += 1
 
         if idx >= len(data):
-            return Error("String not closed.")
+            return .Err("String not closed.")
 
         comptime if not ignore_escape:
             if data[idx] == quote_type:
@@ -94,7 +94,7 @@ def parse_quoted_string[
                 if n_esc % 2 != 0:
                     idx += 1
 
-    return data[value_init:idx]
+    return .Ok(data[value_init:idx])
 
 
 def parse_inline_array[
@@ -124,7 +124,7 @@ def parse_inline_array[
         )
         _printif[log]("parse completed")
         if case .Err = arr_item:
-            return arr_item^.unsafe_take_error()
+            return .Err(arr_item^.unsafe_take_error())
         # var s = String()
         # arr_item.write_tagged_json_to(s)
         # print("value parsed: `{}`".format(s))
@@ -137,7 +137,7 @@ def parse_inline_array[
         if idx >= len(data) or data[idx] == SquareBracketClose:
             break
         if data[idx] != Comma:
-            return Error("Expected a comma between array elements.")
+            return .Err("Expected a comma between array elements.")
 
         # we are at a comma
         idx += 1
@@ -145,9 +145,9 @@ def parse_inline_array[
         skip_blanks_and_comments(data, idx)
 
     if idx >= len(data):
-        return Error("Array not closed.")
+        return .Err("Array not closed.")
 
-    return arr^
+    return .Ok(arr^)
 
 
 @always_inline
@@ -299,32 +299,32 @@ def string_to_type[
         idx : min(idx + 4, max_idx)
     ] == "true".as_bytes() and is_value_terminator[end_char](data, idx + 4):
         idx += 3
-        return Toml(True)
+        return .Ok(Toml(True))
 
     elif data[
         idx : min(idx + 5, max_idx)
     ] == "false".as_bytes() and is_value_terminator[end_char](data, idx + 5):
         idx += 4
-        return Toml(value=False)
+        return .Ok(Toml(value=False))
 
     elif data[idx : min(idx + 3, max_idx)] == "nan".as_bytes():
         idx += 2
-        return Toml(Toml.NaN())
+        return .Ok(Toml(Toml.NaN()))
     elif data[idx : min(idx + 4, max_idx)] == "+nan".as_bytes():
         idx += 3
-        return Toml(Toml.NaN())
+        return .Ok(Toml(Toml.NaN()))
     elif data[idx : min(idx + 4, max_idx)] == "-nan".as_bytes():
         idx += 3
-        return Toml(Toml.NaN())
+        return .Ok(Toml(Toml.NaN()))
     elif data[idx : min(idx + 3, max_idx)] == "inf".as_bytes():
         idx += 2
-        return Toml(Float64.MAX)
+        return .Ok(Toml(Float64.MAX))
     elif data[idx : min(idx + 4, max_idx)] == "+inf".as_bytes():
         idx += 3
-        return Toml(Float64.MAX)
+        return .Ok(Toml(Float64.MAX))
     elif data[idx : min(idx + 4, max_idx)] == "-inf".as_bytes():
         idx += 3
-        return Toml(Float64.MIN)
+        return .Ok(Toml(Float64.MIN))
 
     var v_init = idx
 
@@ -404,18 +404,18 @@ def string_to_type[
         ].replace("_", "")
         var base = 16 if is_hex else 8 if is_oct else 2 if is_bin else 10
         try:
-            return Toml(atol(v, base=base))
+            return .Ok(Toml(atol(v, base=base)))
         except e:
-            return e^
+            return .Err(e^)
 
     elif is_valid_float(v_slice):
         _printif[log]("try parse float")
         try:
-            return Toml(atof(v_slice.replace("_", "")))
+            return .Ok(Toml(atof(v_slice.replace("_", ""))))
         except e:
-            return e^
+            return .Err(e^)
 
-    return Error(t"Could not find a type for value: `{v_slice}`")
+    return .Err(t"Could not find a type for value: `{v_slice}`")
 
 
 def calc_value[
@@ -511,7 +511,7 @@ def get_table_ref[
     for i, k in enumerate(keys[: len(keys) - 1]):
         var path = toml_key_path("", keys[: i + 1])
         if path in inline_table_paths:
-            return Error("Inline tables cannot be extended.")
+            return .Err("Inline tables cannot be extended.")
         _printif[log](
             t"|> k -> '{k}' ",
             end="",
@@ -527,7 +527,7 @@ def get_table_ref[
                 inner_arr.append(Toml(Toml.Table(capacity=16)))
             var path = toml_key_path("", keys[: i + 1])
             if path not in array_table_paths:
-                return Error("Cannot extend a table inside a static array.")
+                return .Err("Cannot extend a table inside a static array.")
             cont = Pointer(
                 to=inner_arr[len(inner_arr) - 1].unsafe_ref[Toml.Table]()
             ).unsafe_origin_cast[origin_of(base)]()
@@ -536,11 +536,11 @@ def get_table_ref[
                 to=inner_v.unsafe_ref[Toml.Table]()
             ).unsafe_origin_cast[origin_of(base)]()
         else:
-            return Error("Toml type is not a container.")
+            return .Err("Toml type is not a container.")
 
     ref k = keys[len(keys) - 1]
     if toml_key_path("", keys) in inline_table_paths:
-        return Error("Inline tables cannot be redefined.")
+        return .Err("Inline tables cannot be redefined.")
     var final_c: Pointer[Toml, origin_of(base)]
     if default.isa[Toml.Array]():
         var already_defined = k in cont[]
@@ -548,10 +548,10 @@ def get_table_ref[
             to=cont[].setdefault(k, Toml(Toml.Array(capacity=16)))
         ).unsafe_origin_cast[origin_of(base)]()
         if not final_c[].isa[Toml.Array]():
-            return Error("Container should be an array, but it's not.")
+            return .Err("Container should be an array, but it's not.")
         var path = toml_key_path("", keys)
         if path not in array_table_paths and already_defined:
-            return Error(
+            return .Err(
                 "Cannot define an array-of-tables over an existing array."
             )
         ref arr = final_c[].unsafe_ref[Toml.Array]()
@@ -566,7 +566,7 @@ def get_table_ref[
             origin_of(base)
         ]()
 
-    return final_c
+    return .Ok(final_c)
 
 
 def set_key_value[
@@ -663,20 +663,20 @@ def parse_keys[
         var chr = data[idx]
         _printif[log](Codepoint(chr))
         if chr == SquareBracketOpen:
-            return Error("Invalid key Definition: key opened twice.")
+            return .Err("Invalid key Definition: key opened twice.")
         elif chr != Space and chr != Tab and chr != Period and key:
-            return Error("Invalid Key Definition: Key is not closed.")
+            return .Err("Invalid Key Definition: Key is not closed.")
         elif chr == SingleQuote:
             if bare_key_started:
-                return Error("Bare and quoted key segments cannot be combined.")
+                return .Err("Bare and quoted key segments cannot be combined.")
             var quoted = parse_quoted_string[SingleQuote, ignore_escape=True](
                 data, idx
             )
             if case .Err = quoted:
-                return quoted^.unsafe_take_error()
+                return .Err(quoted^.unsafe_take_error())
             var quoted_span = quoted^.unsafe_take_value()
             if NewLine in quoted_span or Enter in quoted_span:
-                return Error("Newlines are not allowed in quoted keys.")
+                return .Err("Newlines are not allowed in quoted keys.")
             key = calc_value[o, lit=True, multi=False, log=log](
                 quoted_span
             ).as_optional()
@@ -684,15 +684,15 @@ def parse_keys[
             continue
         elif chr == DoubleQuote:
             if bare_key_started:
-                return Error("Bare and quoted key segments cannot be combined.")
+                return .Err("Bare and quoted key segments cannot be combined.")
             var quoted = parse_quoted_string[DoubleQuote, ignore_escape=False](
                 data, idx
             )
             if case .Err = quoted:
-                return quoted^.unsafe_take_error()
+                return .Err(quoted^.unsafe_take_error())
             var quoted_span = quoted^.unsafe_take_value()
             if NewLine in quoted_span or Enter in quoted_span:
-                return Error("Newlines are not allowed in quoted keys.")
+                return .Err("Newlines are not allowed in quoted keys.")
             key = calc_value[o, lit=False, multi=False, log=log](
                 quoted_span
             ).as_optional()
@@ -701,7 +701,7 @@ def parse_keys[
             continue
         elif not key and (chr == Space or chr == Tab):
             if idx == key_init:
-                return Error("A bare key cannot be empty.")
+                return .Err("A bare key cannot be empty.")
             var k = data[key_init:idx]
             key = (
                 StringRef(k, literal=False, multiline=False)
@@ -713,7 +713,7 @@ def parse_keys[
         elif chr == Period:
             if not key:
                 if idx == key_init:
-                    return Error("A dotted key segment cannot be empty.")
+                    return .Err("A dotted key segment cannot be empty.")
                 key = (
                     StringRef(
                         data[key_init:idx], literal=False, multiline=False
@@ -731,7 +731,7 @@ def parse_keys[
                 or data[idx] == close_char
                 or data[idx] == Period
             ):
-                return Error(
+                return .Err(
                     "Error while creating nested table. No key defined after"
                     " dot."
                 )
@@ -740,22 +740,22 @@ def parse_keys[
             # Return the inner element?
             return parse_keys[close_char, log=log](data, idx, key_base^)
         elif chr == Byte(ord("#")):
-            return Error("Comment found in middle of key")
+            return .Err("Comment found in middle of key")
         # elif key and chr == Equal:
         #     return Error("Assignment in middle of key definition.")
         elif not key and not is_bare_key_char(chr):
-            return Error("Invalid character in bare key.")
+            return .Err("Invalid character in bare key.")
         elif not key:
             bare_key_started = True
         idx += 1
 
     # _printif[log](t"Len data is: {len(data)} and curr idx is: {idx}")
     if idx == len(data) or idx > len(data):
-        return Error("Key not closed.")
+        return .Err("Key not closed.")
 
     if not key:
         if idx == key_init:
-            return Error("A bare key cannot be empty.")
+            return .Err("A bare key cannot be empty.")
         key = (
             StringRef(data[key_init:idx], literal=False, multiline=False)
             .calc_value()
@@ -765,7 +765,7 @@ def parse_keys[
     var k = key.take()
     key_base.append(k)
     _printif[log](t"!- Parsed key base: {key_base}")
-    return key_base^
+    return .Ok(key_base^)
 
 
 def parse_kv_pairs[
@@ -794,7 +794,7 @@ def parse_kv_pairs[
 
         var keys_res = parse_keys[Equal, log=log](data, idx, key_base^)
         if case .Err = keys_res:
-            return keys_res^.unsafe_take_error()
+            return .Err(keys_res^.unsafe_take_error())
         var keys = keys_res^.unsafe_take_value()
 
         _printif[log](t"inline keys -> '{",".join(keys)}'")
@@ -813,7 +813,7 @@ def parse_kv_pairs[
             data, idx, inline_table_paths, dotted_table_paths, value_path
         )
         if case .Err = v_r:
-            return v_r^.unsafe_take_error()
+            return .Err(v_r^.unsafe_take_error())
         var v = v_r^.unsafe_take_value()
 
         _printif[log](t"inline value -> '{v}'")
@@ -831,7 +831,7 @@ def parse_kv_pairs[
             prefix=prefix,
         )
         if opt_error:
-            return opt_error.unsafe_take()
+            return .Err(opt_error.unsafe_take())
 
         # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
         _printif[log]("container found and data saved!")
@@ -844,7 +844,7 @@ def parse_kv_pairs[
             if data[idx] == Enter:
                 idx += 1
             if data[idx] != NewLine:
-                return Error("Unexpected characters after TOML value.")
+                return .Err("Unexpected characters after TOML value.")
             idx += 1
             skip_blanks_and_comments(data, idx)
         elif separator == Comma:
@@ -852,7 +852,7 @@ def parse_kv_pairs[
             if idx >= len(data) or data[idx] == end_char:
                 break
             if data[idx] != separator:
-                return Error("Expected a comma between inline table entries.")
+                return .Err("Expected a comma between inline table entries.")
             idx += 1
             skip_blanks_and_comments(data, idx)
         else:
@@ -874,10 +874,10 @@ def parse_kv_pairs[
     # _ = get_container_ref[o = data.origin](keys, table, default=v^)
 
     if idx >= len(data) and end_char == CurlyBracketClose:
-        return Error("Inline table not closed.")
+        return .Err("Inline table not closed.")
 
     _printif[log](t"Initial table finished! data is: {table}")
-    return table^
+    return .Ok(table^)
 
 
 @always_inline
@@ -939,10 +939,10 @@ def parse_multiline_collections[
             t' keys[{"array" if is_array else "table"}]------------:'
         )
         var keys_res = parse_keys[SquareBracketClose, log=log](data, idx, {})
-        _printif[log](t"Mutiline keys result: {keys_res}")
         if case .Err = keys_res:
             return keys_res^.unsafe_take_error()
         var keys = keys_res^.unsafe_take_value()
+        _printif[log](t"Mutiline keys result: {keys}")
         var table_path = toml_key_path("", keys)
         if is_array:
             array_table_occurrences.append(table_path)
@@ -1065,15 +1065,15 @@ def validate_control_characters(data: Span[Byte, _]) -> Optional[Error]:
 def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     var data = content.as_bytes()
     if not _is_valid_utf8(data):
-        return Error("TOML document is not valid UTF-8.")
+        return .Err("TOML document is not valid UTF-8.")
 
     _printif[log](
         t"\n\n~~~*** Starting new parse -- content: \n'''{content}'''"
     )
 
     var control_error = validate_control_characters(data)
-    if control_error:
-        return control_error.unsafe_take()
+    if case .Some = control_error:
+        return .Err(control_error.unsafe_take())
 
     var idx = 0
     var inline_table_paths = List[String]()
@@ -1083,14 +1083,14 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
 
     if idx >= len(data):
         _printif[log]("Empty table, just return an empty object.")
-        return Toml(Toml.Table(capacity=0))
+        return .Ok(Toml(Toml.Table(capacity=0)))
 
     _printif[log]("parsing initial kv pairs...")
     var base_res = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](
         data, idx, inline_table_paths, dotted_table_paths, ""
     )
     if case .Err = base_res:
-        return base_res^.unsafe_take_error()
+        return .Err(base_res^.unsafe_take_error())
     var base = base_res^.unsafe_take_value()
 
     _printif[log](t"end parsing initial kv pairs... Current idx: {idx}")
@@ -1105,11 +1105,11 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     )
     if err_or_none:
         _printif[log](t"ERR IDENTIFIED {err_or_none}")
-        return err_or_none.unsafe_take()
+        return .Err(err_or_none.unsafe_take())
 
     _printif[log](t"done parsing toml!\nfinal data is: {base}")
 
-    return Toml(base^)
+    return .Ok(Toml(base^))
 
 
 def parse_toml_file[
@@ -1123,7 +1123,7 @@ def parse_toml_file[
 def parse_toml_raises[
     *, log: Bool = False
 ](content: StringSlice) raises -> Toml:
-    return parse_toml[log=log](content).take_value()
+    return parse_toml[log=log](content).take()
 
 
 def toml_to_tagged_json[

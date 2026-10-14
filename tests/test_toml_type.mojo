@@ -34,7 +34,7 @@ def test_date() raises:
 
 
 def test_datetime() raises:
-    var datetime = Toml.DateTime.from_string("2022-03-02 03:43:02").take_value()
+    var datetime = Toml.DateTime.from_string("2022-03-02 03:43:02").take()
     var toml = Toml(datetime)
     assert_equal(toml[Toml.DateTime], datetime)
 

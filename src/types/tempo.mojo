@@ -22,7 +22,7 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
             or not v[byte=5:7].is_ascii_digit()
             or not v[byte=8:10].is_ascii_digit()
         ):
-            return Error("Invalid date format.")
+            return .Err("Invalid date format.")
 
         var year_s: Int
         var month: Int
@@ -32,10 +32,10 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
             month = Int(v[byte=5:7])
             day = Int(v[byte=8:10])
         except e:
-            return e^
+            return .Err(e^)
 
         if month < 1 or month > 12:
-            return Error("Month is out of range.")
+            return .Err("Month is out of range.")
         var days_in_month = 31
         if month == 4 or month == 6 or month == 9 or month == 11:
             days_in_month = 30
@@ -45,9 +45,9 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
             )
             days_in_month = 29 if leap_year else 28
         if day < 1 or day > days_in_month:
-            return Error("Day is out of range for month.")
+            return .Err("Day is out of range for month.")
 
-        return Self(year=year_s, month=month, day=day)
+        return .Ok(Self(year=year_s, month=month, day=day))
 
     def write_to(self, mut w: Some[Writer]):
         _align[4](self.year, w)
@@ -81,7 +81,7 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
         elif v[byte=0] == "Z" or v[byte=0] == "z" or v[byte=0] == "+":
             positive = True
         else:
-            return Error("sign not found for offset")
+            return .Err("sign not found for offset")
 
         if (
             v.byte_length() != 6
@@ -89,7 +89,7 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
             or not v[byte=1:3].is_ascii_digit()
             or not v[byte=4:6].is_ascii_digit()
         ):
-            return Error("Offset value is not complete.")
+            return .Err("Offset value is not complete.")
 
         var hour_s: Int
         var minute_s: Int
@@ -99,12 +99,12 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
             minute_s = Int(v[byte=4:6].removeprefix("0"))
             # var minute = 0 if len(minute_s) == 0 else Int(minute_s)
         except e:
-            return e^
+            return .Err(e^)
 
         if hour_s > 23 or minute_s > 59:
-            return Error("Offset is out of range.")
+            return .Err("Offset is out of range.")
 
-        return Offset(hour=hour_s, minute=minute_s, positive=positive)
+        return .Ok(Offset(hour=hour_s, minute=minute_s, positive=positive))
 
     def write_to(self, mut w: Some[Writer]):
         if self == Offset.utc:
@@ -143,13 +143,13 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
                 )
             )
         ):
-            return Error("Invalid time format.")
+            return .Err("Invalid time format.")
         if v.byte_length() > 8 and (
             v.as_bytes()[8] != Byte(ord("."))
             or v.byte_length() == 9
             or not v[byte=9:].is_ascii_digit()
         ):
-            return Error("Invalid fractional seconds.")
+            return .Err("Invalid fractional seconds.")
 
         var hour_s: Int
         var minute_s: Int
@@ -162,12 +162,12 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
             else:
                 second = 0.0
         except e:
-            return e^
+            return .Err(e^)
 
         if hour_s > 23 or minute_s > 59 or second > 60.0:
-            return Error("Time is out of range.")
+            return .Err("Time is out of range.")
 
-        return Time(hour=hour_s, minute=minute_s, second=second)
+        return .Ok(Time(hour=hour_s, minute=minute_s, second=second))
 
     def write_to(self, mut w: Some[Writer]):
         _align[2](self.hour, w)
@@ -236,7 +236,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         split = v.find(" ") if split == -1 else split
 
         if split == -1:
-            return Error(t"Datetime is not datetime: `{v}`")
+            return .Err(t"Datetime is not datetime: `{v}`")
         var date_s = v[byte=:split]
         # print("date is:", date_s)
 
@@ -257,15 +257,15 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         var time = Time.from_string(time_s)
         # print("time parse complete:", time)
         # print("offset is:", v[byte=t_split:], "or just a utc value")
-        var offset = Offset.utc if t_split == (
+        var offset = .Ok(Offset.utc) if t_split == (
             v.byte_length()
         ) or z != -1 else Offset.from_string(v[byte=t_split:])
         # print("offset is:", offset)
 
         try:
-            return Self(date^, time^, offset^, t_split == v.byte_length())
+            return .Ok(Self(date^, time^, offset^, t_split == v.byte_length()))
         except e:
-            return e^
+            return .Err(e^)
 
     def write_to(self, mut w: Some[Writer]):
         w.write(self.date, "T")
