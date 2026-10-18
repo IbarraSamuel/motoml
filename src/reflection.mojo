@@ -6,38 +6,24 @@ TODO: Make it a single implementation.
 from .types.toml import Toml
 from .result import Result
 
-from std.memory import stack_allocation, alloc, dealloc, Layout
-
-
-@always_inline
-def _rebind_toml_type[
-    T: Movable & Deinitable
-](var toml: Toml) -> Result[T] where Toml.AllTypes.contains[T]():
-    if not toml.isa[T]():
-        return .Err(
-            "[TYPE ERROR]: Toml Type is {toml.get_type_name()} but rebind type"
-            " is {reflect[T].name()}"
-        )
-
-    return .Ok(toml^.unsafe_take[T]())
+from std.memory import alloc, dealloc, Layout
 
 
 @always_inline
 def _rebind_list[T: Movable & Deinitable](var toml: Toml) -> Result[List[T]]:
-    if not toml.isa[Toml.Array]():
-        return .Err(
-            t"[TYPE ERROR]: Toml Type is {toml.get_type_name()} but rebind type"
-            t" is a List"
-        )
-    var lst = toml^.unsafe_take[Toml.Array]()
-    var new_lst = List[T](capacity=len(lst))
-    for var v in lst^:
-        var new_v = toml_to_type[T](v^)
-        if case .Err = new_v:
-            return .Err(new_v^.unsafe_take_error())
-        new_lst.append(new_v^.unsafe_take_value())
+    match toml:
+        case .Array:
+            var lst = toml^.unsafe_take[List[Toml]]()
+            var new_lst = List[T](capacity=len(lst))
+            for var v in lst^:
+                var new_v = toml_to_type[T](v^)
+                if case .Err = new_v:
+                    return .Err(new_v^.unsafe_take_error())
+                new_lst.append(new_v^.unsafe_take_value())
 
-    return .Ok(new_lst^)
+            return .Ok(new_lst^)
+        case _:
+            return .Err(t"[TYPE ERROR]: Toml Type is not a List")
 
 
 @always_inline
@@ -47,15 +33,14 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
     comptime field_count = Tr.field_count()
     comptime field_names = Tr.field_names()
 
-    if not toml.isa[Toml.Table]():
+    if case .Table = toml:
+        pass
+    else:
         return .Err("The toml value doesn't correspond to a Table.")
 
-    # print(t"building struct allocation for struct : {Tr.name()}")
     var layout = Layout[T](count=1)
     var allocation = alloc(layout)
-    # print("allocation done")
-    # var struct_ptr = stack_allocation[1, T]()
-    ref toml_tb = toml.unsafe_ref[Toml.Table]()
+    ref toml_tb = toml[Dict[String, Toml]]
 
     # print("iterate all fields...")
     comptime for fi in range(field_count):
@@ -80,7 +65,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 field_ptr = rebind_var[TYPE](Optional[Inner](None))
             else:
                 # NOTE: NAN because default should never happen
-                var value = toml_tb.pop(NAME, {Toml.NaN()})
+                var value = toml_tb.pop(NAME, materialize[Toml.NaN]())
                 var inner = toml_to_type[Inner](value^)
 
                 if case .Err = inner:
@@ -100,7 +85,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 # dealloc(struct_ptr^)
                 return .Err("Struct field doesn't exists in toml table.")
 
-            var value = toml_tb.pop(NAME, {Toml.NaN()})
+            var value = toml_tb.pop(NAME, materialize[Toml.NaN]())
 
             var inner = toml_to_type[TYPE](value^)
             if case .Err = inner:
@@ -125,8 +110,8 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
     comptime if T == Toml:
         return .Ok(rebind_var[T](toml^))
 
-    elif Toml.AllTypes.contains[T]():
-        return _rebind_toml_type[T](toml^)
+    elif TypeList[Toml._enum_case_types].contains[T]():
+        return .Ok(toml^.unsafe_take[T]())
 
     elif Tr.base_name() == "List":
         comptime assert conforms_to(T, Iterable)

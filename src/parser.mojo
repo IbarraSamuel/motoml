@@ -8,6 +8,7 @@ from .types.toml import Toml
 from .types.string_ref import StringRef
 from .mmap_file import MappedFile
 from std.collections.string._utf8 import _is_valid_utf8
+from std.memory import forget_deinit
 
 comptime SquareBracketOpen = Byte(ord("["))
 comptime SquareBracketClose = Byte(ord("]"))
@@ -105,13 +106,13 @@ def parse_inline_array[
     mut inline_table_paths: List[String],
     mut dotted_table_paths: List[String],
     prefix: String,
-) -> Result[Toml.Array]:
+) -> Result[List[Toml]]:
     """Assumes the first char is already within the collection, but could be a space.
     """
     skip_blanks_and_comments(data, idx)
 
     # var value = toml.TomlType.new_array()
-    var arr = Toml.Array(capacity=16)
+    var arr = List[Toml](capacity=16)
     # ref arr = value[toml.TomlTypes.Array]
 
     while idx < len(data) and data[idx] != SquareBracketClose:
@@ -299,32 +300,32 @@ def string_to_type[
         idx : min(idx + 4, max_idx)
     ] == "true".as_bytes() and is_value_terminator[end_char](data, idx + 4):
         idx += 3
-        return .Ok(Toml(True))
+        return .Ok(Toml.Boolean(True))
 
     elif data[
         idx : min(idx + 5, max_idx)
     ] == "false".as_bytes() and is_value_terminator[end_char](data, idx + 5):
         idx += 4
-        return .Ok(Toml(value=False))
+        return .Ok(Toml.Boolean(False))
 
     elif data[idx : min(idx + 3, max_idx)] == "nan".as_bytes():
         idx += 2
-        return .Ok(Toml(Toml.NaN()))
+        return .Ok(materialize[Toml.NaN]())
     elif data[idx : min(idx + 4, max_idx)] == "+nan".as_bytes():
         idx += 3
-        return .Ok(Toml(Toml.NaN()))
+        return .Ok(materialize[Toml.NaN]())
     elif data[idx : min(idx + 4, max_idx)] == "-nan".as_bytes():
         idx += 3
-        return .Ok(Toml(Toml.NaN()))
+        return .Ok(materialize[Toml.NaN]())
     elif data[idx : min(idx + 3, max_idx)] == "inf".as_bytes():
         idx += 2
-        return .Ok(Toml(Float64.MAX))
+        return .Ok(Toml.Float(Float64.MAX))
     elif data[idx : min(idx + 4, max_idx)] == "+inf".as_bytes():
         idx += 3
-        return .Ok(Toml(Float64.MAX))
+        return .Ok(Toml.Float(Float64.MAX))
     elif data[idx : min(idx + 4, max_idx)] == "-inf".as_bytes():
         idx += 3
-        return .Ok(Toml(Float64.MIN))
+        return .Ok(Toml.Float(Float64.MIN))
 
     var v_init = idx
 
@@ -387,15 +388,21 @@ def string_to_type[
         )
     ):
         _printif[log]("parsing datetime")
-        return Toml.DateTime.from_string(v_slice).map(as_toml[Toml.DateTime])
+        return Toml.Types.DateTime.from_string(v_slice).map(
+            lambda (dt: Toml.Types.DateTime) -> Toml: Toml.DateTime(dt)
+        )
 
     elif dashes == 2 and len(v_span) == 10:
         _printif[log]("parsing date")
-        return Toml.Date.from_string(v_slice).map(as_toml[Toml.Date])
+        return Toml.Types.Date.from_string(v_slice).map(
+            lambda (d: Toml.Types.Date) -> Toml: Toml.Date(d)
+        )
 
     elif colons > 0:
-        _printif[log]("psrgin time")
-        return Toml.Time.from_string(v_slice).map(as_toml[Toml.Time])
+        _printif[log]("parsing time")
+        return Toml.Types.Time.from_string(v_slice).map(
+            lambda (t: Toml.Types.Time) -> Toml: Toml.Time(t)
+        )
 
     elif is_valid_integer(v_slice):
         _printif[log]("parsing int")
@@ -404,14 +411,14 @@ def string_to_type[
         ].replace("_", "")
         var base = 16 if is_hex else 8 if is_oct else 2 if is_bin else 10
         try:
-            return .Ok(Toml(atol(v, base=base)))
+            return .Ok(Toml.Integer(atol(v, base=base)))
         except e:
             return .Err(e^)
 
     elif is_valid_float(v_slice):
         _printif[log]("try parse float")
         try:
-            return .Ok(Toml(atof(v_slice.replace("_", ""))))
+            return .Ok(Toml.Float(atof(v_slice.replace("_", ""))))
         except e:
             return .Err(e^)
 
@@ -427,10 +434,6 @@ def calc_value[
     var sr = StringRef(s, literal=lit, multiline=multi).calc_value()
     # print(t"Value is: `{sr}`")
     return sr^
-
-
-def as_toml[T: Movable](var s: T) -> Toml where Toml.AllTypes.contains[T]():
-    return Toml(s^)
 
 
 def parse_value[
@@ -451,7 +454,7 @@ def parse_value[
             )
             return s^.and_then(
                 calc_value[data.origin, lit=False, multi=True, log=log]
-            ).map(as_toml[String])
+            ).map(lambda (v: String) -> Toml: Toml.String(v))
 
         else:
             _printif[log]("value is double quote string")
@@ -460,7 +463,7 @@ def parse_value[
             )
             return s^.and_then(
                 calc_value[data.origin, lit=False, multi=False, log=log]
-            ).map(as_toml[String])
+            ).map(lambda (v: String) -> Toml: Toml.String(v))
 
     elif data[idx] == SingleQuote:
         if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
@@ -470,7 +473,7 @@ def parse_value[
             )
             return s^.and_then(
                 calc_value[data.origin, lit=True, multi=True, log=log]
-            ).map(as_toml[String])
+            ).map(lambda (v: String) -> Toml: Toml.String(v))
         else:
             _printif[log]("value is single quote string")
             var s = parse_quoted_string[SingleQuote, ignore_escape=True](
@@ -478,20 +481,20 @@ def parse_value[
             )
             return s^.and_then(
                 calc_value[data.origin, lit=True, multi=False, log=log]
-            ).map(as_toml[String])
+            ).map(lambda (v: String) -> Toml: Toml.String(v))
     elif data[idx] == SquareBracketOpen:
         idx += 1
         _printif[log]("parsing inline array...")
         return parse_inline_array[log=log](
             data, idx, inline_table_paths, dotted_table_paths, prefix
-        ).map(as_toml[Toml.Array])
+        ).map(lambda (var v: List[Toml]) -> Toml: Toml.Array(v^))
     elif data[idx] == CurlyBracketOpen:
         idx += 1
         _printif[log]("parsing inline table...")
         skip_blanks_and_comments(data, idx)
         return parse_kv_pairs[separator=Comma, end_char=CurlyBracketClose](
             data, idx, inline_table_paths, dotted_table_paths, prefix
-        ).map(as_toml[Toml.Table])
+        ).map(lambda (var v: Dict[String, Toml]) -> Toml: Toml.Table(v^))
         # print("last multiline table codepoint parsed is:", Codepoint(data[idx]))
     else:
         return string_to_type[end_char, log=log](data, idx)
@@ -501,7 +504,7 @@ def get_table_ref[
     log: Bool = False
 ](
     keys: Span[String, _],
-    mut base: Toml.Table,
+    mut base: Dict[String, Toml],
     *,
     var default: Toml,  # it's the leaf. The last container
     array_table_paths: List[String],
@@ -517,49 +520,69 @@ def get_table_ref[
             end="",
         )
 
+        var tb = Dict[String, Toml](capacity=32)
         ref inner_v = cont[].setdefault(
             k,
-            Toml(Toml.Table(capacity=32)),
+            Toml.Table(tb^),
         )
-        if inner_v.isa[Toml.Array]():
-            ref inner_arr = inner_v.unsafe_ref[Toml.Array]()
-            if len(inner_arr) == 0:
-                inner_arr.append(Toml(Toml.Table(capacity=16)))
-            var path = toml_key_path("", keys[: i + 1])
-            if path not in array_table_paths:
-                return .Err("Cannot extend a table inside a static array.")
-            cont = Pointer(
-                to=inner_arr[len(inner_arr) - 1].unsafe_ref[Toml.Table]()
-            ).unsafe_origin_cast[origin_of(base)]()
-        elif inner_v.isa[Toml.Table]():
-            cont = Pointer(
-                to=inner_v.unsafe_ref[Toml.Table]()
-            ).unsafe_origin_cast[origin_of(base)]()
-        else:
-            return .Err("Toml type is not a container.")
+        match inner_v:
+            case .Array:
+                ref inner_arr = inner_v[List[Toml]]
+                if len(inner_arr) == 0:
+                    inner_arr.append(
+                        Toml.Table(Dict[String, Toml](capacity=16))
+                    )
+
+                if path not in array_table_paths:
+                    return .Err("Cannot extend a table inside a static array.")
+                if case .Table = inner_arr[len(inner_arr) - 1]:
+                    ref tb = inner_arr[len(inner_arr) - 1][Dict[String, Toml]]
+                    cont = Pointer(to=tb).unsafe_origin_cast[origin_of(base)]()
+                else:
+                    return .Err("Array should contain tables, but it doesn't.")
+
+            case .Table:
+                cont = Pointer(
+                    to=inner_v[Dict[String, Toml]]
+                ).unsafe_origin_cast[origin_of(base)]()
+            case _:
+                return .Err("Toml type is not a container.")
 
     ref k = keys[len(keys) - 1]
     if toml_key_path("", keys) in inline_table_paths:
         return .Err("Inline tables cannot be redefined.")
+
     var final_c: Pointer[Toml, origin_of(base)]
-    if default.isa[Toml.Array]():
+    if case .Array = default:
         var already_defined = k in cont[]
         final_c = Pointer(
-            to=cont[].setdefault(k, Toml(Toml.Array(capacity=16)))
+            to=cont[].setdefault(k, Toml.Array(List[Toml](capacity=16)))
         ).unsafe_origin_cast[origin_of(base)]()
-        if not final_c[].isa[Toml.Array]():
-            return .Err("Container should be an array, but it's not.")
+
         var path = toml_key_path("", keys)
         if path not in array_table_paths and already_defined:
             return .Err(
                 "Cannot define an array-of-tables over an existing array."
             )
-        ref arr = final_c[].unsafe_ref[Toml.Array]()
-        arr.extend(default^.unsafe_take[Toml.Array]())
-        if len(arr) > 0:
-            final_c = Pointer(to=arr[len(arr) - 1]).unsafe_origin_cast[
-                origin_of(base)
-            ]()
+
+        if case .Array = final_c[]:
+            var path = toml_key_path("", keys)
+            ref arr = final_c[][List[Toml]]
+            if path not in array_table_paths and already_defined:
+                return .Err(
+                    "Cannot define an array-of-tables over an existing array."
+                )
+            elif case .Array = default:
+                arr.extend(default^.unsafe_take[List[Toml]]())
+            else:
+                return .Err("Default value should be an array, but it's not.")
+
+            if len(arr) > 0:
+                final_c = Pointer(to=arr[len(arr) - 1]).unsafe_origin_cast[
+                    origin_of(base)
+                ]()
+        else:
+            return .Err("Container should be an array, but it's not.")
 
     else:
         final_c = Pointer(to=cont[].setdefault(k, default^)).unsafe_origin_cast[
@@ -573,7 +596,7 @@ def set_key_value[
     log: Bool = False
 ](
     keys: Span[String, _],
-    mut base: Toml.Table,
+    mut base: Dict[String, Toml],
     *,
     var value: Toml,
     inline_table_paths: List[String],
@@ -585,13 +608,14 @@ def set_key_value[
         if path in inline_table_paths:
             return Error("Inline tables cannot be extended.")
         _printif[log](t"|> k -> '{k}' ", end="")
-        var default = Toml(Toml.Table(capacity=8))
+        var tb = Dict[String, Toml](capacity=32)
+        var default = Toml.Table(tb^)
         ref inner_v = cont[].setdefault(k, default^)
-        if not inner_v.isa[Toml.Table]():
+        if case .Table = inner_v:
+            ref tb = inner_v[Dict[String, Toml]]
+            cont = Pointer(to=tb).unsafe_origin_cast[origin_of(base)]()
+        else:
             return Error("Toml type is not a table container.")
-        cont = Pointer(to=inner_v.unsafe_ref[Toml.Table]()).unsafe_origin_cast[
-            origin_of(base)
-        ]()
 
     ref k = keys[len(keys) - 1]
     if k in cont[]:
@@ -778,13 +802,13 @@ def parse_kv_pairs[
     mut inline_table_paths: List[String],
     mut dotted_table_paths: List[String],
     prefix: String,
-) -> Result[Toml.Table]:
+) -> Result[Dict[String, Toml]]:
     """This function expect to be on top of the value to start parsing. So item=1.
     End at the last value + 1.
     """
 
     _printif[log]("++ kcreate new empty table container")
-    var table = Toml.Table(capacity=16)
+    var table = Dict[String, Toml](capacity=16)
     while idx < len(data) and data[idx] != end_char:
         # Base is always a new table because you are not parsing
         # something on multiline mode.
@@ -820,8 +844,9 @@ def parse_kv_pairs[
         _printif[log]("Getting container ref...")
         idx += 1
 
-        if v.isa[Toml.Table]() and value_path not in inline_table_paths:
-            inline_table_paths.append(value_path)
+        if case .Table = v:
+            if value_path not in inline_table_paths:
+                inline_table_paths.append(value_path)
 
         var opt_error = set_key_value(
             keys,
@@ -876,7 +901,7 @@ def parse_kv_pairs[
     if idx >= len(data) and end_char == CurlyBracketClose:
         return .Err("Inline table not closed.")
 
-    _printif[log](t"Initial table finished! data is: {table}")
+    # _printif[log](t"Initial table finished! data is: {table}")
     return .Ok(table^)
 
 
@@ -922,7 +947,7 @@ def parse_multiline_collections[
 ](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
-    mut base: Toml.Table,
+    mut base: Dict[String, Toml],
     mut inline_table_paths: List[String],
     mut dotted_table_paths: List[String],
     mut declared_table_paths: List[String],
@@ -994,7 +1019,7 @@ def parse_multiline_collections[
             return values_res^.unsafe_take_error()
         var values = values_res^.unsafe_take_value()
 
-        _printif[log](t"Multiline values: {values}")
+        # _printif[log](t"Multiline values: {values}")
 
         # comptime if log:
         #     print(
@@ -1007,10 +1032,12 @@ def parse_multiline_collections[
         #         }
         #     )
         # var def_cont: Toml
-        var def_cont = Toml(Toml.Table(capacity=16))
+        var def_cont = Toml.Table(Dict[String, Toml](capacity=16))
         if is_array:
             # Store the default in na list
-            def_cont = Toml(List([def_cont^]))
+            var lst = List[Toml](capacity=1)
+            lst.append(def_cont^)
+            def_cont = Toml.Array(lst^)
 
         if scoped_table_path in dotted_table_paths:
             return Error("A dotted-key table cannot be redefined.")
@@ -1029,21 +1056,30 @@ def parse_multiline_collections[
             return cont_res^.unsafe_take_error()
         var cont = cont_res^.unsafe_take_value()
 
-        if not cont[].isa[Toml.Table]():
+        if case .Table = cont[]:
+            if (
+                is_array
+            ):  # Dead code? Check this, is_array is checking the container?
+                if table_path not in array_table_paths:
+                    array_table_paths.append(table_path)
+            elif scoped_table_path not in declared_table_paths:
+                declared_table_paths.append(scoped_table_path)
+
+            ref tbl = cont[][Dict[String, Toml]]
+
+            for var kv in values.take_items():
+                if kv.key in tbl:
+                    return Error(t"Table key already defined: {kv.key}")
+                kv^.deinit_with(
+                    lambda (var k: String, var v: Toml) {
+                        mut tbl
+                    }: tbl.__setitem__(k^, v^)
+                )
+
+        else:
             return Error("container should be a table, but inner value isn't")
 
-        if is_array:
-            if table_path not in array_table_paths:
-                array_table_paths.append(table_path)
-        elif scoped_table_path not in declared_table_paths:
-            declared_table_paths.append(scoped_table_path)
-
-        for kv in values.items():
-            if kv.key in cont[].unsafe_ref[Toml.Table]():
-                return Error(t"Table key already defined: {kv.key}")
-
-        cont[].unsafe_ref[Toml.Table]().update(values)
-        _printif[log](t"Current base repr: {base}")
+        # _printif[log](t"Current base repr: {base}")
 
     return None
 
@@ -1083,7 +1119,8 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
 
     if idx >= len(data):
         _printif[log]("Empty table, just return an empty object.")
-        return .Ok(Toml(Toml.Table(capacity=0)))
+        var tb = Dict[String, Toml](capacity=0)
+        return .Ok(Toml.Table(tb^))
 
     _printif[log]("parsing initial kv pairs...")
     var base_res = parse_kv_pairs[NewLine, SquareBracketOpen, log=log](
@@ -1107,9 +1144,10 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
         _printif[log](t"ERR IDENTIFIED {err_or_none}")
         return .Err(err_or_none.unsafe_take())
 
-    _printif[log](t"done parsing toml!\nfinal data is: {base}")
+    var toml = Toml.Table(base^)
+    _printif[log](t"done parsing toml!\nfinal data is: {toml}")
 
-    return .Ok(Toml(base^))
+    return .Ok(toml^)
 
 
 def parse_toml_file[

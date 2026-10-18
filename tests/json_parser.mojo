@@ -1,4 +1,4 @@
-from motoml.types.toml import NaN, Toml
+from motoml.types.toml import Toml
 
 
 comptime Quote = Byte(ord('"'))
@@ -34,9 +34,12 @@ struct JsonParser(Movable):
     def skip_whitespace(mut self):
         while self.position < self.source.byte_length():
             var c = self.byte_at(self.position)
-            if c == Byte(ord(" ")) or c == Byte(ord("\n")) or c == Byte(
-                ord("\r")
-            ) or c == Byte(ord("\t")):
+            if (
+                c == Byte(ord(" "))
+                or c == Byte(ord("\n"))
+                or c == Byte(ord("\r"))
+                or c == Byte(ord("\t"))
+            ):
                 self.position += 1
             else:
                 return
@@ -48,29 +51,29 @@ struct JsonParser(Movable):
 
         var c = self.byte_at(self.position)
         if c == Quote:
-            return Toml(self.parse_string())
+            return Toml.String(self.parse_string())
         if c == OpenObject:
             return self.parse_object()
         if c == OpenArray:
             return self.parse_array()
         if c == Byte(ord("t")):
             self.expect_literal("true")
-            return Toml(True)
+            return Toml.Boolean(True)
         if c == Byte(ord("f")):
             self.expect_literal("false")
-            return Toml(False)
+            return Toml.Boolean(False)
         if c == Byte(ord("n")):
             self.expect_literal("null")
-            return Toml(NaN())
+            return materialize[Toml.NaN]()
         return self.parse_number()
 
     def parse_array(mut self) raises -> Toml:
         self.position += 1
         self.skip_whitespace()
-        var values = Toml.Array()
+        var values = List[Toml]()
         if self.byte_at(self.position) == CloseArray:
             self.position += 1
-            return Toml(values^)
+            return Toml.Array(values^)
 
         while True:
             values.append(self.parse_value())
@@ -78,7 +81,7 @@ struct JsonParser(Movable):
             var c = self.byte_at(self.position)
             if c == CloseArray:
                 self.position += 1
-                return Toml(values^)
+                return Toml.Array(values^)
             if c != Comma:
                 raise "Expected ',' or ']' in JSON array."
             self.position += 1
@@ -86,10 +89,10 @@ struct JsonParser(Movable):
     def parse_object(mut self) raises -> Toml:
         self.position += 1
         self.skip_whitespace()
-        var values = Toml.Table(capacity=16)
+        var values = Dict[String, Toml](capacity=16)
         if self.byte_at(self.position) == CloseObject:
             self.position += 1
-            return Toml(values^)
+            return Toml.Table(values^)
 
         while True:
             self.skip_whitespace()
@@ -105,7 +108,7 @@ struct JsonParser(Movable):
             var c = self.byte_at(self.position)
             if c == CloseObject:
                 self.position += 1
-                return Toml(values^)
+                return Toml.Table(values^)
             if c != Comma:
                 raise "Expected ',' or '}' in JSON object."
             self.position += 1
@@ -118,17 +121,21 @@ struct JsonParser(Movable):
         while self.position < self.source.byte_length():
             var c = self.byte_at(self.position)
             if c == Quote:
-                decoded += String(self.source[byte=segment_start : self.position])
+                decoded += String(
+                    self.source[byte = segment_start : self.position]
+                )
                 self.position += 1
                 return decoded^
             if c == Backslash:
-                decoded += String(self.source[byte=segment_start : self.position])
+                decoded += String(
+                    self.source[byte = segment_start : self.position]
+                )
                 self.position += 1
                 if self.position >= self.source.byte_length():
                     raise "Incomplete escape in JSON string."
                 var escaped = self.byte_at(self.position)
                 if escaped == Quote:
-                    decoded += "\""
+                    decoded += '"'
                 elif escaped == Backslash:
                     decoded += "\\"
                 elif escaped == Byte(ord("/")):
@@ -155,8 +162,10 @@ struct JsonParser(Movable):
                             raise "Invalid JSON unicode surrogate pair."
                         self.position += 2
                         var low = self.parse_hex4()
-                        codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + (
-                            low - 0xDC00
+                        codepoint = (
+                            0x10000
+                            + (codepoint - 0xD800) * 0x400
+                            + (low - 0xDC00)
                         )
                     decoded += self.encode_codepoint(codepoint)
                     segment_start = self.position
@@ -190,9 +199,7 @@ struct JsonParser(Movable):
         return value
 
     def encode_codepoint(self, codepoint: Int) raises -> String:
-        return String(
-            Codepoint(unsafe_unchecked_codepoint=UInt32(codepoint))
-        )
+        return String(Codepoint(unsafe_unchecked_codepoint=UInt32(codepoint)))
 
     def parse_number(mut self) raises -> Toml:
         var start = self.position
@@ -209,10 +216,14 @@ struct JsonParser(Movable):
                 self.position += 1
             else:
                 break
-        var number = String(self.source[byte=start : self.position])
-        if number.find(".") >= 0 or number.find("e") >= 0 or number.find("E") >= 0:
-            return Toml(Float64(number))
-        return Toml(Int(number))
+        var number = String(self.source[byte = start : self.position])
+        if (
+            number.find(".") >= 0
+            or number.find("e") >= 0
+            or number.find("E") >= 0
+        ):
+            return Toml.Float(Float64(number))
+        return Toml.Integer(Int(number))
 
     def expect_literal(mut self, literal: String) raises:
         var literal_bytes = List[Byte]()
@@ -236,37 +247,44 @@ def parse_json(source: String) raises -> Toml:
 
 
 def translate_json_to_types(var json: Toml) raises -> Toml:
-    if json.isa[Toml.Array]():
-        var values = json^.take[Toml.Array]()
-        var translated = Toml.Array()
-        for value in values:
-            translated.append(translate_json_to_types(Toml(copy=value)))
-        return Toml(translated^)
+    if case .Array = json:
+        var values = json^.unsafe_take[List[Toml]]()
+        var translated = List[Toml]()
+        for var value in values^:
+            translated.append(translate_json_to_types(value^))
+        return Toml.Array(translated^)
 
-    if json.isa[Toml.Table]():
-        var values = json^.take[Toml.Table]()
+    if case .Table = json:
+        var values = json^.unsafe_take[Dict[String, Toml]]()
         if len(values) == 2 and "type" in values and "value" in values:
-            var kind = String(values["type"][Toml.String])
-            var text = String(values["value"][Toml.String])
-            var translated_value = Toml(text)
-            if kind == "integer":
-                translated_value = Toml(Int(text))
-            elif kind == "float":
-                if text == "nan":
-                    translated_value = Toml(NaN())
-                else:
-                    translated_value = Toml(Float64(text))
+            var type = values.pop("type")
+            var value = values.pop("value")
+            if case (.String(var kind), .String(var text)) = (type^, value^):
+                var translated_value = Toml.String(text)
+                if kind == "integer":
+                    translated_value = Toml.Integer(Int(text))
+                elif kind == "float":
+                    if text == "nan":
+                        translated_value = materialize[Toml.NaN]()
+                    else:
+                        translated_value = Toml.Float(Float64(text))
 
-            var translated = Toml.Table(capacity=2)
-            translated["type"] = Toml(kind)
-            translated["value"] = translated_value^
-            return Toml(translated^)
+                var translated = Dict[String, Toml](capacity=2)
+                translated["type"] = Toml.String(kind)
+                translated["value"] = translated_value^
+                return Toml.Table(translated^)
 
-        var translated = Toml.Table(capacity=len(values))
-        for item in values.items():
-            translated[item.key] = translate_json_to_types(
-                Toml(copy=item.value)
-            )
-        return Toml(translated^)
+        var translated = Dict[String, Toml](capacity=len(values))
+
+        def ins(var k: String, var v: Toml) {mut translated}:
+            try:
+                translated[k] = translate_json_to_types(v^)
+            except:
+                pass
+
+        for var item in values.take_items():
+            item^.deinit_with(ins)
+
+        return Toml.Table(translated^)
 
     return json^

@@ -13,8 +13,11 @@ from motoml.types.toml import Toml
 def test_empty_table() raises:
     var empty_data = ""
     var empty_toml = parse_toml_raises[log=False](empty_data)
-    assert_true(empty_toml.isa[Toml.Table]())
-    assert_equal(len(empty_toml[Toml.Table]), 0)
+    if case .Table = empty_toml:
+        pass
+    else:
+        raise "Value is expected to be a table"
+    assert_equal(len(empty_toml[Dict[String, Toml]]), 0)
 
 
 def test_parse_mapped_file() raises:
@@ -31,7 +34,9 @@ def test_parse_mapped_file() raises:
     var result = parse_toml_file("toml_files/valid/example.toml")
     var toml_obj = result^.take()
     assert_equal(
-        toml_obj[Toml.Table]["numtheory"][Toml.Table]["boring"][Toml.Boolean],
+        toml_obj[Dict[String, Toml]]["numtheory"][Dict[String, Toml]]["boring"][
+            Bool
+        ],
         False,
     )
 
@@ -43,8 +48,8 @@ def test_simple_struct() raises:
     """
 
     var toml_obj = parse_toml_raises(test_table)
-    assert_equal(toml_obj[Toml.Table]["first_value"][Toml.Integer], 1)
-    assert_equal(toml_obj[Toml.Table]["second_value"][Toml.Float], 3.1)
+    assert_equal(toml_obj[Dict[String, Toml]]["first_value"][Int], 1)
+    assert_equal(toml_obj[Dict[String, Toml]]["second_value"][Float64], 3.1)
 
 
 def test_struct_all_types() raises:
@@ -70,11 +75,12 @@ def test_struct_all_types() raises:
     var toml_obj = parse_toml_raises[log=False](test_table)
     # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
-    assert_equal(toml_obj[Toml.Table]["integer"][Toml.Integer], 1)
-    assert_equal(toml_obj[Toml.Table]["float"][Toml.Float], 3.1)
-    assert_equal(toml_obj[Toml.Table]["boolean"][Toml.Boolean], True)
+    assert_equal(toml_obj[Dict[String, Toml]]["integer"][Int], 1)
+    assert_equal(toml_obj[Dict[String, Toml]]["float"][Float64], 3.1)
+    assert_equal(toml_obj[Dict[String, Toml]]["boolean"][Bool], True)
     assert_equal(
-        toml_obj[Toml.Table]["table"][Toml.Table]["key2"][Toml.Integer], 84
+        toml_obj[Dict[String, Toml]]["table"][Dict[String, Toml]]["key2"][Int],
+        84,
     )
 
 
@@ -84,7 +90,7 @@ def test_struct_optional() raises:
     """
     var toml_obj = parse_toml_raises(toml)
 
-    assert_equal(toml_obj[Toml.Table]["value_1"][Toml.String], "hello")
+    assert_equal(toml_obj[Dict[String, Toml]]["value_1"][String], "hello")
 
 
 def test_multiline_quote_escapes() raises:
@@ -95,22 +101,22 @@ def test_multiline_quote_escapes() raises:
     str7 = """"This," she said, "is just a pointless statement.""""
     '''
     var toml_obj = parse_toml_raises(test_content)
-    ref values = toml_obj[Toml.Table]
+    ref values = toml_obj[Dict[String, Toml]]
 
     assert_equal(
-        values["str4"][Toml.String],
+        values["str4"][String],
         r"Here are two quotation marks: \"\". Simple enough.",
     )
     assert_equal(
-        values["str5"][Toml.String],
+        values["str5"][String],
         r"Here are three quotation marks: \"\"\".",
     )
     assert_equal(
-        values["str6"][Toml.String],
+        values["str6"][String],
         r"Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".",
     )
     assert_equal(
-        values["str7"][Toml.String],
+        values["str7"][String],
         r"\"This,\" she said, \"is just a pointless statement.\"",
     )
 
@@ -128,16 +134,47 @@ def test_nested() raises:
     """
     var toml_obj = parse_toml_raises(TOML_CONTENT)
     # var value = toml_to_type_raises[TestBuild](toml_obj^)
-    var value = toml_obj^.take[Toml.Table]()
+    var value = toml_obj^.unsafe_take[Dict[String, Toml]]()
 
-    assert_equal(value["name"][Toml.String], "samuel")
-    assert_equal(value["age"][Toml.Integer], 30)
+    if case .String(name) = value["name"]:
+        assert_equal(name, "samuel")
+    else:
+        raise "match not found"
+
+    assert_equal(value["name"][String], "samuel")
+
+    if case .Integer(age) = value["age"]:
+        assert_equal(age, 30)
+    else:
+        raise "match not found"
+
+    assert_equal(value["age"][Int], 30)
+
+    if case .Table(lang) = value["language"]:
+        if case .Table(info) = lang["info"]:
+            if case .String(name) = info["name"]:
+                assert_equal(name, "mojo")
+            else:
+                raise "match not found"
+        else:
+            raise "match not found"
+    else:
+        raise "match not found"
+
     assert_equal(
-        value["language"][Toml.Table]["info"][Toml.Table]["name"][Toml.String],
+        value["language"][Dict[String, Toml]]["info"][Dict[String, Toml]][
+            "name"
+        ][String],
         "mojo",
     )
+
+    if case .Table(lang) = value["language"]:
+        if case .Float(version) = lang["current_version"]:
+            assert_equal(version, 0.26)
+
     assert_equal(
-        value["language"][Toml.Table]["current_version"][Toml.Float], 0.26
+        value["language"][Dict[String, Toml]]["current_version"][Float64],
+        0.26,
     )
 
 

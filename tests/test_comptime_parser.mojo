@@ -52,10 +52,10 @@ def test_all_toml_types() raises:
 
     var r = res^.take()
     print("Parsed and saved!")
-    ref tb = r[Toml.Table]
-    assert_equal(tb["string"][Toml.String], "abcd")
-    assert_equal(tb["string_with_scape"][Toml.String], r"ab\"cd")
-    assert_equal(tb["multiline_string"][Toml.String], desired_multiline_string)
+    ref tb = r[Dict[String, Toml]]
+    assert_equal(tb["string"][String], "abcd")
+    assert_equal(tb["string_with_scape"][String], r"ab\"cd")
+    assert_equal(tb["multiline_string"][String], desired_multiline_string)
 
 
 def main() raises:

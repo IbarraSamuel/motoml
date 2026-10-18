@@ -5,7 +5,7 @@ from json_parser import parse_json, translate_json_to_types
 from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location, SourceLocation, source_location
-from std.testing import assert_true, assert_raises
+from std.testing import assert_true, assert_raises, assert_equal
 from std.testing.suite import TestReport, TestResult, TestSuiteReport
 
 from std.time import perf_counter_ns
@@ -43,10 +43,7 @@ def toml_single_test(strpath: String) raises -> None:
         raise "[TESTCASE ERR]"
 
     var result_json = String()
-    try:
-        toml_result.to_json(result_json)
-    except:
-        raise "[JSON Serialization Error] Failed to convert parser result to JSON."
+    toml_result.to_json(result_json)
 
     var result: Toml
     try:
@@ -54,7 +51,7 @@ def toml_single_test(strpath: String) raises -> None:
     except:
         raise t"[OUTPUT ERR] Error parsing json output from parser: {result_json}"
     try:
-        assert_true(result == expected)
+        assert_equal(result, expected)
     except:
         raise t"Values are not equal.\nresult:\n{result}\nexpected:\n{expected}"
 

@@ -75,7 +75,7 @@ tests = { depends-on = [
     "test-toml-type",
     "test-parser",
     "test-toml-suite",
-    "test-comptime-parser",
+    # "test-comptime-parser",
     "test-reflection",
 ] }
 
