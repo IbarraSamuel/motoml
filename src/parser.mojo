@@ -166,6 +166,7 @@ def is_value_terminator[end_char: Byte](data: Span[Byte, _], idx: Int) -> Bool:
     )
 
 
+@always_inline
 def is_digit_for_base(char: Byte, base: Int) -> Bool:
     if Byte(ord("0")) <= char <= Byte(ord("9")):
         return Int(char) - Int(Byte(ord("0"))) < base
@@ -176,7 +177,9 @@ def is_digit_for_base(char: Byte, base: Int) -> Bool:
     return False
 
 
-def is_valid_digit_sequence(
+def is_valid_digit_sequence[
+    *, reject_leading_zero: Bool = False
+](
     data: Span[Byte, _], start: Int, end: Int, base: Int
 ) -> Bool:
     if start >= end:
@@ -197,18 +200,15 @@ def is_valid_digit_sequence(
             previous_was_digit = True
         else:
             return False
-    return digit_count > 0 and previous_was_digit
-
-
-def has_leading_zero(data: Span[Byte, _], start: Int, end: Int) -> Bool:
-    var digit_count = 0
-    var first_digit = Byte()
-    for i in range(start, end):
-        if data[i] != Byte(ord("_")):
-            if digit_count == 0:
-                first_digit = data[i]
-            digit_count += 1
-    return digit_count > 1 and first_digit == Byte(ord("0"))
+    return (
+        digit_count > 0
+        and previous_was_digit
+        and (
+            not reject_leading_zero
+            or digit_count == 1
+            or data[start] != Byte(ord("0"))
+        )
+    )
 
 
 def is_valid_integer(value: StringSlice) -> Bool:
@@ -229,9 +229,9 @@ def is_valid_integer(value: StringSlice) -> Bool:
         if data[1] == Byte(ord("b")):
             return is_valid_digit_sequence(data, 2, len(data), 2)
 
-    return is_valid_digit_sequence(
+    return is_valid_digit_sequence[reject_leading_zero=True](
         data, start, len(data), 10
-    ) and not has_leading_zero(data, start, len(data))
+    )
 
 
 def is_valid_float(value: StringSlice) -> Bool:
@@ -262,13 +262,14 @@ def is_valid_float(value: StringSlice) -> Bool:
     if dot == -1:
         if exponent == -1:
             return False
-        if not is_valid_digit_sequence(
+        if not is_valid_digit_sequence[reject_leading_zero=True](
             data, start, mantissa_end, 10
-        ) or has_leading_zero(data, start, mantissa_end):
+        ):
             return False
     elif (
-        not is_valid_digit_sequence(data, start, dot, 10)
-        or has_leading_zero(data, start, dot)
+        not is_valid_digit_sequence[reject_leading_zero=True](
+            data, start, dot, 10
+        )
         or not is_valid_digit_sequence(data, dot + 1, mantissa_end, 10)
     ):
         return False
@@ -296,36 +297,44 @@ def string_to_type[
     # var all_is_digit = True
     # var has_period = False
     var max_idx = len(data)
-    if data[
-        idx : min(idx + 4, max_idx)
-    ] == "true".as_bytes() and is_value_terminator[end_char](data, idx + 4):
-        idx += 3
-        return .Ok(Toml.Boolean(True))
-
-    elif data[
-        idx : min(idx + 5, max_idx)
-    ] == "false".as_bytes() and is_value_terminator[end_char](data, idx + 5):
-        idx += 4
-        return .Ok(Toml.Boolean(False))
-
-    elif data[idx : min(idx + 3, max_idx)] == "nan".as_bytes():
-        idx += 2
-        return .Ok(materialize[Toml.NaN]())
-    elif data[idx : min(idx + 4, max_idx)] == "+nan".as_bytes():
-        idx += 3
-        return .Ok(materialize[Toml.NaN]())
-    elif data[idx : min(idx + 4, max_idx)] == "-nan".as_bytes():
-        idx += 3
-        return .Ok(materialize[Toml.NaN]())
-    elif data[idx : min(idx + 3, max_idx)] == "inf".as_bytes():
-        idx += 2
-        return .Ok(Toml.Float(Float64.MAX))
-    elif data[idx : min(idx + 4, max_idx)] == "+inf".as_bytes():
-        idx += 3
-        return .Ok(Toml.Float(Float64.MAX))
-    elif data[idx : min(idx + 4, max_idx)] == "-inf".as_bytes():
-        idx += 3
-        return .Ok(Toml.Float(Float64.MIN))
+    if data[idx] == Byte(ord("t")):
+        if (
+            idx + 4 <= max_idx
+            and data[idx : idx + 4] == "true".as_bytes()
+            and is_value_terminator[end_char](data, idx + 4)
+        ):
+            idx += 3
+            return .Ok(Toml.Boolean(True))
+    elif data[idx] == Byte(ord("f")):
+        if (
+            idx + 5 <= max_idx
+            and data[idx : idx + 5] == "false".as_bytes()
+            and is_value_terminator[end_char](data, idx + 5)
+        ):
+            idx += 4
+            return .Ok(Toml.Boolean(False))
+    elif data[idx] == Byte(ord("n")):
+        if idx + 3 <= max_idx and data[idx : idx + 3] == "nan".as_bytes():
+            idx += 2
+            return .Ok(materialize[Toml.NaN]())
+    elif data[idx] == Byte(ord("i")):
+        if idx + 3 <= max_idx and data[idx : idx + 3] == "inf".as_bytes():
+            idx += 2
+            return .Ok(Toml.Float(Float64.MAX))
+    elif data[idx] == Byte(ord("+")) or data[idx] == Byte(ord("-")):
+        if idx + 4 <= max_idx:
+            var special_value = data[idx + 1 : idx + 4]
+            if special_value == "nan".as_bytes():
+                idx += 3
+                return .Ok(materialize[Toml.NaN]())
+            elif special_value == "inf".as_bytes():
+                var is_negative = data[idx] == Byte(ord("-"))
+                idx += 3
+                return .Ok(
+                    Toml.Float(Float64.MIN)
+                    if is_negative
+                    else Toml.Float(Float64.MAX)
+                )
 
     var v_init = idx
 

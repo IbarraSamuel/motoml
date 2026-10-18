@@ -64,7 +64,24 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
 
     def calc_value(self) -> Result[String]:
         # print("original string: `{}`".format(self.as_pure_slice()))
-        var s = String(self.as_pure_slice().removeprefix("\n"))
+        var value = self.as_pure_slice().removeprefix("\n")
+        var needs_processing = False
+        for byte in value.as_bytes():
+            if (
+                byte == Byte(ord("\\"))
+                or byte == Byte(ord('"'))
+                or byte == Byte(8)
+                or byte == Byte(9)
+                or byte == Byte(10)
+                or byte == Byte(12)
+                or byte == Byte(13)
+            ):
+                needs_processing = True
+                break
+        if not needs_processing:
+            return .Ok(String(value))
+
+        var s = String(value)
         # print("stirng whitout prefix: `{}`".format(s))
 
         # var ss = parse_string_escape(s) if not self.is_literal else s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')

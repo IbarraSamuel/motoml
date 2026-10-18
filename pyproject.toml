@@ -70,6 +70,10 @@ test-reflection = { cmd = "uv run mojo test_reflection.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
+bench-parser = { cmd = "uv run mojo bench_parser.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
 
 tests = { depends-on = [
     "test-toml-type",

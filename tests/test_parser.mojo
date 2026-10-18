@@ -93,6 +93,17 @@ def test_struct_optional() raises:
     assert_equal(toml_obj[Dict[String, Toml]]["value_1"][String], "hello")
 
 
+def test_plain_unicode_strings() raises:
+    var toml = """
+    basic = "Café 🔥"
+    literal = 'A plain literal'
+    """
+    var parsed = parse_toml_raises[log=False](toml)
+    ref values = parsed[Dict[String, Toml]]
+    assert_equal(values["basic"][String], "Café 🔥")
+    assert_equal(values["literal"][String], "A plain literal")
+
+
 def test_multiline_quote_escapes() raises:
     var test_content = r'''
     str4 = """Here are two quotation marks: "". Simple enough."""
