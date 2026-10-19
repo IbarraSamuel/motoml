@@ -81,32 +81,64 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
         if not needs_processing:
             return .Ok(String(value))
 
-        var s = String(value)
-        # print("stirng whitout prefix: `{}`".format(s))
-
-        # var ss = parse_string_escape(s) if not self.is_literal else s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
-        var ss: String
         if self.is_literal:
-            # print("Is literal: -> ", s)
-            ss = s.replace(Self.BackSlash, "\\\\").replace('"', '\\"')
-        else:
-            var escape_error = validate_string_escapes(s, self.is_multiline)
-            if escape_error:
-                return .Err(escape_error.unsafe_take())
-            var se = parse_string_escape(s)
-            if case .Err = se:
-                return .Err(se^.unsafe_take_error())
-            ss = se^.unsafe_take_value()
+            return .Ok(_escape_for_output[True](value))
 
-        comptime for f, t in Self.CommonEscape:
-            ss = ss.replace(f, t)
-        return .Ok(ss)
+        var escape_error = validate_string_escapes(value, self.is_multiline)
+        if escape_error:
+            return .Err(escape_error.unsafe_take())
+        var se = parse_string_escape(value)
+        if case .Err = se:
+            return .Err(se^.unsafe_take_error())
+        return .Ok(_escape_for_output[False](se^.unsafe_take_value()))
 
     # fn write_to(self, mut w: Some[Writer]):
     #     try:
     #         w.write(self.calc_value())
     #     except:
     #         abort("Bad string in toml.")
+
+
+def _escape_for_output[literal: Bool](value: StringSlice) -> String:
+    """Single-pass equivalent of the old chain of `String.replace` calls.
+
+    Maps real control characters (\\b \\t \\n \\f \\r) to their two-character
+    escaped form. For literal strings it also doubles backslashes and escapes
+    double quotes. All mappings are independent per byte, so one pass gives the
+    same result as the previous sequential replaces without allocating a new
+    String for each of them.
+    """
+    var src = value.as_bytes()
+    var out = List[Byte](capacity=len(src) + 8)
+    for b in src:
+        if b == Byte(8):
+            out.append(Byte(ord("\\")))
+            out.append(Byte(ord("b")))
+        elif b == Byte(9):
+            out.append(Byte(ord("\\")))
+            out.append(Byte(ord("t")))
+        elif b == Byte(10):
+            out.append(Byte(ord("\\")))
+            out.append(Byte(ord("n")))
+        elif b == Byte(12):
+            out.append(Byte(ord("\\")))
+            out.append(Byte(ord("f")))
+        elif b == Byte(13):
+            out.append(Byte(ord("\\")))
+            out.append(Byte(ord("r")))
+        else:
+            comptime if literal:
+                if b == Byte(ord("\\")):
+                    out.append(Byte(ord("\\")))
+                    out.append(Byte(ord("\\")))
+                elif b == Byte(ord('"')):
+                    out.append(Byte(ord("\\")))
+                    out.append(Byte(ord('"')))
+                else:
+                    out.append(b)
+            else:
+                out.append(b)
+    return String(StringSlice(unsafe_from_utf8=Span(out)))
 
 
 def validate_string_escapes(

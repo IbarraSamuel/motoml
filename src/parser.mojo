@@ -9,6 +9,7 @@ from .types.string_ref import StringRef
 from .mmap_file import MappedFile
 from std.collections.string._utf8 import _is_valid_utf8
 from std.memory import forget_deinit
+from std.collections import Set
 
 comptime SquareBracketOpen = Byte(ord("["))
 comptime SquareBracketClose = Byte(ord("]"))
@@ -103,8 +104,8 @@ def parse_inline_array[
 ](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
-    mut inline_table_paths: List[String],
-    mut dotted_table_paths: List[String],
+    mut inline_table_paths: Set[String],
+    mut dotted_table_paths: Set[String],
     prefix: String,
 ) -> Result[List[Toml]]:
     """Assumes the first char is already within the collection, but could be a space.
@@ -112,7 +113,7 @@ def parse_inline_array[
     skip_blanks_and_comments(data, idx)
 
     # var value = toml.TomlType.new_array()
-    var arr = List[Toml](capacity=16)
+    var arr = List[Toml](capacity=4)
     # ref arr = value[toml.TomlTypes.Array]
 
     while idx < len(data) and data[idx] != SquareBracketClose:
@@ -179,9 +180,7 @@ def is_digit_for_base(char: Byte, base: Int) -> Bool:
 
 def is_valid_digit_sequence[
     *, reject_leading_zero: Bool = False
-](
-    data: Span[Byte, _], start: Int, end: Int, base: Int
-) -> Bool:
+](data: Span[Byte, _], start: Int, end: Int, base: Int) -> Bool:
     if start >= end:
         return False
     var digit_count = 0
@@ -266,12 +265,9 @@ def is_valid_float(value: StringSlice) -> Bool:
             data, start, mantissa_end, 10
         ):
             return False
-    elif (
-        not is_valid_digit_sequence[reject_leading_zero=True](
-            data, start, dot, 10
-        )
-        or not is_valid_digit_sequence(data, dot + 1, mantissa_end, 10)
-    ):
+    elif not is_valid_digit_sequence[reject_leading_zero=True](
+        data, start, dot, 10
+    ) or not is_valid_digit_sequence(data, dot + 1, mantissa_end, 10):
         return False
 
     if exponent != -1:
@@ -331,9 +327,9 @@ def string_to_type[
                 var is_negative = data[idx] == Byte(ord("-"))
                 idx += 3
                 return .Ok(
-                    Toml.Float(Float64.MIN)
-                    if is_negative
-                    else Toml.Float(Float64.MAX)
+                    Toml.Float(Float64.MIN) if is_negative else Toml.Float(
+                        Float64.MAX
+                    )
                 )
 
     var v_init = idx
@@ -347,13 +343,14 @@ def string_to_type[
     var dashes: Int = 0
     var colons: Int = 0
 
-    var is_hex = data[idx] == lower and (
+    var has_prefix = data[idx] == lower and idx + 1 < max_idx
+    var is_hex = has_prefix and (
         data[idx + 1] == Byte(ord("x")) or data[idx + 1] == Byte(ord("X"))
     )
-    var is_bin = data[idx] == lower and (
+    var is_bin = has_prefix and (
         data[idx + 1] == Byte(ord("b")) or data[idx + 1] == Byte(ord("B"))
     )
-    var is_oct = data[idx] == lower and (
+    var is_oct = has_prefix and (
         data[idx + 1] == Byte(ord("o")) or data[idx + 1] == Byte(ord("O"))
     )
 
@@ -373,7 +370,7 @@ def string_to_type[
         idx += 1
         if (
             dashes > 0
-            and idx < len(data)
+            and idx + 1 < len(data)
             and data[idx] == Space
             and lower <= data[idx + 1] <= upper
         ):
@@ -415,19 +412,24 @@ def string_to_type[
 
     elif is_valid_integer(v_slice):
         _printif[log]("parsing int")
-        var v = v_slice[
-            byte = 2 if is_hex or is_bin or is_oct else 0 :
-        ].replace("_", "")
+        var digits = v_slice[byte = 2 if is_hex or is_bin or is_oct else 0 :]
         var base = 16 if is_hex else 8 if is_oct else 2 if is_bin else 10
         try:
-            return .Ok(Toml.Integer(atol(v, base=base)))
+            # Only allocate a cleaned copy when there are separators to strip.
+            if Byte(ord("_")) in v_span:
+                return .Ok(
+                    Toml.Integer(atol(digits.replace("_", ""), base=base))
+                )
+            return .Ok(Toml.Integer(atol(digits, base=base)))
         except e:
             return .Err(e^)
 
     elif is_valid_float(v_slice):
         _printif[log]("try parse float")
         try:
-            return .Ok(Toml.Float(atof(v_slice.replace("_", ""))))
+            if Byte(ord("_")) in v_span:
+                return .Ok(Toml.Float(atof(v_slice.replace("_", ""))))
+            return .Ok(Toml.Float(atof(v_slice)))
         except e:
             return .Err(e^)
 
@@ -450,8 +452,8 @@ def parse_value[
 ](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
-    mut inline_table_paths: List[String],
-    mut dotted_table_paths: List[String],
+    mut inline_table_paths: Set[String],
+    mut dotted_table_paths: Set[String],
     prefix: String,
 ) -> Result[Toml]:
     # Assumes the first char is the first value of the value to parse.
@@ -509,6 +511,12 @@ def parse_value[
         return string_to_type[end_char, log=log](data, idx)
 
 
+def unsafe_get(ref dict: Dict, k: type_of(dict).K) -> ref[dict] type_of(dict).V:
+    var h = hash[type_of(dict).H](k)
+    var (_, idx) = dict._table.find_slot(h, k)
+    return dict._table._slots.unsafe_offset(idx)[].value
+
+
 def get_table_ref[
     log: Bool = False
 ](
@@ -516,24 +524,25 @@ def get_table_ref[
     mut base: Dict[String, Toml],
     *,
     var default: Toml,  # it's the leaf. The last container
-    array_table_paths: List[String],
-    inline_table_paths: List[String],
+    array_table_paths: Set[String],
+    inline_table_paths: Set[String],
 ) -> Result[Pointer[Toml, origin_of(base)]]:
     var cont = Pointer(to=base)
-    for i, k in enumerate(keys[: len(keys) - 1]):
-        var path = toml_key_path("", keys[: i + 1])
-        if path in inline_table_paths:
+    # Built incrementally: O(total key bytes) instead of O(keys^2).
+    var key_path = String()
+    for k in keys[: len(keys) - 1]:
+        _push_key_segment(key_path, k)
+        if key_path in inline_table_paths:
             return .Err("Inline tables cannot be extended.")
         _printif[log](
             t"|> k -> '{k}' ",
             end="",
         )
 
-        var tb = Dict[String, Toml](capacity=32)
-        ref inner_v = cont[].setdefault(
-            k,
-            Toml.Table(tb^),
-        )
+        # Only allocate the intermediate table when it is really missing.
+        if k not in cont[]:
+            cont[][k] = Toml.Table(Dict[String, Toml]())
+        ref inner_v = unsafe_get(cont[], k)
         match inner_v:
             case .Array:
                 ref inner_arr = inner_v[List[Toml]]
@@ -542,7 +551,7 @@ def get_table_ref[
                         Toml.Table(Dict[String, Toml](capacity=16))
                     )
 
-                if path not in array_table_paths:
+                if key_path not in array_table_paths:
                     return .Err("Cannot extend a table inside a static array.")
                 if case .Table = inner_arr[len(inner_arr) - 1]:
                     ref tb = inner_arr[len(inner_arr) - 1][Dict[String, Toml]]
@@ -558,30 +567,27 @@ def get_table_ref[
                 return .Err("Toml type is not a container.")
 
     ref k = keys[len(keys) - 1]
-    if toml_key_path("", keys) in inline_table_paths:
+    # key_path now holds the full path; reuse it instead of rebuilding it.
+    _push_key_segment(key_path, k)
+    if key_path in inline_table_paths:
         return .Err("Inline tables cannot be redefined.")
 
     var final_c: Pointer[Toml, origin_of(base)]
     if case .Array = default:
         var already_defined = k in cont[]
-        final_c = Pointer(
-            to=cont[].setdefault(k, Toml.Array(List[Toml](capacity=16)))
-        ).unsafe_origin_cast[origin_of(base)]()
+        if not already_defined:
+            cont[][k] = Toml.Array(List[Toml](capacity=4))
+        ref v = unsafe_get(cont[], k)
+        final_c = Pointer(to=v).unsafe_origin_cast[origin_of(base)]()
 
-        var path = toml_key_path("", keys)
-        if path not in array_table_paths and already_defined:
+        if key_path not in array_table_paths and already_defined:
             return .Err(
                 "Cannot define an array-of-tables over an existing array."
             )
 
         if case .Array = final_c[]:
-            var path = toml_key_path("", keys)
             ref arr = final_c[][List[Toml]]
-            if path not in array_table_paths and already_defined:
-                return .Err(
-                    "Cannot define an array-of-tables over an existing array."
-                )
-            elif case .Array = default:
+            if case .Array = default:
                 arr.extend(default^.unsafe_take[List[Toml]]())
             else:
                 return .Err("Default value should be an array, but it's not.")
@@ -608,18 +614,20 @@ def set_key_value[
     mut base: Dict[String, Toml],
     *,
     var value: Toml,
-    inline_table_paths: List[String],
+    inline_table_paths: Set[String],
     prefix: String,
 ) -> Optional[Error]:
     var cont = Pointer(to=base)
-    for i, k in enumerate(keys[: len(keys) - 1]):
-        var path = toml_key_path(prefix, keys[: i + 1])
-        if path in inline_table_paths:
+    var key_path = String(prefix)
+    for k in keys[: len(keys) - 1]:
+        _push_key_segment(key_path, k)
+        if key_path in inline_table_paths:
             return Error("Inline tables cannot be extended.")
         _printif[log](t"|> k -> '{k}' ", end="")
-        var tb = Dict[String, Toml](capacity=32)
-        var default = Toml.Table(tb^)
-        ref inner_v = cont[].setdefault(k, default^)
+        # Only allocate the intermediate table when it is really missing.
+        if k not in cont[]:
+            cont[][k] = Toml.Table(Dict[String, Toml]())
+        ref inner_v = unsafe_get(cont[], k)
         if case .Table = inner_v:
             ref tb = inner_v[Dict[String, Toml]]
             cont = Pointer(to=tb).unsafe_origin_cast[origin_of(base)]()
@@ -646,31 +654,43 @@ def is_bare_key_char(char: Byte) -> Bool:
     )
 
 
+@always_inline
+def _push_key_segment(mut path: String, key: String):
+    path += String(t"{key.byte_length()}:{key};")
+
+
 def toml_key_path(prefix: String, keys: Span[String, _]) -> String:
     var path = String(prefix)
     for key in keys:
-        path += String(t"{key.byte_length()}:{key};")
+        _push_key_segment(path, key)
     return path
 
 
 def table_scope_prefix(
     keys: Span[String, _],
-    array_table_paths: List[String],
-    array_table_occurrences: List[String],
+    array_table_paths: Set[String],
+    array_table_occurrences: Dict[String, Int],
     include_full_path: Bool = False,
 ) -> String:
     var scope = String()
+    # Holds keys[:i] at iteration i, built incrementally.
+    var path = String()
     for i in range(1, len(keys) + Int(include_full_path)):
-        var array_path = toml_key_path("", keys[:i])
-        if array_path not in array_table_paths and not (
+        _push_key_segment(path, keys[i - 1])
+        if path not in array_table_paths and not (
             include_full_path and i == len(keys)
         ):
             continue
-        var occurrence = 0
-        for seen_path in array_table_occurrences:
-            occurrence += Int(seen_path == array_path)
-        scope += String(t"@{array_path}={occurrence};")
+        var occurrence = array_table_occurrences.get(path, 0)
+        scope += String(t"@{path}={occurrence};")
     return scope + toml_key_path("", keys)
+
+
+@always_inline
+def _bare_key(span: Span[Byte, _]) -> Optional[String]:
+    # Bare keys were already validated byte-by-byte as [A-Za-z0-9_-], so they
+    # never contain anything calc_value() would need to process or escape.
+    return String(StringSlice(unsafe_from_utf8=span))
 
 
 def parse_keys[
@@ -735,25 +755,14 @@ def parse_keys[
         elif not key and (chr == Space or chr == Tab):
             if idx == key_init:
                 return .Err("A bare key cannot be empty.")
-            var k = data[key_init:idx]
-            key = (
-                StringRef(k, literal=False, multiline=False)
-                .calc_value()
-                .as_optional()
-            )
+            key = _bare_key(data[key_init:idx])
             skip[Space, Tab](data, idx)
             continue
         elif chr == Period:
             if not key:
                 if idx == key_init:
                     return .Err("A dotted key segment cannot be empty.")
-                key = (
-                    StringRef(
-                        data[key_init:idx], literal=False, multiline=False
-                    )
-                    .calc_value()
-                    .as_optional()
-                )
+                key = _bare_key(data[key_init:idx])
 
             # store the next level in the key_base list
             key_base.append(key.take())
@@ -789,11 +798,7 @@ def parse_keys[
     if not key:
         if idx == key_init:
             return .Err("A bare key cannot be empty.")
-        key = (
-            StringRef(data[key_init:idx], literal=False, multiline=False)
-            .calc_value()
-            .as_optional()
-        )
+        key = _bare_key(data[key_init:idx])
 
     var k = key.take()
     key_base.append(k)
@@ -808,8 +813,8 @@ def parse_kv_pairs[
 ](
     data: Span[mut=False, Byte, _],
     mut idx: Int,
-    mut inline_table_paths: List[String],
-    mut dotted_table_paths: List[String],
+    mut inline_table_paths: Set[String],
+    mut dotted_table_paths: Set[String],
     prefix: String,
 ) -> Result[Dict[String, Toml]]:
     """This function expect to be on top of the value to start parsing. So item=1.
@@ -830,18 +835,24 @@ def parse_kv_pairs[
             return .Err(keys_res^.unsafe_take_error())
         var keys = keys_res^.unsafe_take_value()
 
-        _printif[log](t"inline keys -> '{",".join(keys)}'")
+        comptime if log:
+            _printif[log](t"inline keys -> '{",".join(keys)}'")
         idx += 1
         skip[Space, Tab](data, idx)
 
         if idx >= len(data):
             break
 
-        var value_path = toml_key_path(prefix, keys)
-        for i in range(1, len(keys)):
-            var implicit_path = toml_key_path(prefix, keys[:i])
-            if implicit_path not in dotted_table_paths:
-                dotted_table_paths.append(implicit_path)
+        # The path is only consumed by arrays / inline tables, so skip building
+        # it for scalar values (the vast majority of key/value pairs).
+        var value_path = String()
+        if data[idx] == CurlyBracketOpen or data[idx] == SquareBracketOpen:
+            value_path = toml_key_path(prefix, keys)
+        if len(keys) > 1:
+            var implicit_path = String(prefix)
+            for i in range(len(keys) - 1):
+                _push_key_segment(implicit_path, keys[i])
+                dotted_table_paths.add(implicit_path)
         var v_r = parse_value[end_char, log=log](
             data, idx, inline_table_paths, dotted_table_paths, value_path
         )
@@ -854,8 +865,7 @@ def parse_kv_pairs[
         idx += 1
 
         if case .Table = v:
-            if value_path not in inline_table_paths:
-                inline_table_paths.append(value_path)
+            inline_table_paths.add(value_path)
 
         var opt_error = set_key_value(
             keys,
@@ -957,14 +967,16 @@ def parse_multiline_collections[
     data: Span[mut=False, Byte, _],
     mut idx: Int,
     mut base: Dict[String, Toml],
-    mut inline_table_paths: List[String],
-    mut dotted_table_paths: List[String],
-    mut declared_table_paths: List[String],
+    mut inline_table_paths: Set[String],
+    mut dotted_table_paths: Set[String],
+    mut declared_table_paths: Set[String],
 ) -> Optional[Error]:
-    var array_table_paths = List[String]()
-    var array_table_occurrences = List[String]()
+    var array_table_paths = Set[String]()
+    var array_table_occurrences = Dict[String, Int]()
     while idx < len(data):
-        var is_array = data[idx + 1] == SquareBracketOpen
+        var is_array = (
+            idx + 1 < len(data) and data[idx + 1] == SquareBracketOpen
+        )
         idx += 1 + Int(is_array)
 
         skip[Space, Tab](data, idx)
@@ -979,17 +991,20 @@ def parse_multiline_collections[
         _printif[log](t"Mutiline keys result: {keys}")
         var table_path = toml_key_path("", keys)
         if is_array:
-            array_table_occurrences.append(table_path)
+            array_table_occurrences[table_path] = (
+                array_table_occurrences.get(table_path, 0) + 1
+            )
         var scoped_table_path = table_scope_prefix(
             keys, array_table_paths, array_table_occurrences, is_array
         )
 
-        _printif[log](
-            ("[[" if is_array else "[")
-            + String(keys)
-            + "]]" if is_array else "]",
-            sep="",
-        )
+        comptime if log:
+            _printif[log](
+                ("[[" if is_array else "[")
+                + String(keys)
+                + "]]" if is_array else "]",
+                sep="",
+            )
         _printif[log](
             t">> Remaining: '''{StringSlice(unsafe_from_utf8=data[idx:])}'''"
         )
@@ -1041,7 +1056,7 @@ def parse_multiline_collections[
         #         }
         #     )
         # var def_cont: Toml
-        var def_cont = Toml.Table(Dict[String, Toml](capacity=16))
+        var def_cont = Toml.Table(Dict[String, Toml](capacity=0))
         if is_array:
             # Store the default in na list
             var lst = List[Toml](capacity=1)
@@ -1069,21 +1084,25 @@ def parse_multiline_collections[
             if (
                 is_array
             ):  # Dead code? Check this, is_array is checking the container?
-                if table_path not in array_table_paths:
-                    array_table_paths.append(table_path)
-            elif scoped_table_path not in declared_table_paths:
-                declared_table_paths.append(scoped_table_path)
+                array_table_paths.add(table_path)
+            else:
+                declared_table_paths.add(scoped_table_path)
 
             ref tbl = cont[][Dict[String, Toml]]
 
-            for var kv in values.take_items():
-                if kv.key in tbl:
-                    return Error(t"Table key already defined: {kv.key}")
-                kv^.deinit_with(
-                    lambda (var k: String, var v: Toml) {
-                        mut tbl
-                    }: tbl.__setitem__(k^, v^)
-                )
+            if len(tbl) == 0:
+                # Fresh table (the common case): adopt the parsed dict as a
+                # whole instead of re-hashing every entry into an empty one.
+                tbl = values^
+            else:
+                for var kv in values.take_items():
+                    if kv.key in tbl:
+                        return Error(t"Table key already defined: {kv.key}")
+                    kv^.deinit_with(
+                        lambda (var k: String, var v: Toml) {
+                            mut tbl
+                        }: tbl.__setitem__(k^, v^)
+                    )
 
         else:
             return Error("container should be a table, but inner value isn't")
@@ -1096,6 +1115,9 @@ def parse_multiline_collections[
 def validate_control_characters(data: Span[Byte, _]) -> Optional[Error]:
     for i in range(len(data)):
         var char = data[i]
+        # Fast path: printable bytes and all UTF-8 continuation bytes.
+        if char >= Byte(0x20) and char != Byte(0x7F):
+            continue
         if char == Tab or char == NewLine:
             continue
         if char == Enter:
@@ -1121,9 +1143,9 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
         return .Err(control_error.unsafe_take())
 
     var idx = 0
-    var inline_table_paths = List[String]()
-    var dotted_table_paths = List[String]()
-    var declared_table_paths = List[String]()
+    var inline_table_paths = Set[String]()
+    var dotted_table_paths = Set[String]()
+    var declared_table_paths = Set[String]()
     skip_blanks_and_comments(data, idx)
 
     if idx >= len(data):

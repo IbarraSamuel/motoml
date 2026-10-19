@@ -68,10 +68,49 @@ median. This is a modest improvement, and the observed run-to-run variation
 means timings should be treated as environment-dependent rather than a
 guaranteed speedup.
 
+## Further parser and string-processing changes
+
+The current implementation includes additional changes beyond the scalar
+hot-path optimization:
+
+- `StringRef.calc_value()` keeps the direct-copy path for strings that need no
+  processing. When processing is needed, `_escape_for_output()` now converts
+  control characters and, for literal strings, escapes backslashes and quotes
+  in one pass instead of chaining multiple `String.replace()` allocations.
+  Basic-string escape validation and decoding still run before output escaping.
+- Parser path tracking uses `Set[String]` for membership and a dictionary for
+  array-table occurrence counts. Key paths are built incrementally using
+  length-prefixed segments, and paths for key/value entries are only built
+  when their values are arrays or inline tables.
+- Already-validated bare keys are copied directly from their source bytes
+  rather than passing through `StringRef` processing. Table construction also
+  avoids creating intermediate tables before they are needed, transfers parsed
+  entries directly into empty tables, and uses smaller initial array capacities.
+- `parse_toml()` validates document control characters up front, including
+  enforcing CRLF for carriage returns.
+
+### Current working-tree benchmark
+
+Ran with Mojo `1.2.0.dev2026101705` using Pixi and `tests/bench_parser.mojo`.
+The five runs parsed 214 valid suite files (27,548 input bytes); each produced
+checksum `577`.
+
+| Implementation | Runs (ns) | Median (ns) |
+|---|---:|---:|
+| Previously reported parser hot-path changes | 849,980; 854,247; 839,431; 845,080; 843,460 | 845,080 |
+| Current implementation | 697,133; 700,917; 704,563; 702,067; 704,760 | 702,067 |
+
+The current median is **16.9% lower** than the previously reported parser
+hot-path median and **32.3% lower** than the original pre-fast-path median.
+This benchmark measures the current set of changes together; it does not
+isolate the contribution of any individual change. As before, timings are
+environment-dependent.
+
 ## Validation
 
 - `pixi run package`
 - `pixi run move-to-test`
 - `cd tests && pixi run mojo test_parser.mojo` — 8 passed
 - `cd tests && pixi run mojo test_toml_suite.mojo` — 680 passed
-- `cd tests && pixi run mojo bench_parser.mojo` — checksum `577` on every run
+- `pixi run bench-parser` and `cd tests && pixi run mojo bench_parser.mojo` —
+  5 runs, checksum `577` on every run
