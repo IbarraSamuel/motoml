@@ -2,7 +2,6 @@ from motoml.parser import parse_toml_raises
 from motoml.types.toml import Toml
 from motoml.mmap_file import MappedFile
 from json_parser import parse_json, translate_json_to_types
-from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location, SourceLocation, source_location
 from std.testing import assert_true, assert_raises, assert_equal
@@ -12,10 +11,10 @@ from std.time import perf_counter_ns
 
 
 def toml_single_test(strpath: String) raises -> None:
+    var file = Path(strpath)
     # var strpath = StaticString(TOML_FILES).splitlines()[testno]
-    var file = toml_files() / strpath
     if not file.exists():
-        raise "file not exists: " + String(file)
+        raise t"file not exists: {file}"
     var fmap = MappedFile(file)
     var content = fmap.unsafe_view()
 
@@ -64,27 +63,32 @@ def toml_files() -> Path:
 
 def main() raises:
     """Main entrypoint."""
-    var suite = PyTestSuite()
-    var files = StaticString(TOML_FILES).splitlines()
-    for li, fpath in enumerate(files):
-        if not fpath.endswith(".toml"):
-            continue
-        var root_fpath = String(t"[{li}]: tests/toml_files/{fpath}")
-        suite.add_test(name=root_fpath, location=fpath)
+    var toml_dir = toml_files() / "tests"
 
+    var v11_files = (
+        MappedFile(toml_dir / "files-toml-1.1.0").unsafe_view().splitlines()
+    )
+    var suite = NamedTestSuite()
+
+    for li, fpath in enumerate(v11_files):
+        var spath = String(t"{toml_dir}/{fpath}")
+        if not spath.endswith(".toml"):
+            continue
+        var root_fpath = String(t"[1.1 {li}]: {toml_dir}/{fpath}")
+        suite.add_test(name=root_fpath, location=spath)
     # print("Running tests...")
     suite^.run()
 
 
 @fieldwise_init
-struct PyTestSuite(Deinitable where False, Movable):
+struct NamedTestSuite(
+    not Deinitable else "run tests or abandon them.", Movable
+):
     var tests: List[Tuple[String, String]]
     var location: SourceLocation
 
     @always_inline
-    def __init__(
-        out self: PyTestSuite, location: Optional[SourceLocation] = None
-    ):
+    def __init__(out self, location: Optional[SourceLocation] = None):
         self.tests = {}
         self.location = location.or_else(call_location())
 

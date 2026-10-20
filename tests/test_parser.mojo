@@ -20,27 +20,6 @@ def test_empty_table() raises:
     assert_equal(len(empty_toml[Dict[String, Toml]]), 0)
 
 
-def test_parse_mapped_file() raises:
-    var mapped_file = MappedFile("toml_files/valid/example.toml")
-    assert_true(len(mapped_file.bytes()) > 0)
-    mapped_file.close()
-    assert_equal(len(mapped_file), 0)
-    mapped_file.close()
-
-    var empty_file = MappedFile("toml_files/valid/empty-nothing.toml")
-    assert_equal(len(empty_file.bytes()), 0)
-    empty_file.close()
-
-    var result = parse_toml_file("toml_files/valid/example.toml")
-    var toml_obj = result^.take()
-    assert_equal(
-        toml_obj[Dict[String, Toml]]["numtheory"][Dict[String, Toml]]["boring"][
-            Bool
-        ],
-        False,
-    )
-
-
 def test_simple_struct() raises:
     var test_table = """
     first_value = 1

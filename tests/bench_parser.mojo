@@ -1,7 +1,6 @@
 from motoml.parser import parse_toml_raises
 from motoml.types.toml import Toml
 from motoml.mmap_file import MappedFile
-from files_to_test import TOML_FILES
 from std.pathlib import Path
 from std.reflection import call_location
 from std.time import perf_counter_ns
@@ -14,8 +13,8 @@ def toml_files() -> Path:
 
 
 def main() raises:
-    var root = toml_files()
-    var files = StaticString(TOML_FILES).splitlines()
+    var root = toml_files() / "tests"
+    var files = MappedFile(root / "files-toml-1.1.0").unsafe_view().splitlines()
     var valid_files = 0
     var total_bytes = 0
     var total_parse_ns: Float64 = 0
@@ -34,7 +33,7 @@ def main() raises:
         def parse_doc() raises {imm content}:
             _ = parse_toml_raises[log=False](content)
 
-        var report = run(parse_doc, max_iters=1000)
+        var report = run(parse_doc, max_iters=1000, max_runtime_secs=30)
         total_parse_ns += report.mean("ns")
 
         checksum += len(parsed[Dict[String, Toml]])

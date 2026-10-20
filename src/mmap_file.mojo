@@ -21,9 +21,9 @@ struct MappedFile(Movable, Sized):
     var address: Int
     var length: Int
 
-    def __init__(out self):
-        self.address = 0
-        self.length = 0
+    # def __init__(out self):
+    #     self.address = 0
+    #     self.length = 0
 
     def __init__[PathLike: StdPathLike](out self, path: PathLike) raises:
         self.address = 0

@@ -6,3 +6,4 @@ stdin_parser
 motoml
 motoml_debug
 tests/motoml.mojoc
+.DS_Store
