@@ -15,7 +15,7 @@ build-backend = "uv_build"
 
 [tool.pixi.workspace]
 authors = ["Samuel Ibarra <ing.samuelibarra@gmail.com>"]
-channels = ["https://prefix.dev/max-nightly", "https://prefix.dev/conda-forge"]
+channels = ["https://prefix.dev/max", "https://prefix.dev/conda-forge"]
 name = "motoml"
 platforms = ["linux-64", "osx-arm64"]
 version = "0.1.0"
@@ -30,16 +30,16 @@ description = "TOML Reader for Mojo."
 backend = { name = "pixi-build-mojo", version = "0.*" }
 
 [tool.pixi.package.host-dependencies]
-mojo-compiler = "*"
+mojo-compiler = "1.2.*"
 
 [tool.pixi.package.build-dependencies]
-mojo-compiler = "*"
+mojo-compiler = "1.2.*"
 
 [tool.pixi.package.run-dependencies]
-mojo-compiler = "*"
+mojo-compiler = "1.2.*"
 
 [tool.pixi.dependencies]
-mojo = "*"
+mojo = "1.2.*"
 # [tasks]
 # test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
 # test-parser = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_parser.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
