@@ -38,7 +38,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
     else:
         return .Err("The toml value doesn't correspond to a Table.")
 
-    var layout = Layout[T](count=1)
+    var layout = Layout[T](length=1)
     var allocation = alloc(layout)
     ref toml_tb = toml[Dict[String, Toml]]
 
