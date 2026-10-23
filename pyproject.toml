@@ -1,13 +1,12 @@
 [project]
 name = "motoml"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.2.0"
+description = "Toml reader for Mojo."
 readme = "README.md"
 authors = [{ name = "Samuel Ibarra", email = "ing.samuelibarra@gmail.com" }]
 requires-python = ">=3.14"
 
 [project.scripts]
-motoml = "motoml:main"
 
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]
@@ -18,12 +17,12 @@ authors = ["Samuel Ibarra <ing.samuelibarra@gmail.com>"]
 channels = ["https://prefix.dev/max", "https://prefix.dev/conda-forge"]
 name = "motoml"
 platforms = ["linux-64", "osx-arm64"]
-version = "0.1.0"
+version = "1.2.0"
 preview = ["pixi-build"]
 
 [tool.pixi.package]
 name = "motoml"
-version = "0.1.0"
+version = "1.2.0"
 description = "TOML Reader for Mojo."
 
 [tool.pixi.package.build]
@@ -79,7 +78,7 @@ tests = { depends-on = [
     "test-toml-type",
     "test-parser",
     "test-toml-suite",
-    # "test-comptime-parser",
+    # "test-comptime-parser", # BLOCKED BY ENUMS
     "test-reflection",
 ] }
 
