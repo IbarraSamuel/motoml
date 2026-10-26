@@ -457,8 +457,15 @@ def parse_value[
     prefix: String,
 ) -> Result[Toml]:
     # Assumes the first char is the first value of the value to parse.
+    if idx >= len(data):
+        return .Err("Expected a value.")
+
     if data[idx] == DoubleQuote:
-        if data[idx + 1] == DoubleQuote and data[idx + 2] == DoubleQuote:
+        if (
+            idx + 2 < len(data)
+            and data[idx + 1] == DoubleQuote
+            and data[idx + 2] == DoubleQuote
+        ):
             _printif[log]("value is a triple double quote string")
             var s = parse_multiline_string[DoubleQuote, ignore_escape=False](
                 data, idx
@@ -477,7 +484,11 @@ def parse_value[
             ).map(lambda (v: String) -> Toml: Toml.String(v))
 
     elif data[idx] == SingleQuote:
-        if data[idx + 1] == SingleQuote and data[idx + 2] == SingleQuote:
+        if (
+            idx + 2 < len(data)
+            and data[idx + 1] == SingleQuote
+            and data[idx + 2] == SingleQuote
+        ):
             _printif[log]("value is a triple single quote string")
             var s = parse_multiline_string[SingleQuote, ignore_escape=True](
                 data, idx

@@ -99,7 +99,7 @@ struct TomlType:
     comptime Table = Dict[Self.String, Toml]
 
 
-__enum Toml(Copyable, Equatable, Movable, Writable):
+__enum Toml(Copyable, Equatable, Movable, Writable, Deinitable):
     comptime Types = TomlType
     case NaN
     case String(TomlType.String)
@@ -139,7 +139,8 @@ __enum Toml(Copyable, Equatable, Movable, Writable):
                 return materialize[Toml.NaN]()
 
     def __deinit__(deinit self):
-        pass
+        var value = self^
+        _deinit_toml(value^)
 
     def unsafe_take[
         T: Movable
@@ -294,6 +295,36 @@ __enum Toml(Copyable, Equatable, Movable, Writable):
             case .Boolean(b):
                 w.write("true" if b else "false")
         w.write(")")
+
+
+def _deinit_toml(var value: Toml):
+    match value:
+        case .NaN:
+            forget_deinit(value^)
+        case .String:
+            _ = value^.unsafe_take[String]()
+        case .Integer:
+            _ = value^.unsafe_take[Int]()
+        case .Float:
+            _ = value^.unsafe_take[Float64]()
+        case .Boolean:
+            _ = value^.unsafe_take[Bool]()
+        case .Date:
+            _ = value^.unsafe_take[Date]()
+        case .Time:
+            _ = value^.unsafe_take[Time]()
+        case .DateTime:
+            _ = value^.unsafe_take[DateTime]()
+        case .Array:
+            var values = value^.unsafe_take[List[Toml]]()
+            values^.deinit_with(_deinit_toml)
+        case .Table:
+            var values = value^.unsafe_take[Dict[String, Toml]]()
+            values^.deinit_with(_deinit_toml_entry)
+
+
+def _deinit_toml_entry(var key: String, var value: Toml):
+    _deinit_toml(value^)
 
 
 # @fieldwise_init

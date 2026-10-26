@@ -255,6 +255,9 @@ def _find_escapes[
         if backslash_count % 2 == 0:
             continue
 
+        if ii + 1 >= len(ssb):
+            return .Err("String ends with an incomplete escape.")
+
         # if ii != 0 and ssb[ii - 1] == Byte(ord("\\")):
         #     continue
 

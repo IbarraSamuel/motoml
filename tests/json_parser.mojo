@@ -259,7 +259,7 @@ def translate_json_to_types(var json: Toml) raises -> Toml:
         if len(values) == 2 and "type" in values and "value" in values:
             var type = values.pop("type")
             var value = values.pop("value")
-            if case (.String(var kind), .String(var text)) = (type^, value^):
+            if case (.String(kind), .String(text)) = (type^, value^):
                 var translated_value = Toml.String(text)
                 if kind == "integer":
                     translated_value = Toml.Integer(Int(text))

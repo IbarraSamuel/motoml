@@ -1,7 +1,8 @@
 from std.testing import assert_equal, TestSuite, assert_true
 
 from motoml.mmap_file import MappedFile
-from motoml.parser import parse_toml_file, parse_toml_raises
+from motoml.parser import parse_toml, parse_toml_file, parse_toml_raises
+from motoml.types.string_ref import parse_string_escape
 from motoml.types.toml import Toml
 
 
@@ -18,6 +19,40 @@ def test_empty_table() raises:
     else:
         raise "Value is expected to be a table"
     assert_equal(len(empty_toml[Dict[String, Toml]]), 0)
+
+
+def assert_parse_error(content: StringSlice) raises:
+    var result = parse_toml[log=False](content)
+    if case .Err = result:
+        _ = result^.unsafe_take_error()
+    else:
+        _ = result^.unsafe_take_value()
+        raise "Malformed TOML input should return a parse error."
+
+
+def assert_parse_success(content: StringSlice) raises:
+    var result = parse_toml[log=False](content)
+    if case .Ok = result:
+        _ = result^.unsafe_take_value()
+    else:
+        _ = result^.unsafe_take_error()
+        raise "Valid TOML input should parse successfully."
+
+
+def test_truncated_quoted_strings() raises:
+    assert_parse_error(r'value = "')
+    assert_parse_error(r"value = '")
+    assert_parse_success(r'value = ""')
+    assert_parse_success(r"value = ''")
+
+
+def test_incomplete_escape_returns_error() raises:
+    var result = parse_string_escape("\\")
+    if case .Err = result:
+        _ = result^.unsafe_take_error()
+    else:
+        _ = result^.unsafe_take_value()
+        raise "An incomplete escape should return a parse error."
 
 
 def test_simple_struct() raises:

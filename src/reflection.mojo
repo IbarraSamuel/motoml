@@ -6,7 +6,25 @@ TODO: Make it a single implementation.
 from .types.toml import Toml
 from .result import Result
 
-from std.memory import alloc, dealloc, Layout
+from std.memory import Allocation, Pointer, alloc, dealloc, Layout
+
+
+def _destroy_partial_struct[T: Movable](
+    var allocation: Allocation[T], initialized_fields: Int
+):
+    comptime Tr = reflect[T]
+    comptime field_types = Tr.field_types()
+    comptime field_count = Tr.field_count()
+    var struct_ptr = allocation.unsafe_ptr()
+
+    comptime for fi in reversed(range(field_count)):
+        comptime TYPE = field_types[fi]
+        comptime assert conforms_to(TYPE, Deinitable)
+        if initialized_fields > fi:
+            ref field = Tr.field_ref[fi](struct_ptr[])
+            Pointer(to=field).unsafe_deinit_pointee()
+
+    dealloc(allocation^)
 
 
 @always_inline
@@ -69,9 +87,7 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 var inner = toml_to_type[Inner](value^)
 
                 if case .Err = inner:
-                    # TODO: Destroy properly
-                    dealloc(allocation^)
-                    # struct_ptr.unsafe_free()
+                    _destroy_partial_struct[T](allocation^, fi)
                     return .Err(inner^.unsafe_take_error())
 
                 field_ptr = rebind_var[TYPE](
@@ -79,19 +95,14 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 )
         else:
             if NAME not in toml_tb:
-                # TODO: Destroy properly
-                dealloc(allocation^)
-                # struct_ptr.unsafe_free()
-                # dealloc(struct_ptr^)
+                _destroy_partial_struct[T](allocation^, fi)
                 return .Err("Struct field doesn't exists in toml table.")
 
             var value = toml_tb.pop(NAME, materialize[Toml.NaN]())
 
             var inner = toml_to_type[TYPE](value^)
             if case .Err = inner:
-                # TODO: Destroy properly
-                dealloc(allocation^)
-                # dealloc(struct_ptr^)
+                _destroy_partial_struct[T](allocation^, fi)
                 return .Err(inner^.unsafe_take_error())
             field_ptr = inner^.unsafe_take_value()
         # print(t"Field {NAME} done!")

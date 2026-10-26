@@ -2,7 +2,7 @@ from std.testing import TestSuite, assert_equal
 
 # from motoml.parser import parse_toml, parse_toml_raises
 from motoml.types.toml import Toml
-from motoml.reflection import toml_to_type_raises
+from motoml.reflection import toml_to_type, toml_to_type_raises
 
 
 # comptime TOML_OBJ = parse_toml(TOML_CONTENT)
@@ -161,6 +161,24 @@ struct AllTypes(Movable):
 struct Table(Movable):
     var key: Int
     var key2: Int
+
+
+struct StringThenMissingField(Movable):
+    var owned_string: String
+    var missing_integer: Int
+
+
+def test_struct_conversion_failure_cleans_initialized_fields() raises:
+    var dct = Dict[String, Toml]()
+    dct["owned_string"] = Toml.String("owned value")
+    var toml_obj = Toml.Table(dct^)
+
+    var result = toml_to_type[StringThenMissingField](toml_obj^)
+    if case .Err = result:
+        _ = result^.unsafe_take_error()
+    else:
+        _ = result^.unsafe_take_value()
+        raise "Struct conversion should fail when a required field is missing."
 
 
 def test_struct_all_types() raises:
