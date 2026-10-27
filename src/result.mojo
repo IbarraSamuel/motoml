@@ -12,28 +12,6 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     def forget(deinit self) where conforms_to(Self.T, Deinitable):
         pass
 
-    # def unsafe_take[
-    #     t: Movable
-    # ](deinit self, out value: t) where TypeList.of[
-    #     Trait=Movable, Self.T, Self.E
-    # ].contains[t]():
-    #     match self:
-    #         case .Ok(value):
-    #             return
-    #         case .Err(err):
-    #             ...
-
-    #     comptime if t == Self.T:
-    #         if case .Ok(value) = self:
-    #             return rebind_var[](value
-    #     else:
-    #         if case .Err(err) = self:
-    #             return err
-
-    #     os.abort
-    #     assert self.inner.isa[t](), "No value found in the Result Type."
-    #     value = self.inner^.unwrap[t]()
-
     @always_inline
     def unsafe_take_value(deinit self) -> Self.T:
         """Take the value. You must check that there is a value. If not, you will get UB.
