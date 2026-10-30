@@ -41,14 +41,14 @@ struct MappedFile(Movable, Sized):
             c_size_t(self.length),
             c_int(PROT_READ),
             c_int(MAP_PRIVATE),
-            c_int(fd),
+            fd._value,
             Int64(0),
         )
         if address == -1:
             raise Error("Failed to memory-map file: " + String(get_errno()))
         self.address = address
         # Keep the file handle alive until mmap has consumed its descriptor.
-        if file._get_raw_fd() != fd:
+        if file._get_raw_fd()._value != fd._value:
             raise Error("File descriptor changed while mapping file.")
 
     def __deinit__(deinit self):
