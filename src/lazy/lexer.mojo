@@ -23,6 +23,17 @@ comptime Escape = Byte(ord("\\"))
 
 @always_inline
 def is_bare_key_byte(b: Byte) -> Bool:
+    """Determine whether a byte is allowed in an unquoted TOML bare key.
+
+    Bare keys only permit ASCII letters, digits, underscores, and dashes
+    (`[A-Za-z0-9_-]`).
+
+    Args:
+        b: Byte to check.
+
+    Returns:
+        `True` if `b` is a valid bare key byte.
+    """
     return (
         Byte(ord("a")) <= b <= Byte(ord("z"))
         or Byte(ord("A")) <= b <= Byte(ord("Z"))
@@ -34,6 +45,12 @@ def is_bare_key_byte(b: Byte) -> Bool:
 
 @always_inline
 def skip_spaces_and_tabs(data: Span[Byte, _], mut idx: Int):
+    """Advance index past horizontal whitespace (ASCII spaces and tabs).
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index.
+    """
     while idx < len(data):
         var b = data[idx]
         if b == Space or b == Tab:
@@ -44,12 +61,31 @@ def skip_spaces_and_tabs(data: Span[Byte, _], mut idx: Int):
 
 @always_inline
 def skip_to_newline(data: Span[Byte, _], mut idx: Int):
+    """Advance index until reaching a newline byte (`\\n`) or EOF.
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index.
+    """
     while idx < len(data) and data[idx] != NewLine:
         idx += 1
 
 
 @always_inline
 def skip_comment(data: Span[Byte, _], mut idx: Int) -> Bool:
+    """Advance index to the end of a comment line, checking for illegal characters.
+
+    Enforces TOML specification rules: control characters (other than tab) and
+    bare carriage returns are forbidden within comments.
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index pointing to comment content.
+
+    Returns:
+        `True` if the comment was well-formed; `False` if an invalid control
+        character or bare CR was encountered.
+    """
     while idx < len(data):
         var b = data[idx]
         if b == NewLine:
@@ -66,6 +102,14 @@ def skip_comment(data: Span[Byte, _], mut idx: Int) -> Bool:
 
 @always_inline
 def skip_whitespace_and_comments(data: Span[Byte, _], mut idx: Int):
+    """Advance index through arbitrary sequences of whitespace and comments.
+
+    Handles spaces, tabs, CR, LF, and `#` comments.
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index.
+    """
     while idx < len(data):
         var b = data[idx]
         if b == Space or b == Tab or b == NewLine or b == Enter:
@@ -77,6 +121,20 @@ def skip_whitespace_and_comments(data: Span[Byte, _], mut idx: Int):
 
 
 def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> UInt8:
+    """Quickly determine the `Kind` of an unquoted scalar literal from its bytes.
+
+    Categorizes the byte slice into `Kind.Boolean`, `Kind.NaN`, `Kind.Inf`,
+    `Kind.Integer`, `Kind.Float`, `Kind.Date`, `Kind.Time`, `Kind.DateTime`, or
+    `Kind.Empty` if invalid.
+
+    Args:
+        data: Document byte buffer.
+        start: Start byte index of the scalar.
+        end: End byte index of the scalar.
+
+    Returns:
+        The matched `Kind` constant.
+    """
     var span = data[start:end]
     var n = len(span)
     if n == 0:

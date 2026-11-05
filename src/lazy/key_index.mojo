@@ -8,6 +8,15 @@ from std.collections import Span, List
 
 @always_inline
 def hash_key(parent: UInt32, key: Span[Byte, _]) -> UInt32:
+    """Compute a 32-bit FNV-1a hash over a raw byte slice scoped by parent table index.
+
+    Args:
+        parent: The parent node index scoping this key.
+        key: Raw byte slice of the key.
+
+    Returns:
+        A 32-bit FNV-1a hash value.
+    """
     var h: UInt32 = 2166136261 ^ (parent * 16777619)
     for i in range(len(key)):
         h = (h ^ UInt32(key[i])) * 16777619
@@ -21,6 +30,21 @@ def hash_key_segment(
     has_escape: Bool,
     doc_bytes: Span[Byte, _],
 ) -> UInt32:
+    """Compute an FNV-1a hash for a key segment, unescaping if necessary.
+
+    When `has_escape` is true, the segment is decoded first so that escaped
+    keys (e.g. `"\\u0061"`) hash identically to unescaped keys (`"a"`).
+
+    Args:
+        parent: The parent node index scoping this key.
+        key_start: Start byte offset of the key segment in `doc_bytes`.
+        key_len: Byte length of the key segment.
+        has_escape: Whether the key contains escape sequences.
+        doc_bytes: Full document byte buffer.
+
+    Returns:
+        A 32-bit FNV-1a hash value matching the logical key text.
+    """
     if not has_escape:
         var h: UInt32 = 2166136261 ^ (parent * 16777619)
         for i in range(Int(key_len)):
@@ -54,6 +78,23 @@ def keys_equal(
     esc2: Bool,
     doc_bytes: Span[Byte, _],
 ) -> Bool:
+    """Check equality between two key segments in the document buffer.
+
+    Performs a fast byte comparison if neither segment contains escape characters;
+    otherwise unescapes both representations before comparing.
+
+    Args:
+        s1: Start byte offset of first key segment.
+        l1: Length in bytes of first key segment.
+        esc1: Whether first key segment has escape sequences.
+        s2: Start byte offset of second key segment.
+        l2: Length in bytes of second key segment.
+        esc2: Whether second key segment has escape sequences.
+        doc_bytes: Full document byte buffer.
+
+    Returns:
+        `True` if both key segments represent the exact same string value.
+    """
     if not esc1 and not esc2:
         if l1 != l2:
             return False
@@ -96,6 +137,8 @@ def keys_equal(
 
 
 struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
+    """An entry in the open-addressing key index hash table."""
+
     var parent: UInt32
     var node_idx: UInt32
     var hash_val: UInt32
@@ -107,21 +150,40 @@ struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
         node_idx: UInt32 = NO_NODE,
         hash_val: UInt32 = 0,
     ):
+        """Initialize an index slot with parent node, target node index, and hash.
+
+        Args:
+            parent: Scoping parent node index.
+            node_idx: Tape node index of the entry (`NO_NODE` if empty).
+            hash_val: Precomputed 32-bit hash value.
+        """
         self.parent = parent
         self.node_idx = node_idx
         self.hash_val = hash_val
 
     @always_inline
     def is_empty(self) -> Bool:
+        """Check whether this slot is unoccupied."""
         return self.node_idx == NO_NODE
 
 
 struct KeyIndex(Movable):
+    """Flat open-addressing hash table for fast key lookup and duplicate detection.
+
+    Maps `(parent_node_idx, key)` to child node index on the tape using linear
+    probing without storing heap-allocated strings.
+    """
+
     var slots: List[KeySlot]
     var count: Int
     var mask: Int
 
     def __init__(out self, initial_capacity: Int = 64):
+        """Initialize a new KeyIndex with power-of-two slot capacity.
+
+        Args:
+            initial_capacity: Minimum initial capacity (rounded up to power of two).
+        """
         var cap = 64
         while cap < initial_capacity:
             cap <<= 1
@@ -132,6 +194,8 @@ struct KeyIndex(Movable):
             self.slots.append(KeySlot())
 
     def _grow(mut self):
+        """Double table capacity and rehash all active entries into the new slot array.
+        """
         var old_cap = len(self.slots)
         var new_cap = old_cap << 1
         var new_mask = new_cap - 1
@@ -153,6 +217,13 @@ struct KeyIndex(Movable):
 
     @always_inline
     def _insert_slot(mut self, parent: UInt32, node_idx: UInt32, h: UInt32):
+        """Find the next available slot via linear probing and store the entry.
+
+        Args:
+            parent: Parent node index.
+            node_idx: Target node index on the tape.
+            h: Precomputed hash value.
+        """
         var idx = Int(h) & self.mask
         while not self.slots[idx].is_empty():
             idx = (idx + 1) & self.mask
@@ -168,6 +239,19 @@ struct KeyIndex(Movable):
         doc_bytes: Span[Byte, _],
         has_escape: Bool = False,
     ) -> UInt32:
+        """Find a child node by key segment within a parent node scope.
+
+        Args:
+            parent: Parent node index on the tape.
+            key_start: Start byte offset of key segment in `doc_bytes`.
+            key_len: Byte length of key segment.
+            nodes: Tape nodes array.
+            doc_bytes: Full document byte buffer.
+            has_escape: Whether the search key segment contains escape sequences.
+
+        Returns:
+            The matched child node index, or `NO_NODE` if not found.
+        """
         if self.count == 0 or len(self.slots) == 0:
             return NO_NODE
 
@@ -204,6 +288,17 @@ struct KeyIndex(Movable):
         nodes_ptr: Pointer[Node, _],
         doc_bytes: Span[Byte, _],
     ) -> UInt32:
+        """Find a child node by raw byte slice within a parent node scope.
+
+        Args:
+            parent: Parent node index on the tape.
+            key: Raw byte slice of the key to look up.
+            nodes_ptr: Pointer to the tape nodes array.
+            doc_bytes: Full document byte buffer.
+
+        Returns:
+            The matched child node index, or `NO_NODE` if not found.
+        """
         if self.count == 0 or len(self.slots) == 0:
             return NO_NODE
 
@@ -261,6 +356,16 @@ struct KeyIndex(Movable):
         doc_bytes: Span[Byte, _],
         has_escape: Bool = False,
     ):
+        """Insert a key-to-node mapping under a given parent node index.
+
+        Args:
+            parent: Parent node index scoping this key.
+            key_start: Start byte offset of key segment in `doc_bytes`.
+            key_len: Byte length of key segment.
+            node_idx: Child node index on the tape.
+            doc_bytes: Full document byte buffer.
+            has_escape: Whether the key segment contains escape sequences.
+        """
         if self.count * 10 >= len(self.slots) * 7:
             self._grow()
 

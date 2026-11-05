@@ -10,6 +10,14 @@ from std.math import nan
 
 @always_inline
 def decode_bool(bytes: Span[Byte, _]) -> Result[Bool]:
+    """Decode a boolean scalar from its raw byte representation.
+
+    Args:
+        bytes: Raw byte span containing `"true"` or `"false"`.
+
+    Returns:
+        A `Result` containing `True` or `False`, or an error message if invalid.
+    """
     if len(bytes) == 4 and bytes[0] == Byte(ord("t")):
         return .Ok(True)
     elif len(bytes) == 5 and bytes[0] == Byte(ord("f")):
@@ -18,6 +26,18 @@ def decode_bool(bytes: Span[Byte, _]) -> Result[Bool]:
 
 
 def decode_int(bytes: Span[Byte, _]) -> Result[Int]:
+    """Decode a 64-bit integer from its raw byte representation.
+
+    Supports decimal, hexadecimal (`0x`), octal (`0o`), and binary (`0b`)
+    notations with optional underscore separators and sign prefixes, adhering
+    strictly to the TOML specification (e.g., rejecting leading zeros in decimal).
+
+    Args:
+        bytes: Raw byte span containing the integer literal.
+
+    Returns:
+        A `Result` containing the parsed integer value or an error message.
+    """
     if len(bytes) == 0:
         return .Err("Empty integer value.")
 
@@ -104,6 +124,18 @@ def decode_int(bytes: Span[Byte, _]) -> Result[Int]:
 
 
 def decode_float(bytes: Span[Byte, _]) -> Result[Float64]:
+    """Decode a 64-bit floating point number from its raw byte representation.
+
+    Supports fractional decimal notation, scientific notation with `e`/`E`,
+    and special constants `nan`, `+nan`, `-nan`, `inf`, `+inf`, `-inf`, strictly
+    validating decimal point surroundings and rejecting leading zeros.
+
+    Args:
+        bytes: Raw byte span containing the float literal.
+
+    Returns:
+        A `Result` containing the decoded Float64 value or an error message.
+    """
     if len(bytes) == 0:
         return .Err("Empty float value.")
 
@@ -169,20 +201,61 @@ def decode_float(bytes: Span[Byte, _]) -> Result[Float64]:
 
 
 def decode_date(bytes: Span[Byte, _]) -> Result[Date]:
+    """Decode an RFC 3339 local date (`YYYY-MM-DD`) from its byte representation.
+
+    Args:
+        bytes: Raw byte span containing the date string.
+
+    Returns:
+        A `Result` containing the parsed `Date` or an error message.
+    """
     return Date.from_string(StringSlice(unsafe_from_utf8=bytes))
 
 
 def decode_time(bytes: Span[Byte, _]) -> Result[Time]:
+    """Decode an RFC 3339 local time (`HH:MM:SS[.fraction]`) from its byte representation.
+
+    Args:
+        bytes: Raw byte span containing the time string.
+
+    Returns:
+        A `Result` containing the parsed `Time` or an error message.
+    """
     return Time.from_string(StringSlice(unsafe_from_utf8=bytes))
 
 
 def decode_datetime(bytes: Span[Byte, _]) -> Result[DateTime]:
+    """Decode an RFC 3339 date-time with optional offset or local time from its bytes.
+
+    Args:
+        bytes: Raw byte span containing the date-time string.
+
+    Returns:
+        A `Result` containing the parsed `DateTime` or an error message.
+    """
     return DateTime.from_string(StringSlice(unsafe_from_utf8=bytes))
 
 
 def decode_string_to_writer[
     W: Writer
 ](bytes: Span[Byte, _], flags: UInt8, mut writer: W) -> Result[NoneType]:
+    """Decode and unescape a string literal directly into any `Writer`.
+
+    Supports standard TOML escape sequences (`\\b`, `\\t`, `\\n`, `\\f`, `\\r`,
+    `\\"`, `\\\\`, `\\uXXXX`, `\\UXXXXXXXX`, `\\xXX`) and multiline line-trimming
+    backslashes without intermediate string allocations.
+
+    Parameters:
+        W: The `Writer` type destination.
+
+    Args:
+        bytes: Raw byte span of the string content (excluding bounding quotes).
+        flags: Attribute flags (`NodeFlags.LITERAL`, `NodeFlags.HAS_ESCAPE`, `NodeFlags.MULTILINE`).
+        writer: Destination writer receiving decoded UTF-8 characters.
+
+    Returns:
+        A `Result` indicating success or an unescaping/syntax error.
+    """
     # Literal strings have zero unescaping
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
         writer.write(StringSlice(unsafe_from_utf8=bytes))
@@ -302,6 +375,18 @@ def decode_string_to_writer[
 
 
 def decode_string(bytes: Span[Byte, _], flags: UInt8) -> Result[String]:
+    """Decode and unescape a string literal into an owned `String`.
+
+    If the string is literal or has no escape sequences, it directly converts
+    the borrowed byte slice to a string without decoding overhead.
+
+    Args:
+        bytes: Raw byte span of the string content.
+        flags: Attribute flags (`NodeFlags.LITERAL`, `NodeFlags.HAS_ESCAPE`, `NodeFlags.MULTILINE`).
+
+    Returns:
+        A `Result` containing the unescaped `String` or an error.
+    """
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
         return .Ok(String(StringSlice(unsafe_from_utf8=bytes)))
 

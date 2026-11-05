@@ -35,6 +35,15 @@ from std.collections.string._utf8 import _is_valid_utf8
 
 @always_inline
 def _link_child(mut nodes: List[Node], parent: UInt32, child: UInt32):
+    """Link a newly created child node into its parent's intrusive child list.
+
+    Updates `first_child`, `last_child`, and `next_sibling` links on the tape.
+
+    Args:
+        nodes: Tape array of nodes.
+        parent: Tape index of parent node (`NO_NODE` if none).
+        child: Tape index of child node to append.
+    """
     if parent == NO_NODE:
         return
     ref p = nodes[Int(parent)]
@@ -51,6 +60,20 @@ def parse_key_segments(
     mut idx: Int,
     stop_byte: Byte,
 ) -> Result[List[KeySeg]]:
+    """Parse a sequence of dotted key segments (bare or quoted).
+
+    Scans bare identifiers, double-quoted basic strings, and single-quoted
+    literal strings separated by periods (`.`) until encountering `stop_byte`
+    (`=` or `]`).
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index pointing to key start.
+        stop_byte: Delimiter byte indicating the end of the full key sequence.
+
+    Returns:
+        A `Result` containing the list of parsed `KeySeg` elements or a syntax error.
+    """
     var segs = List[KeySeg](capacity=4)
 
     while idx < len(data):
@@ -119,6 +142,18 @@ def parse_string_value(
     data: Span[Byte, _],
     mut idx: Int,
 ) -> Result[Tuple[UInt32, UInt32, UInt8]]:
+    """Scan a single-line or multiline basic or literal string value.
+
+    Validates quotation delimiters, detects multiline triple quotes, checks for
+    illegal unescaped control characters, and records offset, length, and flags.
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index pointing to opening quote.
+
+    Returns:
+        A `Result` containing `(start_offset, length, node_flags)` or a syntax error.
+    """
     var quote = data[idx]
     var is_literal = quote == SingleQuote
 
@@ -215,6 +250,23 @@ def parse_value_node[
     mut nodes: List[Node],
     mut key_index: KeyIndex,
 ) -> Result[UInt32]:
+    """Parse any TOML value (string, inline array, inline table, or scalar).
+
+    Appends the parsed AST node(s) to the tape and returns the index of the
+    root node for this value.
+
+    Parameters:
+        validation: Validation mode (`Validation.Strict` or `Validation.Trusted`).
+
+    Args:
+        data: Document byte buffer.
+        idx: In-out scanning index pointing to value.
+        nodes: Tape array of nodes.
+        key_index: Hash index for key collision checks and lookups.
+
+    Returns:
+        A `Result` containing the tape index of the parsed node or a syntax error.
+    """
     skip_spaces_and_tabs(data, idx)
     if idx >= len(data):
         return .Err("Expected value, found EOF.")
@@ -418,6 +470,24 @@ def parse_value_node[
 def parse_lazy[
     validation: Validation = Validation.Strict,
 ](content: Span[Byte, _]) -> Result[Document[content.origin, validation]]:
+    """Parse a TOML document into a zero-allocation `Document` view backed by a flat tape.
+
+    Scans headers, keys, and values without allocating heap objects for intermediate
+    strings, tables, or arrays. Keys and values borrow directly from `content`.
+
+    Parameters:
+        validation: Validation mode:
+            - `Validation.Strict` (default): Enforces UTF-8, duplicate key checks,
+              and full TOML 1.1 spec conformance.
+            - `Validation.Trusted`: Omits UTF-8 and duplicate key checks for maximum
+              parsing speed on known-valid inputs.
+
+    Args:
+        content: Borrowed span of document UTF-8 bytes.
+
+    Returns:
+        A `Result` containing the parsed `Document` view, or a parsing error.
+    """
     comptime if validation != Validation.Trusted:
         if not _is_valid_utf8(content):
             return .Err("TOML document is not valid UTF-8.")
