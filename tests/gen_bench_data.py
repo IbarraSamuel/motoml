@@ -79,6 +79,47 @@ def dotted_keys(r, n):
     return f"a.b{n % 100}.c{n} = {n}\n"
 
 
+def realworld_lock(r, n):
+    """Hold-out: Cargo.lock / uv.lock style with comments, hashes, multi-line arrays."""
+    pkg = f"{_word(r, 4, 12)}-{_word(r, 3, 8)}"
+    ver = f"{r.randint(0, 5)}.{r.randint(0, 30)}.{r.randint(0, 20)}"
+    cksum = "".join(r.choice("0123456789abcdef") for _ in range(64))
+    deps = ",\n ".join(
+        f'"{_word(r, 4, 10)} {r.randint(0,3)}.{r.randint(0,15)}.0"'
+        for _ in range(r.randint(0, 6))
+    )
+    return (
+        f"# Package entry {n}\n"
+        f"[[package]]\n"
+        f'name = "{pkg}"\n'
+        f'version = "{ver}"\n'
+        f'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+        f'checksum = "{cksum}"\n'
+        f"dependencies = [\n {deps}\n]\n\n"
+    )
+
+
+def realworld_config(r, n):
+    """Hold-out: pyproject / hugo / service config with CRLF, quoted keys, multiline strings, inline tables, dates."""
+    sec = f"service_{n}"
+    desc = f"Service {n} handles {_word(r, 6, 15)} workloads.\\nLine two with \\\"quotes\\\" and tab\\there."
+    ml = f'"""\nMulti-line description for {sec}.\nSupports unicode \\u00e9 and paths \'C:\\\\Users\\\\app\'.\n"""'
+    return (
+        f"# Configuration block {n}\r\n"
+        f"[{sec}]\r\n"
+        f'title = "{desc}"\r\n'
+        f"readme = {ml}\r\n"
+        f"enabled = {'true' if n % 2 == 0 else 'false'}\r\n"
+        f"max_conns = {r.randint(10, 10_000)}\r\n"
+        f"timeout_sec = {r.uniform(0.05, 30.0):.4f}\r\n"
+        f"deployed_at = 2026-0{r.randint(1,9)}-1{r.randint(0,9)}T12:34:56Z\r\n"
+        f'"{_word(r, 3, 7)}.dotted" = {{ host = "10.0.{n % 255}.{r.randint(1,254)}", port = {8000 + (n % 1000)}, tls = true }}\r\n'
+        f"[{sec}.limits]\r\n"
+        f"cpu_quota = 0x{r.randint(16, 4096):x}\r\n"
+        f"burst = 1_000_{r.randint(100, 999)}\r\n\r\n"
+    )
+
+
 # corpus name -> (generator, header_per_file)
 CORPORA = {
     "strings_plain": strings_plain,
@@ -92,6 +133,8 @@ CORPORA = {
     "deep_nesting": deep_nesting,
     "huge_table": huge_table,
     "dotted_keys": dotted_keys,
+    "realworld_lock": realworld_lock,
+    "realworld_config": realworld_config,
 }
 
 
@@ -110,12 +153,53 @@ def build(name: str, size_mb: int) -> None:
     print(f"{path.name}: {size} bytes, {n} records")
 
 
+def build_toml_test_concat() -> None:
+    """Hold-out: concatenation of valid simple/flat toml-test 1.1 files namespaced under [t_N]."""
+    suite_dir = Path(__file__).parent / "toml_files" / "tests"
+    manifest = suite_dir / "files-toml-1.1.0"
+    if not manifest.exists():
+        return
+    chunks = []
+    idx = 0
+    for line in manifest.read_text().splitlines():
+        if not line.startswith("valid/") or not line.endswith(".toml"):
+            continue
+        p = suite_dir / line
+        if not p.exists():
+            continue
+        try:
+            txt = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        # Only include files without top-level [table] headers so they nest cleanly under [t_N]
+        if "\n[" in ("\n" + txt):
+            continue
+        chunks.append(f"[t_{idx}]\n{txt}\n")
+        idx += 1
+    body = "".join(chunks)
+    if not body:
+        return
+    # Repeat with distinct prefixes to reach ~1MB
+    out_parts = []
+    rep = 0
+    total = 0
+    while total < 1024 * 1024:
+        part = body.replace("[t_", f"[r{rep}_t_")
+        out_parts.append(part)
+        total += len(part)
+        rep += 1
+    path = OUT / "toml_test_concat_1mb.toml"
+    path.write_text("".join(out_parts), encoding="utf-8")
+    print(f"{path.name}: {total} bytes, {rep * idx} sections")
+
+
 def main() -> None:
     sizes = [int(a) for a in sys.argv[1:]] or [1, 10]
     OUT.mkdir(exist_ok=True)
     for name in CORPORA:
         for s in sizes:
             build(name, s)
+    build_toml_test_concat()
 
 
 if __name__ == "__main__":

@@ -276,13 +276,27 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
             w.write(self.offset)
 
 
+@always_inline
 def _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
-    var padding = 0
-    while size > padding + 1 and (10 ** (size - padding - 1)) > Int(n):
-        padding += 1
-        w.write("0")
-
-    w.write(n)
+    var v = Int(n)
+    comptime if size == 2:
+        if v < 10:
+            w.write("0")
+        w.write(n)
+    elif size == 4:
+        if v < 10:
+            w.write("000")
+        elif v < 100:
+            w.write("00")
+        elif v < 1000:
+            w.write("0")
+        w.write(n)
+    else:
+        var padding = 0
+        while size > padding + 1 and (10 ** (size - padding - 1)) > v:
+            padding += 1
+            w.write("0")
+        w.write(n)
 
 
 def _align_fraction[size: Int](n: Float64, mut w: Some[Writer]):

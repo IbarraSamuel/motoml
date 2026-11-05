@@ -4,27 +4,39 @@
 comptime NO_NODE: UInt32 = 0xFFFFFFFF
 
 
-struct Kind:
+@fieldwise_init
+struct Kind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
     """Type tags identifying the AST node variant stored on the tape."""
 
-    comptime Empty: UInt8 = 0
-    comptime String: UInt8 = 1
-    comptime Integer: UInt8 = 2
-    comptime Float: UInt8 = 3
-    comptime Boolean: UInt8 = 4
-    comptime Date: UInt8 = 5
-    comptime Time: UInt8 = 6
-    comptime DateTime: UInt8 = 7
-    comptime Array: UInt8 = 8
-    comptime Table: UInt8 = 9
-    comptime NaN: UInt8 = 10
-    comptime Inf: UInt8 = 11
+    var _value: UInt8
+
+    comptime Empty = Self(0)
+    comptime String = Self(1)
+    comptime Integer = Self(2)
+    comptime Float = Self(3)
+    comptime Boolean = Self(4)
+    comptime Date = Self(5)
+    comptime Time = Self(6)
+    comptime DateTime = Self(7)
+    comptime Array = Self(8)
+    comptime Table = Self(9)
+    comptime NaN = Self(10)
+    comptime Inf = Self(11)
+
+    @always_inline
+    def __eq__(self, other: Self) -> Bool:
+        return self._value == other._value
+
+    @always_inline
+    def __ne__(self, other: Self) -> Bool:
+        return self._value != other._value
 
 
 struct NodeFlags:
     """Bitmask attributes describing node lexical or syntactic properties."""
 
     comptime HAS_ESCAPE: UInt8 = 1 << 0
+    comptime CANONICAL: UInt8 = 1 << 7
     comptime LITERAL: UInt8 = 1 << 1
     comptime MULTILINE: UInt8 = 1 << 2
     comptime INLINE: UInt8 = 1 << 3
@@ -43,7 +55,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
     the original document buffer without heap allocations.
     """
 
-    var kind: UInt8
+    var kind: Kind
     var flags: UInt8
     var key_flags: UInt8
     var _pad: UInt8
@@ -58,7 +70,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
     @always_inline
     def __init__(
         out self,
-        kind: UInt8 = Kind.Empty,
+        kind: Kind = Kind.Empty,
         flags: UInt8 = 0,
         key_flags: UInt8 = 0,
         start: UInt32 = 0,
@@ -137,24 +149,31 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
 
 
 struct KeySeg(Copyable, Movable, TrivialRegisterPassable):
-    """A borrowed key segment describing start byte offset, length, and escape status.
+    """A borrowed key segment describing start byte offset, length, precomputed hash, and escape status.
     """
 
     var start: UInt32
     var len: UInt32
+    var hash: UInt32
     var has_escape: Bool
 
     @always_inline
     def __init__(
-        out self, start: UInt32 = 0, len: UInt32 = 0, has_escape: Bool = False
+        out self,
+        start: UInt32 = 0,
+        len: UInt32 = 0,
+        hash: UInt32 = 0,
+        has_escape: Bool = False,
     ):
         """Initialize a key segment pointing to an offset in the document buffer.
 
         Args:
             start: Start byte offset in the document buffer.
             len: Length of the key segment in bytes.
+            hash: Precomputed 32-bit FNV-1a hash of the logical key bytes.
             has_escape: Whether the segment contains escape sequences.
         """
         self.start = start
         self.len = len
+        self.hash = hash
         self.has_escape = has_escape

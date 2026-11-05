@@ -1,75 +1,60 @@
 """Flat hash index for O(1) table key lookups and collision detection.
 """
 
-from .node import Node, NodeFlags, NO_NODE
-from .scalar_decode import decode_string
+from .node import Node, NodeFlags, KeySeg, NO_NODE
+from .scalar_decode import decode_string, decode_string_to_writer
 from std.collections import Span, List
+
+comptime FNV_OFFSET_BASIS: UInt32 = 2166136261
+comptime FNV_PRIME: UInt32 = 16777619
+comptime KEY_ESCAPE_BIT: UInt32 = 0x80000000
+
+
+@always_inline
+def hash_raw_bytes(ptr: Pointer[Byte, _], length: Int) -> UInt32:
+    """Compute a parent-independent 32-bit FNV-1a hash over a raw byte range."""
+    var h: UInt32 = FNV_OFFSET_BASIS
+    for i in range(length):
+        h = (h ^ UInt32(ptr[unsafe_offset=i])) * FNV_PRIME
+    return h
+
+
+@always_inline
+def mix_parent_hash(key_hash: UInt32, parent: UInt32) -> UInt32:
+    """Combine a precomputed key hash with its scoping parent node index."""
+    var h = key_hash ^ (parent * 0x9E3779B9)
+    h ^= h >> 15
+    h *= 0x85EBCA6B
+    h ^= h >> 13
+    return h
 
 
 @always_inline
 def hash_key(parent: UInt32, key: Span[Byte, _]) -> UInt32:
-    """Compute a 32-bit FNV-1a hash over a raw byte slice scoped by parent table index.
-
-    Args:
-        parent: The parent node index scoping this key.
-        key: Raw byte slice of the key.
-
-    Returns:
-        A 32-bit FNV-1a hash value.
+    """Compute a 32-bit hash over a raw byte slice scoped by parent table index.
     """
-    var h: UInt32 = 2166136261 ^ (parent * 16777619)
-    for i in range(len(key)):
-        h = (h ^ UInt32(key[i])) * 16777619
-    return h
+    return mix_parent_hash(hash_raw_bytes(key.unsafe_ptr(), len(key)), parent)
 
 
-def hash_key_segment(
-    parent: UInt32,
-    key_start: UInt32,
-    key_len: UInt32,
-    has_escape: Bool,
-    doc_bytes: Span[Byte, _],
-) -> UInt32:
-    """Compute an FNV-1a hash for a key segment, unescaping if necessary.
-
-    When `has_escape` is true, the segment is decoded first so that escaped
-    keys (e.g. `"\\u0061"`) hash identically to unescaped keys (`"a"`).
-
-    Args:
-        parent: The parent node index scoping this key.
-        key_start: Start byte offset of the key segment in `doc_bytes`.
-        key_len: Byte length of the key segment.
-        has_escape: Whether the key contains escape sequences.
-        doc_bytes: Full document byte buffer.
-
-    Returns:
-        A 32-bit FNV-1a hash value matching the logical key text.
+@always_inline
+def compute_escaped_key_hash(
+    raw_bytes: Span[Byte, _], mut scratch: String
+) -> Tuple[Bool, UInt32]:
+    """Decode an escaped key into `scratch` and return `(ok, logical_fnv1a_hash)`.
     """
-    if not has_escape:
-        var h: UInt32 = 2166136261 ^ (parent * 16777619)
-        for i in range(Int(key_len)):
-            h = (h ^ UInt32(doc_bytes[Int(key_start) + i])) * 16777619
-        return h
-
-    var res = decode_string(
-        doc_bytes[Int(key_start) : Int(key_start + key_len)],
-        NodeFlags.HAS_ESCAPE,
-    )
-    if case .Ok(var s) = res:
-        var h: UInt32 = 2166136261 ^ (parent * 16777619)
-        var s_bytes = s.as_bytes()
-        for i in range(len(s_bytes)):
-            h = (h ^ UInt32(s_bytes[i])) * 16777619
+    scratch.resize(unsafe_uninit_length=0)
+    var res = decode_string_to_writer(raw_bytes, NodeFlags.HAS_ESCAPE, scratch)
+    if case .Ok = res:
         _ = res^.unsafe_take_value()
-        return h
+        var sb = scratch.as_bytes()
+        return (True, hash_raw_bytes(sb.unsafe_ptr(), len(sb)))
     else:
         _ = res^.unsafe_take_error()
-        return hash_key(
-            parent, doc_bytes[Int(key_start) : Int(key_start + key_len)]
-        )
+        return (False, hash_raw_bytes(raw_bytes.unsafe_ptr(), len(raw_bytes)))
 
 
-def keys_equal(
+@always_inline
+def keys_equal_slow(
     s1: UInt32,
     l1: UInt32,
     esc1: Bool,
@@ -78,31 +63,7 @@ def keys_equal(
     esc2: Bool,
     doc_bytes: Span[Byte, _],
 ) -> Bool:
-    """Check equality between two key segments in the document buffer.
-
-    Performs a fast byte comparison if neither segment contains escape characters;
-    otherwise unescapes both representations before comparing.
-
-    Args:
-        s1: Start byte offset of first key segment.
-        l1: Length in bytes of first key segment.
-        esc1: Whether first key segment has escape sequences.
-        s2: Start byte offset of second key segment.
-        l2: Length in bytes of second key segment.
-        esc2: Whether second key segment has escape sequences.
-        doc_bytes: Full document byte buffer.
-
-    Returns:
-        `True` if both key segments represent the exact same string value.
-    """
-    if not esc1 and not esc2:
-        if l1 != l2:
-            return False
-        for i in range(Int(l1)):
-            if doc_bytes[Int(s1) + i] != doc_bytes[Int(s2) + i]:
-                return False
-        return True
-
+    """Compare two key segments when at least one contains escape sequences."""
     var str1 = String()
     if esc1:
         var r1 = decode_string(
@@ -137,11 +98,12 @@ def keys_equal(
 
 
 struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
-    """An entry in the open-addressing key index hash table."""
+    """A 16-byte entry in the open-addressing key index hash table."""
 
     var parent: UInt32
     var node_idx: UInt32
     var hash_val: UInt32
+    var key_len_flags: UInt32
 
     @always_inline
     def __init__(
@@ -149,21 +111,15 @@ struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
         parent: UInt32 = 0,
         node_idx: UInt32 = NO_NODE,
         hash_val: UInt32 = 0,
+        key_len_flags: UInt32 = 0,
     ):
-        """Initialize an index slot with parent node, target node index, and hash.
-
-        Args:
-            parent: Scoping parent node index.
-            node_idx: Tape node index of the entry (`NO_NODE` if empty).
-            hash_val: Precomputed 32-bit hash value.
-        """
         self.parent = parent
         self.node_idx = node_idx
         self.hash_val = hash_val
+        self.key_len_flags = key_len_flags
 
     @always_inline
     def is_empty(self) -> Bool:
-        """Check whether this slot is unoccupied."""
         return self.node_idx == NO_NODE
 
 
@@ -179,165 +135,163 @@ struct KeyIndex(Movable):
     var mask: Int
 
     def __init__(out self, initial_capacity: Int = 64):
-        """Initialize a new KeyIndex with power-of-two slot capacity.
-
-        Args:
-            initial_capacity: Minimum initial capacity (rounded up to power of two).
-        """
         var cap = 64
         while cap < initial_capacity:
             cap <<= 1
         self.count = 0
         self.mask = cap - 1
-        self.slots = List[KeySlot](capacity=cap)
-        for _ in range(cap):
-            self.slots.append(KeySlot())
+        self.slots = List[KeySlot](length=cap, fill=KeySlot())
 
     def _grow(mut self):
-        """Double table capacity and rehash all active entries into the new slot array.
-        """
         var old_cap = len(self.slots)
         var new_cap = old_cap << 1
         var new_mask = new_cap - 1
 
-        var new_slots = List[KeySlot](capacity=new_cap)
-        for _ in range(new_cap):
-            new_slots.append(KeySlot())
+        var new_slots = List[KeySlot](length=new_cap, fill=KeySlot())
+        var old_ptr = self.slots.unsafe_ptr()
+        var new_ptr = new_slots.unsafe_ptr()
 
         for i in range(old_cap):
-            ref old_slot = self.slots[i]
+            var old_slot = old_ptr[unsafe_offset=i]
             if not old_slot.is_empty():
                 var idx = Int(old_slot.hash_val) & new_mask
-                while not new_slots[idx].is_empty():
+                while not new_ptr[unsafe_offset=idx].is_empty():
                     idx = (idx + 1) & new_mask
-                new_slots[idx] = old_slot
+                new_ptr[unsafe_offset=idx] = old_slot
 
         self.slots = new_slots^
         self.mask = new_mask
 
     @always_inline
-    def _insert_slot(mut self, parent: UInt32, node_idx: UInt32, h: UInt32):
-        """Find the next available slot via linear probing and store the entry.
-
-        Args:
-            parent: Parent node index.
-            node_idx: Target node index on the tape.
-            h: Precomputed hash value.
-        """
-        var idx = Int(h) & self.mask
-        while not self.slots[idx].is_empty():
-            idx = (idx + 1) & self.mask
-        self.slots[idx] = KeySlot(parent, node_idx, h)
-        self.count += 1
-
-    def find(
-        self,
+    def find_or_insert[
+        check_existing: Bool = True
+    ](
+        mut self,
         parent: UInt32,
-        key_start: UInt32,
-        key_len: UInt32,
+        seg: KeySeg,
+        new_node_idx: UInt32,
         ref nodes: List[Node],
         doc_bytes: Span[Byte, _],
-        has_escape: Bool = False,
     ) -> UInt32:
-        """Find a child node by key segment within a parent node scope.
+        """Single-probe lookup and conditional insertion.
 
-        Args:
-            parent: Parent node index on the tape.
-            key_start: Start byte offset of key segment in `doc_bytes`.
-            key_len: Byte length of key segment.
-            nodes: Tape nodes array.
-            doc_bytes: Full document byte buffer.
-            has_escape: Whether the search key segment contains escape sequences.
-
-        Returns:
-            The matched child node index, or `NO_NODE` if not found.
+        If `(parent, seg)` does not exist in the table (or `check_existing` is False),
+        inserts `new_node_idx` into the first empty slot and returns `NO_NODE`.
+        If it already exists, leaves the table unchanged and returns the existing node index.
         """
-        if self.count == 0 or len(self.slots) == 0:
-            return NO_NODE
+        if self.count * 10 >= len(self.slots) * 7:
+            self._grow()
 
-        var h = hash_key_segment(
-            parent, key_start, key_len, has_escape, doc_bytes
-        )
+        var h = mix_parent_hash(seg.hash, parent)
+        var klen_flags = seg.len | (KEY_ESCAPE_BIT if seg.has_escape else 0)
         var idx = Int(h) & self.mask
+        var s_ptr = self.slots.unsafe_ptr()
+        var n_ptr = nodes.unsafe_ptr()
+        var doc_ptr = doc_bytes.unsafe_ptr()
 
         while True:
-            ref slot = self.slots[idx]
+            var slot = s_ptr[unsafe_offset=idx]
             if slot.is_empty():
+                s_ptr[unsafe_offset=idx] = KeySlot(
+                    parent, new_node_idx, h, klen_flags
+                )
+                self.count += 1
                 return NO_NODE
-            if slot.parent == parent and slot.hash_val == h:
-                ref node = nodes[Int(slot.node_idx)]
-                var node_has_escape = (
-                    node.key_flags & NodeFlags.HAS_ESCAPE
-                ) != 0
-                if keys_equal(
-                    key_start,
-                    key_len,
-                    has_escape,
-                    node.key_start,
-                    node.key_len,
-                    node_has_escape,
-                    doc_bytes,
-                ):
-                    return slot.node_idx
+
+            comptime if check_existing:
+                if slot.parent == parent and slot.hash_val == h:
+                    if not seg.has_escape and slot.key_len_flags == seg.len:
+                        ref node = n_ptr[unsafe_offset=Int(slot.node_idx)]
+                        var p1 = Int(seg.start)
+                        var p2 = Int(node.key_start)
+                        var n = Int(seg.len)
+                        var eq = True
+                        for i in range(n):
+                            if (
+                                doc_ptr[unsafe_offset=p1 + i]
+                                != doc_ptr[unsafe_offset=p2 + i]
+                            ):
+                                eq = False
+                                break
+                        if eq:
+                            return slot.node_idx
+                    elif seg.has_escape or (
+                        (slot.key_len_flags & KEY_ESCAPE_BIT) != 0
+                    ):
+                        ref node = n_ptr[unsafe_offset=Int(slot.node_idx)]
+                        var node_esc = (
+                            slot.key_len_flags & KEY_ESCAPE_BIT
+                        ) != 0
+                        if keys_equal_slow(
+                            seg.start,
+                            seg.len,
+                            seg.has_escape,
+                            node.key_start,
+                            node.key_len,
+                            node_esc,
+                            doc_bytes,
+                        ):
+                            return slot.node_idx
             idx = (idx + 1) & self.mask
 
+    @always_inline
     def find_by_bytes(
         self,
         parent: UInt32,
         key: Span[Byte, _],
         nodes_ptr: Pointer[Node, _],
-        doc_bytes: Span[Byte, _],
+        doc_ptr: Pointer[Byte, _],
     ) -> UInt32:
-        """Find a child node by raw byte slice within a parent node scope.
-
-        Args:
-            parent: Parent node index on the tape.
-            key: Raw byte slice of the key to look up.
-            nodes_ptr: Pointer to the tape nodes array.
-            doc_bytes: Full document byte buffer.
-
-        Returns:
-            The matched child node index, or `NO_NODE` if not found.
-        """
+        """Find a child node by raw byte slice within a parent node scope."""
         if self.count == 0 or len(self.slots) == 0:
             return NO_NODE
 
         var h = hash_key(parent, key)
         var idx = Int(h) & self.mask
+        var s_ptr = self.slots.unsafe_ptr()
+        var key_ptr = key.unsafe_ptr()
+        var key_n = len(key)
+        var key_n_u32 = UInt32(key_n)
 
         while True:
-            ref slot = self.slots[idx]
+            var slot = s_ptr[unsafe_offset=idx]
             if slot.is_empty():
                 return NO_NODE
             if slot.parent == parent and slot.hash_val == h:
-                ref node = nodes_ptr.unsafe_offset(Int(slot.node_idx))[]
-                var node_has_escape = (
-                    node.key_flags & NodeFlags.HAS_ESCAPE
-                ) != 0
-                if not node_has_escape:
-                    if Int(node.key_len) == len(key):
-                        var matches = True
-                        for i in range(len(key)):
-                            if doc_bytes[Int(node.key_start) + i] != key[i]:
-                                matches = False
-                                break
-                        if matches:
-                            return slot.node_idx
-                else:
+                if slot.key_len_flags == key_n_u32:
+                    ref node = nodes_ptr[unsafe_offset=Int(slot.node_idx)]
+                    var matches = True
+                    var ns = Int(node.key_start)
+                    for i in range(key_n):
+                        if (
+                            doc_ptr[unsafe_offset=ns + i]
+                            != key_ptr[unsafe_offset=i]
+                        ):
+                            matches = False
+                            break
+                    if matches:
+                        return slot.node_idx
+                elif (slot.key_len_flags & KEY_ESCAPE_BIT) != 0:
+                    ref node = nodes_ptr[unsafe_offset=Int(slot.node_idx)]
                     var r = decode_string(
-                        doc_bytes[
-                            Int(node.key_start) : Int(
-                                node.key_start + node.key_len
-                            )
-                        ],
+                        Span(
+                            unsafe_ptr=doc_ptr.unsafe_offset(
+                                Int(node.key_start)
+                            ),
+                            length=Int(node.key_len),
+                        ),
                         NodeFlags.HAS_ESCAPE,
                     )
                     if case .Ok(var s) = r:
                         var sb = s.as_bytes()
-                        var matches = len(sb) == len(key)
+                        var matches = len(sb) == key_n
                         if matches:
-                            for i in range(len(key)):
-                                if sb[i] != key[i]:
+                            var sb_ptr = sb.unsafe_ptr()
+                            for i in range(key_n):
+                                if (
+                                    sb_ptr[unsafe_offset=i]
+                                    != key_ptr[unsafe_offset=i]
+                                ):
                                     matches = False
                                     break
                         _ = r^.unsafe_take_value()
@@ -346,30 +300,3 @@ struct KeyIndex(Movable):
                     else:
                         _ = r^.unsafe_take_error()
             idx = (idx + 1) & self.mask
-
-    def insert(
-        mut self,
-        parent: UInt32,
-        key_start: UInt32,
-        key_len: UInt32,
-        node_idx: UInt32,
-        doc_bytes: Span[Byte, _],
-        has_escape: Bool = False,
-    ):
-        """Insert a key-to-node mapping under a given parent node index.
-
-        Args:
-            parent: Parent node index scoping this key.
-            key_start: Start byte offset of key segment in `doc_bytes`.
-            key_len: Byte length of key segment.
-            node_idx: Child node index on the tape.
-            doc_bytes: Full document byte buffer.
-            has_escape: Whether the key segment contains escape sequences.
-        """
-        if self.count * 10 >= len(self.slots) * 7:
-            self._grow()
-
-        var h = hash_key_segment(
-            parent, key_start, key_len, has_escape, doc_bytes
-        )
-        self._insert_slot(parent, node_idx, h)

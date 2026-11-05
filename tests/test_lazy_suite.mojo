@@ -28,8 +28,7 @@ def toml_single_test(strpath: String) raises -> None:
     if "invalid/" in strpath:
         with assert_raises():
             var doc = parse_lazy_strict(content.as_bytes())
-            var w = String()
-            doc.to_json(w)
+            _ = len(doc.nodes)
         return
 
     var doc = parse_lazy_strict(content.as_bytes())
@@ -159,9 +158,10 @@ struct NamedTestSuite(
         )
         print(t"==========================================\n")
 
-        if valid_failed > 0:
+        if valid_failed > 0 or invalid_failed > 0:
             raise Error(
-                t"Valid TOML suite had failures: {valid_failed} failed."
+                t"TOML suite had failures: {valid_failed} valid failed,"
+                t" {invalid_failed} invalid accepted."
             )
 
         print(report)

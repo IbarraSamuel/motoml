@@ -81,11 +81,21 @@ bench-parser = { cmd = "uv run mojo bench_parser.mojo", cwd = "tests", depends-o
     "package",
     "move-to-test",
 ] }
+bench-lazy = { cmd = "uv run mojo bench_lazy.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
+fuzz-lazy = { cmd = "uv run python fuzz_diff.py", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
 
 tests = { depends-on = [
     "test-toml-type",
     "test-parser",
     "test-toml-suite",
+    "test-lazy-unit",
+    "test-lazy-suite",
     # "test-comptime-parser", # BLOCKED BY ENUMS
     "test-reflection",
 ] }
