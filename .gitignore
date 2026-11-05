@@ -7,3 +7,4 @@ motoml
 motoml_debug
 tests/motoml.mojoc
 .DS_Store
+tests/bench_data/

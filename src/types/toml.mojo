@@ -99,7 +99,7 @@ struct TomlType:
     comptime Table = Dict[Self.String, Toml]
 
 
-__enum Toml(Copyable, Equatable, Movable, Writable, Deinitable):
+__enum Toml(Copyable, Deinitable, Equatable, Movable, Writable):
     comptime Types = TomlType
     case NaN
     case String(TomlType.String)

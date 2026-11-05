@@ -9,9 +9,9 @@ from .result import Result
 from std.memory import Allocation, Pointer, alloc, dealloc, Layout
 
 
-def _destroy_partial_struct[T: Movable](
-    var allocation: Allocation[T], initialized_fields: Int
-):
+def _destroy_partial_struct[
+    T: Movable
+](var allocation: Allocation[T], initialized_fields: Int):
     comptime Tr = reflect[T]
     comptime field_types = Tr.field_types()
     comptime field_count = Tr.field_count()

@@ -57,6 +57,14 @@ test-toml-suite = { cmd = "uv run mojo test_toml_suite.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
+test-lazy-suite = { cmd = "uv run mojo test_lazy_suite.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
+test-lazy-unit = { cmd = "uv run mojo test_lazy_unit.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
 test-parser = { cmd = "uv run mojo test_parser.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",

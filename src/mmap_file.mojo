@@ -35,7 +35,7 @@ struct MappedFile(Movable, Sized):
             return
 
         var fd = file._get_raw_fd()
-        var null_address: OptionalPointer[NoneType, MutUntrackedOrigin] = None
+        var null_address: Optional[Pointer[NoneType, MutUntrackedOrigin]] = None
         var address = external_call["mmap", Int](
             null_address,
             c_size_t(self.length),

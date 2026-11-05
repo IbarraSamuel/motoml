@@ -1022,8 +1022,7 @@ def parse_multiline_collections[
         _printif[log]("----------- multiline values -------------:")
 
         if is_array and (
-            idx + 1 >= len(data)
-            or data[idx + 1] != SquareBracketClose
+            idx + 1 >= len(data) or data[idx + 1] != SquareBracketClose
         ):
             return Error("Array of tables header not closed.")
 
