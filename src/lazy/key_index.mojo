@@ -76,7 +76,7 @@ def keys_equal_slow(
             _ = r1^.unsafe_take_error()
     else:
         str1 = String(
-            StringSlice(unsafe_from_utf8=doc_bytes[Int(s1) : Int(s1 + l1)])
+            StringSpan(unsafe_from_utf8=doc_bytes[Int(s1) : Int(s1 + l1)])
         )
 
     var str2 = String()
@@ -91,7 +91,7 @@ def keys_equal_slow(
             _ = r2^.unsafe_take_error()
     else:
         str2 = String(
-            StringSlice(unsafe_from_utf8=doc_bytes[Int(s2) : Int(s2 + l2)])
+            StringSpan(unsafe_from_utf8=doc_bytes[Int(s2) : Int(s2 + l2)])
         )
 
     return str1 == str2

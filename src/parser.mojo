@@ -41,7 +41,7 @@ comptime Escape = Byte(ord("\\"))
 
 def _printif[
     log: Bool
-](msg: Some[Writable], *, sep: StringSlice = " ", end: StringSlice = "\n"):
+](msg: Some[Writable], *, sep: StringSpan = " ", end: StringSpan = "\n"):
     if log:
         print(msg, sep=sep, end=end)
 
@@ -54,9 +54,7 @@ def parse_multiline_string[
     if idx < len(data) and data[idx] == NewLine:
         idx += 1
     elif (
-        idx + 1 < len(data)
-        and data[idx] == Enter
-        and data[idx + 1] == NewLine
+        idx + 1 < len(data) and data[idx] == Enter and data[idx + 1] == NewLine
     ):
         idx += 2
     # put first value as the value_init
@@ -135,7 +133,7 @@ def parse_inline_array[
     while idx < len(data) and data[idx] != SquareBracketClose:
         _printif[log](
             t"parsing array value at idx: {idx} and span"
-            t" `{StringSlice(unsafe_from_utf8=data[idx:min(idx + 30, len(data))])}`"
+            t" `{StringSpan(unsafe_from_utf8=data[idx:min(idx + 30, len(data))])}`"
         )
         var arr_item = parse_value[Comma, log=log](
             data, idx, inline_table_paths, dotted_table_paths, prefix
@@ -226,7 +224,7 @@ def is_valid_digit_sequence[
     )
 
 
-def is_valid_integer(value: StringSlice) -> Bool:
+def is_valid_integer(value: StringSpan) -> Bool:
     var data = value.as_bytes()
     if len(data) == 0:
         return False
@@ -249,7 +247,7 @@ def is_valid_integer(value: StringSlice) -> Bool:
     )
 
 
-def is_valid_float(value: StringSlice) -> Bool:
+def is_valid_float(value: StringSpan) -> Bool:
     var data = value.as_bytes()
     if len(data) == 0:
         return False
@@ -395,7 +393,7 @@ def string_to_type[
             idx += 1
 
     var v_span = data[v_init:idx]
-    var v_slice = StringSlice(unsafe_from_utf8=v_span)
+    var v_slice = StringSpan(unsafe_from_utf8=v_span)
     # Roll back one step because we finalized all time in the next item
     _printif[log=log](t"Value is: {v_slice}")
 
@@ -456,7 +454,7 @@ def calc_value[
     o: Origin, lit: Bool, multi: Bool, log: Bool
 ](var s: Span[Byte, o]) -> Result[String]:
     _printif[log](
-        t"Codepoint to calc value is: `{StringSlice(unsafe_from_utf8=s)}`"
+        t"Codepoint to calc value is: `{StringSpan(unsafe_from_utf8=s)}`"
     )
     var flags: UInt8 = 0
     if lit:
@@ -726,7 +724,7 @@ def table_scope_prefix(
 def _bare_key(span: Span[Byte, _]) -> Optional[String]:
     # Bare keys were already validated byte-by-byte as [A-Za-z0-9_-], so they
     # never contain anything calc_value() would need to process or escape.
-    return String(StringSlice(unsafe_from_utf8=span))
+    return String(StringSpan(unsafe_from_utf8=span))
 
 
 def parse_keys[
@@ -913,7 +911,7 @@ def parse_kv_pairs[
         if opt_error:
             return .Err(opt_error.unsafe_take())
 
-        # var kk = StringSlice[mut=False](unsafe_from_utf8=keys[-1])
+        # var kk = StringSpan[mut=False](unsafe_from_utf8=keys[-1])
         _printif[log]("container found and data saved!")
         comptime if separator == NewLine:
             skip[Space, Tab](data, idx)
@@ -1042,7 +1040,7 @@ def parse_multiline_collections[
                 sep="",
             )
         _printif[log](
-            t">> Remaining: '''{StringSlice(unsafe_from_utf8=data[idx:])}'''"
+            t">> Remaining: '''{StringSpan(unsafe_from_utf8=data[idx:])}'''"
         )
         _printif[log]("----------- multiline values -------------:")
 
@@ -1067,7 +1065,7 @@ def parse_multiline_collections[
             return Error(
                 t"Characters not commented after key. Found char: `{data[idx]}`"
                 t" as `{Codepoint(data[idx])}`. Remainging:"
-                t" {StringSlice(unsafe_from_utf8=data[idx:])}"
+                t" {StringSpan(unsafe_from_utf8=data[idx:])}"
             )
 
         skip_blanks_and_comments(data, idx)
@@ -1170,7 +1168,7 @@ def validate_control_characters(data: Span[Byte, _]) -> Optional[Error]:
     return None
 
 
-def parse_eager[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
+def parse_eager[*, log: Bool = False](content: StringSpan) -> Result[Toml]:
     var data = content.as_bytes()
     if not _is_valid_utf8(data):
         return .Err("TOML document is not valid UTF-8.")
@@ -1241,7 +1239,7 @@ def parse_toml[
     mode: ParseMode = .Lazy,
     validation: Validation = .Strict,
     log: Bool = False,
-](data: StringSlice) -> Result[Toml]:
+](data: StringSpan) -> Result[Toml]:
     comptime assert (mode == .Lazy and not log) or (
         mode == .Eager and validation == .Strict
     ), "Wrong configuration."
@@ -1258,7 +1256,7 @@ def parse_toml_file[
     mode: ParseMode = .Lazy,
     validation: Validation = .Strict,
     log: Bool = False,
-](path: StringSlice) raises -> Toml:
+](path: StringSpan) raises -> Toml:
     """Parse a TOML file through a read-only memory mapping."""
     var mapped_file = MappedFile(path)
     return parse_toml[mode=mode, validation=validation, log=log](
@@ -1271,7 +1269,7 @@ def toml_to_tagged_json[
     mode: ParseMode = .Lazy,
     validation: Validation = .Strict,
     log: Bool = False,
-](content: StringSlice) raises -> String:
+](content: StringSpan) raises -> String:
     var toml_values = parse_toml[mode=mode, validation=validation, log=log](
         content
     ).take()

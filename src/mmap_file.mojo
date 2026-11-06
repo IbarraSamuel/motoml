@@ -71,14 +71,14 @@ struct MappedFile(Movable, Sized):
             unsafe_ptr=pointer, length=self.length
         )
 
-    def unsafe_view(self) -> StringSlice[origin_of(self)]:
+    def unsafe_view(self) -> StringSpan[origin_of(self)]:
         """Return mapped bytes as a string view without validating UTF-8.
 
         The caller must ensure the bytes are valid UTF-8 before using string
         operations. TOML callers should pass this view to the TOML parser,
         which validates encoding before parsing.
         """
-        return StringSlice(unsafe_from_utf8=self.bytes())
+        return StringSpan(unsafe_from_utf8=self.bytes())
 
     def close(mut self) raises:
         """Unmap this file. Calling this more than once is safe."""

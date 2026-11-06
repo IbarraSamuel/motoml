@@ -96,8 +96,8 @@ Each `Value` borrowed from a `Document` provides zero-allocation inspection and 
 | `val.is_int()` | `Bool` | Returns `True` if the node is an integer |
 | `val.is_float()` | `Bool` | Returns `True` if the node is a float |
 | `val.is_bool()` | `Bool` | Returns `True` if the node is a boolean |
-| `val.key_slice()` | `StringSlice` | Returns the key name as a borrowed string slice |
-| `val.as_slice()` | `Optional[StringSlice]` | Zero-copy borrowed string slice (returns `None` if escaped) |
+| `val.key_slice()` | `StringSpan` | Returns the key name as a borrowed string slice |
+| `val.as_slice()` | `Optional[StringSpan]` | Zero-copy borrowed string slice (returns `None` if escaped) |
 | `val.as_string()` | `Result[String]` | Decodes to an owned `String`, resolving escapes |
 | `val.as_int()` | `Result[Int]` | Decodes to an `Int` (supports dec, hex, oct, bin, underscores) |
 | `val.as_float()` | `Result[Float64]` | Decodes to `Float64` (supports floats, exponents, nan, inf) |

@@ -9,7 +9,7 @@ explicitly before delegating to that constructor. The source is available in
 the [Modular standard library](https://github.com/modular/modular/blob/9d6a4ca8fc378f2cd5f1f70479bac27b8b3c2615/Mojo/stdlib/std/collections/string/string.mojo).
 
 That invariant does not make the parser's document-level UTF-8 check
-redundant: `MappedFile.unsafe_view()` creates a `StringSlice` from mapped bytes
+redundant: `MappedFile.unsafe_view()` creates a `StringSpan` from mapped bytes
 without validating them. `parse_toml()` must continue validating the complete
 input once, before parsing or exposing string slices. `StringRef` had no
 separate UTF-8 validation to remove; its escape validation checks TOML string

@@ -11,10 +11,10 @@ def main() raises:
             " <file>"
         )
 
-    var mode = StringSlice("strict")
+    var mode = StringSpan("strict")
     var path_idx = 1
-    if len(args) >= 4 and StringSlice(args[1]) == "--mode":
-        mode = StringSlice(args[2])
+    if len(args) >= 4 and StringSpan(args[1]) == "--mode":
+        mode = StringSpan(args[2])
         path_idx = 3
 
     var mf = MappedFile(String(args[path_idx]))

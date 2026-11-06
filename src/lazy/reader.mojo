@@ -565,9 +565,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                 return self._fail_node(
                     "Invalid scalar value: "
                     + String(
-                        StringSlice(
-                            unsafe_from_utf8=self.data[start : self.idx]
-                        )
+                        StringSpan(unsafe_from_utf8=self.data[start : self.idx])
                     )
                 )
             comptime if validation_level(Self.validation) >= 2:
@@ -873,7 +871,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         return self._fail(
                             "Duplicate key: "
                             + String(
-                                StringSlice(
+                                StringSpan(
                                     unsafe_from_utf8=self.data[
                                         Int(final_kseg.start) : Int(
                                             final_kseg.start + final_kseg.len

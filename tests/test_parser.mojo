@@ -21,7 +21,7 @@ def test_empty_table() raises:
     assert_equal(len(empty_toml[Dict[String, Toml]]), 0)
 
 
-def assert_parse_error(content: StringSlice) raises:
+def assert_parse_error(content: StringSpan) raises:
     var result = parse_toml[log=False](content)
     if case .Err = result:
         _ = result^.unsafe_take_error()
@@ -30,7 +30,7 @@ def assert_parse_error(content: StringSlice) raises:
         raise "Malformed TOML input should return a parse error."
 
 
-def assert_parse_success(content: StringSlice) raises:
+def assert_parse_success(content: StringSpan) raises:
     var result = parse_toml[log=False](content)
     if case .Ok = result:
         _ = result^.unsafe_take_value()

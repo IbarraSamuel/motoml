@@ -41,8 +41,8 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
     # fn __hash__[H: Hasher](self, mut h: H):
     #     h.update(self.calc_value())
 
-    def as_pure_slice(self) -> StringSlice[Self.origin]:
-        return StringSlice(unsafe_from_utf8=self.data)
+    def as_pure_slice(self) -> StringSpan[Self.origin]:
+        return StringSpan(unsafe_from_utf8=self.data)
 
     # fn calc_value(self) -> String:
     #     # print("original string: `{}`".format(self.as_pure_slice()))
@@ -99,7 +99,7 @@ struct StringRef[origin: ImmOrigin](TrivialRegisterPassable):
     #         abort("Bad string in toml.")
 
 
-def _escape_for_output[literal: Bool](value: StringSlice) -> String:
+def _escape_for_output[literal: Bool](value: StringSpan) -> String:
     """Single-pass equivalent of the old chain of `String.replace` calls.
 
     Maps real control characters (\\b \\t \\n \\f \\r) to their two-character
@@ -138,11 +138,11 @@ def _escape_for_output[literal: Bool](value: StringSlice) -> String:
                     out.append(b)
             else:
                 out.append(b)
-    return String(StringSlice(unsafe_from_utf8=Span(out)))
+    return String(StringSpan(unsafe_from_utf8=Span(out)))
 
 
 def validate_string_escapes(
-    value: StringSlice, multiline: Bool
+    value: StringSpan, multiline: Bool
 ) -> Optional[Error]:
     var bytes = value.as_bytes()
     var i = 0
@@ -278,7 +278,7 @@ def _find_escapes[
     return .Ok({Byte(), -1, {}})
 
 
-def parse_string_escape(v: StringSlice) -> Result[String]:
+def parse_string_escape(v: StringSpan) -> Result[String]:
     var ss = String(v)
     # print("parsing string escape for s:", ss)
     # var ssb = ss.as_bytes().as_imm()
@@ -299,7 +299,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
     #     "First iter:",
     #     Codepoint(char),
     #     init,
-    #     StringSlice(unsafe_from_utf8=spn),
+    #     StringSpan(unsafe_from_utf8=spn),
     # )
 
     while init != -1:
@@ -379,10 +379,10 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         else:
             return .Err("error! value not found")
 
-        var f = String(StringSlice(unsafe_from_utf8=ss.as_bytes()[:init]))
+        var f = String(StringSpan(unsafe_from_utf8=ss.as_bytes()[:init]))
         if next_idx < ss.byte_length():
             var e = String(
-                StringSlice(unsafe_from_utf8=ss.as_bytes()[next_idx:])
+                StringSpan(unsafe_from_utf8=ss.as_bytes()[next_idx:])
             )
             ss = f + codepoint + e
         else:
@@ -398,7 +398,7 @@ def parse_string_escape(v: StringSlice) -> Result[String]:
         #     "Next iter:",
         #     Codepoint(char),
         #     init,
-        #     StringSlice(unsafe_from_utf8=spn),
+        #     StringSpan(unsafe_from_utf8=spn),
         # )
         # x, u, U, e = _find_escapes(ssb[search_base:])
         # init = x if x != -1 else u if u != -1 else U if U != -1 else e

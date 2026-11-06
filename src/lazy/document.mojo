@@ -56,7 +56,7 @@ def _write_json_escaped_bytes[W: Writer](bytes: Span[Byte, _], mut w: W):
                 break
             i += 1
         if i > chunk_start:
-            w.write(StringSlice(unsafe_from_utf8=bytes[chunk_start:i]))
+            w.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
         if i >= n:
             break
         var esc_b = ptr[unsafe_offset=i]
@@ -78,10 +78,10 @@ def _write_json_escaped_bytes[W: Writer](bytes: Span[Byte, _], mut w: W):
             var hex = "0123456789abcdef".as_bytes()
             w.write(
                 "\\u00",
-                StringSlice(
+                StringSpan(
                     unsafe_from_utf8=hex[Int(esc_b >> 4) : Int(esc_b >> 4) + 1]
                 ),
-                StringSlice(
+                StringSpan(
                     unsafe_from_utf8=hex[
                         Int(esc_b & 0x0F) : Int(esc_b & 0x0F) + 1
                     ]
@@ -101,7 +101,7 @@ struct _JsonEscapeWriter[w_origin: MutOrigin, W: Writer](Writer):
         self.w = w
 
     @always_inline
-    def write_string(mut self, string: StringSlice):
+    def write_string(mut self, string: StringSpan):
         _write_json_escaped_bytes(string.as_bytes(), self.w[])
 
 
@@ -259,9 +259,9 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
         )
 
     @always_inline
-    def key_slice(self) -> StringSlice[self.origin]:
+    def key_slice(self) -> StringSpan[self.origin]:
         """Return a string slice view of this value's key."""
-        return StringSlice(unsafe_from_utf8=self.key_bytes())
+        return StringSpan(unsafe_from_utf8=self.key_bytes())
 
     @always_inline
     def raw_bytes(self) -> Span[Byte, self.origin]:
@@ -274,14 +274,14 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
         )
 
     @always_inline
-    def as_slice(self) -> Optional[StringSlice[self.origin]]:
+    def as_slice(self) -> Optional[StringSpan[self.origin]]:
         """Return a zero-copy string slice if this value is an unescaped string.
         """
         if self.node_idx == NO_NODE:
             return None
         ref node = self._node()
         if (node.flags & NodeFlags.HAS_ESCAPE) == 0:
-            return StringSlice(unsafe_from_utf8=self.raw_bytes())
+            return StringSpan(unsafe_from_utf8=self.raw_bytes())
         return None
 
     @always_inline
@@ -457,7 +457,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
         )
 
     @always_inline
-    def __getitem__(self, key: StringSlice) -> Self:
+    def __getitem__(self, key: StringSpan) -> Self:
         """Look up a child value by key in O(1) time if this value is a table.
         """
         if self.node_idx == NO_NODE:
@@ -552,7 +552,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                     ):
                         w.write(
                             '{"type": "integer", "value": "',
-                            StringSlice(unsafe_from_utf8=raw_b),
+                            StringSpan(unsafe_from_utf8=raw_b),
                             '"}',
                         )
                         return
@@ -608,7 +608,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                 _ = self.as_date().take()
             w.write(
                 '{"type": "date-local", "value": "',
-                StringSlice(unsafe_from_utf8=self.raw_bytes()),
+                StringSpan(unsafe_from_utf8=self.raw_bytes()),
                 '"}',
             )
         elif k == Kind.Time:
@@ -777,7 +777,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                             k_span, child_node.key_flags
                         ).take()
                 else:
-                    key_str = String(StringSlice(unsafe_from_utf8=k_span))
+                    key_str = String(StringSpan(unsafe_from_utf8=k_span))
                 var child_val = Self(
                     self.doc_ptr,
                     self.nodes_ptr,
@@ -837,7 +837,7 @@ struct Document[origin: ImmOrigin, validation: Validation = Validation.Strict](
 
     @always_inline
     def __getitem__(
-        ref self, key: StringSlice
+        ref self, key: StringSpan
     ) -> Value[ImmOrigin(origin_of(self)), Self.validation]:
         """Look up a top-level key in the root table."""
         return self.root()[key]

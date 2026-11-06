@@ -120,7 +120,7 @@ def validate_float(bytes: Span[Byte, _]) -> Bool:
         return False
 
     var ptr = bytes.unsafe_ptr()
-    var s = StringSlice(unsafe_from_utf8=bytes)
+    var s = StringSpan(unsafe_from_utf8=bytes)
     if (
         s == "nan"
         or s == "+nan"
@@ -453,7 +453,7 @@ def _atof_fallback(bytes: Span[Byte, _], has_underscore: Bool) -> Float64:
     """Cold fallback to `atof` for >15-digit or extreme-exponent floats."""
     var n = len(bytes)
     var ptr = bytes.unsafe_ptr()
-    var s = StringSlice(unsafe_from_utf8=bytes)
+    var s = StringSpan(unsafe_from_utf8=bytes)
     if s == "nan" or s == "+nan" or s == "-nan":
         return nan[DType.float64]()
     if s == "inf" or s == "+inf":
@@ -468,12 +468,10 @@ def _atof_fallback(bytes: Span[Byte, _], has_underscore: Bool) -> Float64:
         for i in range(n):
             if ptr[unsafe_offset=i] == Byte(ord("_")):
                 if i > seg_start:
-                    clean.write(
-                        StringSlice(unsafe_from_utf8=bytes[seg_start:i])
-                    )
+                    clean.write(StringSpan(unsafe_from_utf8=bytes[seg_start:i]))
                 seg_start = i + 1
         if seg_start < n:
-            clean.write(StringSlice(unsafe_from_utf8=bytes[seg_start:n]))
+            clean.write(StringSpan(unsafe_from_utf8=bytes[seg_start:n]))
         return atof(clean)
     except:
         return 0.0
@@ -866,7 +864,7 @@ def decode_string_to_writer_unchecked[
     """Unescape a pre-validated string literal directly into `writer` without `Result`.
     """
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
-        writer.write(StringSlice(unsafe_from_utf8=bytes))
+        writer.write(StringSpan(unsafe_from_utf8=bytes))
         return
 
     var is_multiline = (flags & NodeFlags.MULTILINE) != 0
@@ -888,7 +886,7 @@ def decode_string_to_writer_unchecked[
         while i < n and ptr[unsafe_offset=i] != Byte(ord("\\")):
             i += 1
         if i > chunk_start:
-            writer.write(StringSlice(unsafe_from_utf8=bytes[chunk_start:i]))
+            writer.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
         if i >= n:
             break
 
@@ -969,7 +967,7 @@ def decode_string_unchecked(bytes: Span[Byte, _], flags: UInt8) -> String:
     """Decode and unescape a pre-validated string literal into an owned `String`.
     """
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
-        return String(StringSlice(unsafe_from_utf8=bytes))
+        return String(StringSpan(unsafe_from_utf8=bytes))
     var s = String(capacity_bytes=len(bytes))
     decode_string_to_writer_unchecked(bytes, flags, s)
     return s^
@@ -980,7 +978,7 @@ def decode_string_to_writer[
 ](bytes: Span[Byte, _], flags: UInt8, mut writer: W) -> Result[NoneType]:
     """Decode and unescape a string literal directly into any `Writer`."""
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
-        writer.write(StringSlice(unsafe_from_utf8=bytes))
+        writer.write(StringSpan(unsafe_from_utf8=bytes))
         return .Ok(None)
 
     var is_multiline = (flags & NodeFlags.MULTILINE) != 0
@@ -1002,7 +1000,7 @@ def decode_string_to_writer[
         while i < n and ptr[unsafe_offset=i] != Byte(ord("\\")):
             i += 1
         if i > chunk_start:
-            writer.write(StringSlice(unsafe_from_utf8=bytes[chunk_start:i]))
+            writer.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
         if i >= n:
             break
 
@@ -1121,7 +1119,7 @@ def decode_string_to_writer[
 def decode_string(bytes: Span[Byte, _], flags: UInt8) -> Result[String]:
     """Decode and unescape a string literal into an owned `String`."""
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
-        return .Ok(String(StringSlice(unsafe_from_utf8=bytes)))
+        return .Ok(String(StringSpan(unsafe_from_utf8=bytes)))
 
     var s = String(capacity_bytes=len(bytes))
     var res = decode_string_to_writer(bytes, flags, s)

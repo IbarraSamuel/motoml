@@ -10,7 +10,7 @@ struct CountWriter(Writer):
     def __init__(out self):
         self.bytes_written = 0
 
-    def write_string(mut self, string: StringSlice):
+    def write_string(mut self, string: StringSpan):
         self.bytes_written += string.byte_length()
 
 
@@ -25,7 +25,7 @@ def _sort_ints(mut v: List[Int]):
 
 
 def bench_one(
-    name: StringSlice,
+    name: StringSpan,
     path_str: String,
     is_holdout: Bool,
     csv: Bool,
@@ -118,7 +118,7 @@ def bench_one(
 
 def main() raises:
     var args = argv()
-    var csv = len(args) > 1 and StringSlice(args[1]) == "--csv"
+    var csv = len(args) > 1 and StringSpan(args[1]) == "--csv"
     if csv:
         print(
             "corpus,set,strict_med_mbps,strict_max_mbps,trusted_med_mbps,trusted_max_mbps,parse_plus_json_med_mbps"

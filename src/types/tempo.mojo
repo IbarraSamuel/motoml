@@ -13,7 +13,7 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) -> Result[Self]:
+    def from_string(v: StringSpan) -> Result[Self]:
         if (
             v.byte_length() != 10
             or v.as_bytes()[4] != Byte(ord("-"))
@@ -74,7 +74,7 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) -> Result[Self]:
+    def from_string(v: StringSpan) -> Result[Self]:
         var positive: Bool
         if v[byte=0] == "-":
             positive = False
@@ -129,7 +129,7 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) -> Result[Self]:
+    def from_string(v: StringSpan) -> Result[Self]:
         if (
             (v.byte_length() != 5 and v.byte_length() < 8)
             or v.as_bytes()[2] != Byte(ord(":"))
@@ -230,7 +230,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
 
     @always_inline
     @staticmethod
-    def from_string(v: StringSlice) -> Result[Self]:
+    def from_string(v: StringSpan) -> Result[Self]:
         var split = v.find("T")
         split = v.find("t") if split == -1 else split
         split = v.find(" ") if split == -1 else split

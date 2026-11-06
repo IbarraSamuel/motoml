@@ -4,7 +4,7 @@ from motoml.mmap_file import MappedFile
 from std.time import perf_counter_ns
 
 
-def bench_10mb(name: StringSlice, path_str: String) raises:
+def bench_10mb(name: StringSpan, path_str: String) raises:
     var mf = MappedFile(path_str)
     var view = mf.unsafe_view()
     var size_bytes = view.byte_length()

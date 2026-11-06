@@ -34,7 +34,7 @@ def _write_json_escaped_bytes[W: Writer](bytes: Span[Byte, _], mut w: W):
                 break
             i += 1
         if i > chunk_start:
-            w.write(StringSlice(unsafe_from_utf8=bytes[chunk_start:i]))
+            w.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
         if i >= n:
             break
         var esc_b = ptr[unsafe_offset=i]
@@ -56,10 +56,10 @@ def _write_json_escaped_bytes[W: Writer](bytes: Span[Byte, _], mut w: W):
             var hex = "0123456789abcdef".as_bytes()
             w.write(
                 "\\u00",
-                StringSlice(
+                StringSpan(
                     unsafe_from_utf8=hex[Int(esc_b >> 4) : Int(esc_b >> 4) + 1]
                 ),
-                StringSlice(
+                StringSpan(
                     unsafe_from_utf8=hex[
                         Int(esc_b & 0x0F) : Int(esc_b & 0x0F) + 1
                     ]
