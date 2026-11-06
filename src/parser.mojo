@@ -13,6 +13,8 @@ from .lazy.reader import (
     validation_level,
     Document,
 )
+from .lazy.scalar_decode import decode_string
+from .lazy.node import NodeFlags
 from std.collections.string._utf8 import _is_valid_utf8
 from std.memory import forget_deinit
 from std.collections import Set
@@ -49,6 +51,14 @@ def parse_multiline_string[
 ](data: Span[Byte, _], mut idx: Int) -> Result[Span[Byte, data.origin]]:
     # Go inside the multiline
     idx += 3
+    if idx < len(data) and data[idx] == NewLine:
+        idx += 1
+    elif (
+        idx + 1 < len(data)
+        and data[idx] == Enter
+        and data[idx + 1] == NewLine
+    ):
+        idx += 2
     # put first value as the value_init
     var value_init = idx
     # Move +2 to be about to the end of closing in case it's empty
@@ -448,9 +458,18 @@ def calc_value[
     _printif[log](
         t"Codepoint to calc value is: `{StringSlice(unsafe_from_utf8=s)}`"
     )
-    var sr = StringRef(s, literal=lit, multiline=multi).calc_value()
-    # print(t"Value is: `{sr}`")
-    return sr^
+    var flags: UInt8 = 0
+    if lit:
+        flags |= NodeFlags.LITERAL
+    if multi:
+        flags |= NodeFlags.MULTILINE
+    # Check if there is an escape
+    if not lit:
+        for b in s:
+            if b == Byte(ord("\\")):
+                flags |= NodeFlags.HAS_ESCAPE
+                break
+    return decode_string(s, flags)
 
 
 def parse_value[
