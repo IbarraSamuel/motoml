@@ -1,7 +1,7 @@
 from std.testing import assert_equal, TestSuite, assert_true
 
 from motoml.mmap_file import MappedFile
-from motoml.parser import parse_toml, parse_toml_file, parse_toml_raises
+from motoml.parser import parse_toml, parse_toml_file, parse_toml
 from motoml.types.string_ref import parse_string_escape
 from motoml.types.toml import Toml
 
@@ -13,7 +13,7 @@ from motoml.types.toml import Toml
 
 def test_empty_table() raises:
     var empty_data = ""
-    var empty_toml = parse_toml_raises[log=False](empty_data)
+    var empty_toml = parse_toml[log=False](empty_data).take()
     if case .Table = empty_toml:
         pass
     else:
@@ -61,7 +61,7 @@ def test_simple_struct() raises:
     second_value = 3.1
     """
 
-    var toml_obj = parse_toml_raises(test_table)
+    var toml_obj = parse_toml(test_table).take()
     assert_equal(toml_obj[Dict[String, Toml]]["first_value"][Int], 1)
     assert_equal(toml_obj[Dict[String, Toml]]["second_value"][Float64], 3.1)
 
@@ -86,7 +86,7 @@ def test_struct_all_types() raises:
     table = {key=32, key2=84}
     """
 
-    var toml_obj = parse_toml_raises[log=False](test_table)
+    var toml_obj = parse_toml[log=False](test_table).take()
     # var at = toml_to_type_raises[AllTypes](toml_obj^)
 
     assert_equal(toml_obj[Dict[String, Toml]]["integer"][Int], 1)
@@ -102,7 +102,7 @@ def test_struct_optional() raises:
     var toml = """
     value_1 = "hello"
     """
-    var toml_obj = parse_toml_raises(toml)
+    var toml_obj = parse_toml(toml).take()
 
     assert_equal(toml_obj[Dict[String, Toml]]["value_1"][String], "hello")
 
@@ -112,7 +112,7 @@ def test_plain_unicode_strings() raises:
     basic = "Café 🔥"
     literal = 'A plain literal'
     """
-    var parsed = parse_toml_raises[log=False](toml)
+    var parsed = parse_toml[log=False](toml).take()
     ref values = parsed[Dict[String, Toml]]
     assert_equal(values["basic"][String], "Café 🔥")
     assert_equal(values["literal"][String], "A plain literal")
@@ -125,24 +125,24 @@ def test_multiline_quote_escapes() raises:
     str6 = """Here are fifteen quotation marks: ""\"""\"""\"""\"""\"."""
     str7 = """"This," she said, "is just a pointless statement.""""
     '''
-    var toml_obj = parse_toml_raises(test_content)
+    var toml_obj = parse_toml(test_content).take()
     ref values = toml_obj[Dict[String, Toml]]
 
     assert_equal(
         values["str4"][String],
-        r"Here are two quotation marks: \"\". Simple enough.",
+        """Here are two quotation marks: \"\". Simple enough.""",
     )
     assert_equal(
         values["str5"][String],
-        r"Here are three quotation marks: \"\"\".",
+        """Here are three quotation marks: \"\"\".""",
     )
     assert_equal(
         values["str6"][String],
-        r"Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".",
+        """Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".""",
     )
     assert_equal(
         values["str7"][String],
-        r"\"This,\" she said, \"is just a pointless statement.\"",
+        """\"This,\" she said, \"is just a pointless statement.\"""",
     )
 
 
@@ -157,7 +157,7 @@ def test_nested() raises:
     name = "mojo"
     version = "0.26.2.0"
     """
-    var toml_obj = parse_toml_raises(TOML_CONTENT)
+    var toml_obj = parse_toml(TOML_CONTENT).take()
     # var value = toml_to_type_raises[TestBuild](toml_obj^)
     var value = toml_obj^.unsafe_take[Dict[String, Toml]]()
 

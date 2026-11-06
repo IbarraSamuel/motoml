@@ -97,5 +97,26 @@ def test_nested_table() raises:
     )
 
 
+def test_to_json_unescaped_strings() raises:
+    var tml_str = Toml.String('Hello "world"\n\t\\')
+    var out_str = String()
+    tml_str.to_json(out_str)
+    assert_equal(
+        out_str,
+        '{"type": "string", "value": "Hello \\"world\\"\\n\\t\\\\"}',
+    )
+
+    var tbl = Dict[String, Toml]()
+    tbl['key "with" quotes\n'] = Toml.String('val "with" quotes')
+    var tml_tbl = Toml.Table(tbl^)
+    var out_tbl = String()
+    tml_tbl.to_json(out_tbl)
+    assert_equal(
+        out_tbl,
+        '{"key \\"with\\" quotes\\n": {"type": "string", "value": "val'
+        ' \\"with\\" quotes"}}',
+    )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -295,6 +295,9 @@ def test_to_json_and_to_toml() raises:
     count = 10
     enabled = true
     items = ["a", "b"]
+    inf_val = inf
+    neg_inf_val = -inf
+    nan_val = nan
     """
     var doc = parse_lazy(toml_str.as_bytes()).take()
 
@@ -311,6 +314,12 @@ def test_to_json_and_to_toml() raises:
         assert_equal(t["title"][String], "TOML Test")
         assert_equal(t["count"][Int], 10)
         assert_equal(t["enabled"][Bool], True)
+        assert_equal(t["inf_val"][Float64], Float64.MAX)
+        assert_equal(t["neg_inf_val"][Float64], Float64.MIN)
+        if case .NaN = t["nan_val"]:
+            pass
+        else:
+            raise "Expected nan_val to be NaN"
     else:
         raise "Expected root toml to be Table"
 

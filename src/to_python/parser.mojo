@@ -2,7 +2,7 @@ from std.os import abort
 from std.python import PythonObject, Python
 from std.python.bindings import PythonModuleBuilder
 
-from ..parser import parse_toml_raises
+from ..parser import parse_toml
 
 
 @export
@@ -17,5 +17,6 @@ def PyInit_motoml() abi("C") -> PythonObject:
 
 def loads(v: PythonObject) raises -> PythonObject:
     var w = String()
-    parse_toml_raises(String(py=v)).to_json(w)
+    var toml = parse_toml(String(py=v)).take()
+    toml.to_json(w)
     return w

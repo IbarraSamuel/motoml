@@ -711,7 +711,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                 )
             else:
                 return Toml.Integer(self.as_int().take())
-        elif k == Kind.Float:
+        elif k == Kind.Float or k == Kind.Inf:
             comptime if validation_level(Self.validation) >= 2:
                 return Toml.Float(
                     decode_float_unchecked(self.raw_bytes(), node.flags)

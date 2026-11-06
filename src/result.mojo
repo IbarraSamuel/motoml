@@ -1,6 +1,7 @@
 from std.utils import Variant
 from std.os import abort
 from std.memory import forget_deinit
+from std.iter import downcast
 
 
 @fieldwise_init
@@ -137,6 +138,33 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         if case .Err = self:
             return .Err(self^.unsafe_take_error())
         return .Ok(func(self^.unsafe_take_value()))
+
+    def map[
+        O: Movable, //
+    ](var self, func: def(var Self.T) raises thin -> O) raises -> Result[
+        O, Self.E
+    ]:
+        if case .Err = self:
+            return .Err(self^.unsafe_take_error())
+        return .Ok(func(self^.unsafe_take_value()))
+
+    def map[
+        O: Movable, //
+    ](self, func: def(Self.T) thin -> O) -> Result[O, Error]:
+        match self:
+            case .Err(err):
+                return .Err(err)
+            case .Ok(v):
+                return .Ok(func(v))
+
+    def map[
+        O: Movable, //
+    ](self, func: def(Self.T) raises thin -> O) raises -> Result[O, Error]:
+        match self:
+            case .Err(err):
+                return .Err(err)
+            case .Ok(v):
+                return .Ok(func(v))
 
 
 # struct Result[T: Movable, E: Movable & Writable & Deinitable = Error](

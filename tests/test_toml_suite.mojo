@@ -1,4 +1,4 @@
-from motoml.parser import parse_toml_raises
+from motoml.parser import parse_toml, ParseMode
 from motoml.types.toml import Toml
 from motoml.mmap_file import MappedFile
 from json_parser import parse_json, translate_json_to_types
@@ -10,7 +10,7 @@ from std.testing.suite import TestReport, TestResult, TestSuiteReport
 from std.time import perf_counter_ns
 
 
-def toml_single_test(strpath: String) raises -> None:
+def toml_single_test[mode: ParseMode](strpath: String) raises -> None:
     var file = Path(strpath)
     # var strpath = StaticString(TOML_FILES).splitlines()[testno]
     if not file.exists():
@@ -21,13 +21,10 @@ def toml_single_test(strpath: String) raises -> None:
     # print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var toml_r = parse_toml_raises[log=False](content)
-            var w = String()
-            toml_r.to_json(w)
-            # print(w)
+            var toml_r = parse_toml[mode=mode](content).take()
         return
 
-    var toml_result = parse_toml_raises[log=False](content)
+    var toml_result = parse_toml[mode=mode](content).take()
 
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not exp_file.exists():
@@ -68,20 +65,32 @@ def main() raises:
     var v11_files = (
         MappedFile(toml_dir / "files-toml-1.1.0").unsafe_view().splitlines()
     )
-    var suite = NamedTestSuite()
+
+    # Lazy
+    var lazy_suite = NamedTestSuite[.Lazy]()
 
     for li, fpath in enumerate(v11_files):
         var spath = String(t"{toml_dir}/{fpath}")
         if not spath.endswith(".toml"):
             continue
-        var root_fpath = String(t"[1.1 {li}]: {toml_dir}/{fpath}")
-        suite.add_test(name=root_fpath, location=spath)
-    # print("Running tests...")
-    suite^.run()
+        var root_fpath = String(t"[Lazy 1.1 {li}]: {toml_dir}/{fpath}")
+        lazy_suite.add_test(name=root_fpath, location=spath)
+    lazy_suite^.run()
+
+    # Eager
+    var eager_suite = NamedTestSuite[.Eager]()
+
+    for li, fpath in enumerate(v11_files):
+        var spath = String(t"{toml_dir}/{fpath}")
+        if not spath.endswith(".toml"):
+            continue
+        var root_fpath = String(t"[Eager 1.1 {li}]: {toml_dir}/{fpath}")
+        eager_suite.add_test(name=root_fpath, location=spath)
+    eager_suite^.run()
 
 
 @fieldwise_init
-struct NamedTestSuite(
+struct NamedTestSuite[mode: ParseMode](
     not Deinitable else "run tests or abandon them.", Movable
 ):
     var tests: List[Tuple[String, String]]
@@ -105,7 +114,7 @@ struct NamedTestSuite(
             var error: Optional[Error] = None
             var start = perf_counter_ns()
             try:
-                toml_single_test(location)
+                toml_single_test[Self.mode](location)
             except e:
                 error = e^
             var duration = perf_counter_ns() - start

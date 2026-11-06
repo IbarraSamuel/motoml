@@ -3,8 +3,69 @@ from .tempo import Date, DateTime, Time
 from std.os import abort
 from std.memory.alloc import unsafe_alloc
 from std.memory.owned_pointer import OwnedPointer
-from std.memory import forget_deinit
+from std.memory import forget_deinit, pack_bits
+from std.bit import count_trailing_zeros
 from std.hash import hasher
+
+
+@always_inline
+def _write_json_escaped_bytes[W: Writer](bytes: Span[Byte, _], mut w: W):
+    """Stream UTF-8 bytes into `w` with JSON string escaping, using 16-byte SIMD scan.
+    """
+    var n = len(bytes)
+    var ptr = bytes.unsafe_ptr()
+    var i = 0
+    comptime W_SIMD = 16
+
+    while i < n:
+        var chunk_start = i
+        while i + W_SIMD <= n:
+            var v = ptr.unsafe_load[width=W_SIMD](i)
+            var stop = v.eq(Byte(ord('"'))) | v.eq(Byte(ord("\\"))) | v.lt(0x20)
+            var mask = pack_bits(stop)
+            if not mask:
+                i += W_SIMD
+                continue
+            i += Int(count_trailing_zeros(mask))
+            break
+        while i < n:
+            var b = ptr[unsafe_offset=i]
+            if b == Byte(ord('"')) or b == Byte(ord("\\")) or b < 0x20:
+                break
+            i += 1
+        if i > chunk_start:
+            w.write(StringSlice(unsafe_from_utf8=bytes[chunk_start:i]))
+        if i >= n:
+            break
+        var esc_b = ptr[unsafe_offset=i]
+        if esc_b == Byte(ord('"')):
+            w.write('\\"')
+        elif esc_b == Byte(ord("\\")):
+            w.write("\\\\")
+        elif esc_b == Byte(ord("\n")):
+            w.write("\\n")
+        elif esc_b == Byte(ord("\r")):
+            w.write("\\r")
+        elif esc_b == Byte(ord("\t")):
+            w.write("\\t")
+        elif esc_b == Byte(ord("\b")):
+            w.write("\\b")
+        elif esc_b == Byte(ord("\x0c")):
+            w.write("\\f")
+        else:
+            var hex = "0123456789abcdef".as_bytes()
+            w.write(
+                "\\u00",
+                StringSlice(
+                    unsafe_from_utf8=hex[Int(esc_b >> 4) : Int(esc_b >> 4) + 1]
+                ),
+                StringSlice(
+                    unsafe_from_utf8=hex[
+                        Int(esc_b & 0x0F) : Int(esc_b & 0x0F) + 1
+                    ]
+                ),
+            )
+        i += 1
 
 
 # CUSTOM ITERATOR TO AVOID COPYABLE -- USING POINTERS
@@ -223,7 +284,9 @@ __enum Toml(Copyable, Deinitable, Equatable, Movable, Writable):
     def to_json(self, mut w: Some[Writer]):
         match self:
             case .String(s):
-                return w.write('{"type": "string", "value": "', s, '"}')
+                w.write('{"type": "string", "value": "')
+                _write_json_escaped_bytes(s.as_bytes(), w)
+                w.write('"}')
             case .Integer(intg):
                 return w.write('{"type": "integer", "value": "', intg, '"}')
             case .Float(fl):
@@ -257,7 +320,9 @@ __enum Toml(Copyable, Deinitable, Equatable, Movable, Writable):
                 for idx, (k, v) in enumerate(table.iter()):
                     if idx != 0:
                         w.write(", ")
-                    w.write(t'"{k}": ')
+                    w.write('"')
+                    _write_json_escaped_bytes(k.as_bytes(), w)
+                    w.write('": ')
                     v[].to_json(w)
                 w.write("}")
 

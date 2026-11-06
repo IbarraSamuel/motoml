@@ -7,6 +7,12 @@ from .result import Result
 from .types.toml import Toml
 from .types.string_ref import StringRef
 from .mmap_file import MappedFile
+from .lazy.reader import (
+    parse_lazy,
+    Validation,
+    validation_level,
+    Document,
+)
 from std.collections.string._utf8 import _is_valid_utf8
 from std.memory import forget_deinit
 from std.collections import Set
@@ -1145,7 +1151,7 @@ def validate_control_characters(data: Span[Byte, _]) -> Optional[Error]:
     return None
 
 
-def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
+def parse_eager[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     var data = content.as_bytes()
     if not _is_valid_utf8(data):
         return .Err("TOML document is not valid UTF-8.")
@@ -1197,24 +1203,59 @@ def parse_toml[*, log: Bool = False](content: StringSlice) -> Result[Toml]:
     return .Ok(toml^)
 
 
+__enum ParseMode(Equatable):
+    case Eager
+    case Lazy
+
+
+def _doc_to_toml[
+    o: Origin, v: Validation
+](var d: Document[o, v]) -> Result[Toml]:
+    try:
+        return .Ok(d.to_toml())
+    except e:
+        return .Err(e)
+
+
+def parse_toml[
+    *,
+    mode: ParseMode = .Lazy,
+    validation: Validation = .Strict,
+    log: Bool = False,
+](data: StringSlice) -> Result[Toml]:
+    comptime assert (mode == .Lazy and not log) or (
+        mode == .Eager and validation == .Strict
+    ), "Wrong configuration."
+    comptime match mode:
+        case .Eager:
+            return parse_eager[log=log](data)
+        case .Lazy:
+            var doc = parse_lazy[validation](data.as_bytes())
+            return doc^.and_then(_doc_to_toml[data.origin, validation])
+
+
 def parse_toml_file[
-    *, log: Bool = False
-](path: StringSlice) raises -> Result[Toml]:
+    *,
+    mode: ParseMode = .Lazy,
+    validation: Validation = .Strict,
+    log: Bool = False,
+](path: StringSlice) raises -> Toml:
     """Parse a TOML file through a read-only memory mapping."""
     var mapped_file = MappedFile(path)
-    return parse_toml[log=log](mapped_file.unsafe_view())
-
-
-def parse_toml_raises[
-    *, log: Bool = False
-](content: StringSlice) raises -> Toml:
-    return parse_toml[log=log](content).take()
+    return parse_toml[mode=mode, validation=validation, log=log](
+        mapped_file.unsafe_view()
+    ).take()
 
 
 def toml_to_tagged_json[
-    *, log: Bool = False
+    *,
+    mode: ParseMode = .Lazy,
+    validation: Validation = .Strict,
+    log: Bool = False,
 ](content: StringSlice) raises -> String:
-    var toml_values = parse_toml_raises[log=log](content)
+    var toml_values = parse_toml[mode=mode, validation=validation, log=log](
+        content
+    ).take()
     var out = String()
     toml_values.to_json(out)
     return out
