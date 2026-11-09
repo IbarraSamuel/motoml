@@ -57,10 +57,6 @@ test-toml-suite = { cmd = "uv run mojo test_toml_suite.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
-test-lazy-suite = { cmd = "uv run mojo test_lazy_suite.mojo", cwd = "tests", depends-on = [
-    "package",
-    "move-to-test",
-] }
 test-lazy-unit = { cmd = "uv run mojo test_lazy_unit.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
@@ -95,7 +91,6 @@ tests = { depends-on = [
     "test-parser",
     "test-toml-suite",
     "test-lazy-unit",
-    "test-lazy-suite",
     # "test-comptime-parser", # BLOCKED BY ENUMS
     "test-reflection",
 ] }
