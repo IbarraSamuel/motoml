@@ -1,6 +1,7 @@
 from .tempo import Date, DateTime, Time
 
 from std.os import abort
+from std.iter import downcast
 from std.memory.alloc import unsafe_alloc
 from std.memory.owned_pointer import OwnedPointer
 from std.memory import forget_deinit, pack_bits
@@ -148,7 +149,7 @@ __extension List:
 
 
 struct TomlType:
-    comptime NaN = Toml.NaN
+    comptime NaN = ()
     comptime String = String
     comptime Integer = Int
     comptime Float = Float64
@@ -158,6 +159,18 @@ struct TomlType:
     comptime DateTime = DateTime
     comptime Array = List[Toml]
     comptime Table = Dict[Self.String, Toml]
+    comptime All = TypeList.of[
+        Tuple[],  # This refers to the empty payload NaN
+        String,
+        Int,
+        Float64,
+        Bool,
+        Date,
+        Time,
+        DateTime,
+        List[Toml],
+        Dict[String, Toml],
+    ]
 
 
 __enum Toml(Copyable, Deinitable, Equatable, Movable, Writable):
@@ -205,79 +218,91 @@ __enum Toml(Copyable, Deinitable, Equatable, Movable, Writable):
 
     def unsafe_take[
         T: Movable
-    ](var self) -> T where TypeList[Self._enum_case_types].contains[T]():
-        comptime for i in range(TypeList[Self._enum_case_types].length):
-            comptime if TypeList[Self._enum_case_types]()[i] == T:
+    ](var self) -> T where Self.Types.All.contains[T]():
+        comptime for i in range(Self.Types.All.length):
+            comptime if Self.Types.All()[i] == T:
                 if self._get_enum_discriminant() != i:
                     abort("Provided Type doesn't match Enum Type.")
-                var ptr = self.__get_enum_storage().payload_ptr[i]()
-                comptime assert conforms_to(ptr.T, Movable)
-                var elem = ptr.unsafe_take_pointee()
-                forget_deinit(self^)
-                return rebind_var[T](elem^)
+                comptime if self._is_empty_payload[T]:
+                    return rebind_var[T](materialize[Toml.NaN])
+                else:
+                    var ptr = Pointer(to=self._unsafe_get_enum_payload[i]())
+                    comptime assert conforms_to(ptr.T, Movable)
+                    comptime assert ptr.T == Tuple[T]
+
+                    var elem = Pointer(
+                        to=ptr.unsafe_bitcast[Tuple[T]]()[][0]
+                    ).unsafe_take_pointee()
+                    forget_deinit(self^)
+                    return elem^
 
         abort("Type not found in enum payloads.")
 
-    def __eq__(self, other: Self) -> Bool:
-        if self._get_enum_discriminant() != other._get_enum_discriminant():
-            return False
-        match self:
-            case .NaN:
-                return True
-            case .String(s):
-                return s == other[String]
-            case .Integer(i):
-                return i == other[Int]
-            case .Float(f):
-                return f == other[Float64]
-            case .Boolean(b):
-                return b == other[Bool]
-            case .Date(d):
-                return d == other[Date]
-            case .Time(t):
-                return t == other[Time]
-            case .DateTime(dt):
-                return dt == other[DateTime]
-            case .Table(tb):
-                ref other_tb = other[Dict[String, Toml]]
-                if len(tb) != len(other_tb):
-                    return False
-                for k, v in tb.iter():
-                    var found, slot_idx = other_tb._table.find_slot(
-                        hash[type_of(tb).H](k), k
-                    )
-                    if not found:
-                        return False
-                    if (
-                        v[]
-                        != other_tb._table._slots[unsafe_offset=slot_idx].value
-                    ):
-                        return False
+    # def __eq__(self, other: Self) -> Bool:
+    #     if self._get_enum_discriminant() != other._get_enum_discriminant():
+    #         return False
+    #     match self:
+    #         case .NaN:
+    #             return True
+    #         case .String(s):
+    #             return s == other[String]
+    #         case .Integer(i):
+    #             return i == other[Int]
+    #         case .Float(f):
+    #             return f == other[Float64]
+    #         case .Boolean(b):
+    #             return b == other[Bool]
+    #         case .Date(d):
+    #             return d == other[Date]
+    #         case .Time(t):
+    #             return t == other[Time]
+    #         case .DateTime(dt):
+    #             return dt == other[DateTime]
+    #         case .Table(tb):
+    #             ref other_tb = other[Dict[String, Toml]]
+    #             if len(tb) != len(other_tb):
+    #                 return False
+    #             for k, v in tb.iter():
+    #                 var found, slot_idx = other_tb._table.find_slot(
+    #                     hash[type_of(tb).H](k), k
+    #                 )
+    #                 if not found:
+    #                     return False
+    #                 if (
+    #                     v[]
+    #                     != other_tb._table._slots[unsafe_offset=slot_idx].value
+    #                 ):
+    #                     return False
 
-                return True
+    #             return True
 
-            case .Array(arr):
-                ref other_arr = other[List[Toml]]
-                if len(arr) != len(other_arr):
-                    return False
+    #         case .Array(arr):
+    #             ref other_arr = other[List[Toml]]
+    #             if len(arr) != len(other_arr):
+    #                 return False
 
-                var index = 0
-                for element in arr.iter():
-                    if element[] != other_arr[index]:
-                        return False
-                    index += 1
-                return True
+    #             var index = 0
+    #             for element in arr.iter():
+    #                 if element[] != other_arr[index]:
+    #                     return False
+    #                 index += 1
+    #             return True
 
     def __getitem_param__[
         T: AnyType
-    ](ref self) -> ref[self] T where TypeList[Self._enum_case_types].contains[
-        T
-    ]():
-        comptime for i in range(TypeList[Self._enum_case_types].length):
-            comptime if TypeList[Self._enum_case_types]()[i] == T:
+    ](ref self) -> ref[self] T where Self.Types.All.contains[T]():
+        comptime for i in range(Self.Types.All.length):
+            comptime if Self.Types.All()[i] == T:
                 if self._get_enum_discriminant() != i:
-                    abort("Type provided doesn't match Enum Type.")
-                return rebind[T](self._unsafe_get_enum_payload[i]())
+                    abort("Provided Type doesn't match Enum Type.")
+                var ptr = Pointer(to=self._unsafe_get_enum_payload[i]())
+                comptime if self._is_empty_payload[T]:
+                    return rebind[T](ptr.unsafe_bitcast[T]()[])
+                else:
+                    comptime assert conforms_to(ptr.T, Movable)
+                    comptime assert ptr.T == Tuple[T]
+
+                    return ptr.unsafe_bitcast[Tuple[T]]()[][0]
 
         abort("Type not found in enum payloads.")
 
@@ -390,208 +415,3 @@ def _deinit_toml(var value: Toml):
 
 def _deinit_toml_entry(var key: String, var value: Toml):
     _deinit_toml(value^)
-
-
-# @fieldwise_init
-# struct NaN(Equatable, TrivialRegisterPassable, Writable):
-#     pass
-
-
-# struct OldToml(Copyable, Equatable, Movable, Writable):
-#     comptime String = String
-#     comptime Integer = Int
-#     comptime Float = Float64
-#     comptime NaN = NaN
-#     comptime Boolean = Bool
-#     comptime Date = Date
-#     comptime Time = Time
-#     comptime DateTime = DateTime
-#     comptime Array = List[OldToml]
-#     comptime Table = Dict[String, OldToml]
-
-#     comptime AllTypes = TypeList.of[
-#         Trait=Movable,
-#         Self.String,
-#         Self.Integer,
-#         Self.Float,
-#         Self.NaN,
-#         Self.Boolean,
-#         Self.Date,
-#         Self.Time,
-#         Self.DateTime,
-#         Self.Array,
-#         Self.Table,
-#     ]()
-
-#     var _inner: Pointer[NoneType, MutUntrackedOrigin]
-#     var _id: Int
-
-#     @staticmethod
-#     def _get_type_idx[T: Movable]() -> Int where Self.AllTypes.contains[T]():
-#         comptime for idx in range(Self.AllTypes.length):
-#             comptime if Self.AllTypes[idx] == T:
-#                 return idx
-#         return -1
-
-#     def get_type_name(self) -> StaticString:
-#         comptime for i in range(Self.AllTypes.length):
-#             comptime T = Self.AllTypes[i]
-#             comptime assert Self.AllTypes.contains[T]()
-#             if self.isa[T]():
-#                 return reflect[T].name()
-
-#         return "ERROR: NOT FOUND"
-
-#     def __init__(out self, *, copy: Self):
-#         comptime for i in range(Self.AllTypes.length):
-#             comptime T = Self.AllTypes[i]
-#             comptime assert conforms_to(T, Copyable)
-#             comptime assert Self.AllTypes.contains[T]()
-#             if copy.isa[T]():
-#                 var val_copy: T = copy.unsafe_ref[T]().copy()
-#                 comptime assert Self.AllTypes.contains[type_of(val_copy)]()
-#                 return {val_copy^}
-
-#         abort("Not able to find type.")
-
-#     def __init__[
-#         T: Movable, //
-#     ](out self, var value: T) where Self.AllTypes.contains[T]():
-#         # var ptr = stack_allocation[1, T]()
-#         var ptr = unsafe_alloc[T](1)
-#         ptr.unsafe_write(value^)
-#         self._inner = ptr.unsafe_bitcast[NoneType]()
-#         self._id = self._get_type_idx[T]()
-
-#     def isa[T: Movable](self) -> Bool where Self.AllTypes.contains[T]():
-#         return self._id == self._get_type_idx[T]()
-
-#     def __getitem_param__[
-#         T: Movable
-#     ](ref self) raises -> ref[self] T where Self.AllTypes.contains[T]():
-#         if not self.isa[T]():
-#             raise "The type you are trying to access is not correct."
-#         return self.unsafe_ref[T]()
-
-#     def unsafe_ref[
-#         T: Movable
-#     ](ref self) -> ref[self] T where Self.AllTypes.contains[T]():
-#         assert self.isa[T]()
-#         return self._inner.unsafe_bitcast[T]()[]
-
-#     def take[
-#         T: Movable
-#     ](var self) raises -> T where Self.AllTypes.contains[T]():
-#         if not self.isa[T]():
-#             raise "The type you are trying to access is not correct."
-#         return self^.unsafe_take[T]()
-
-#     def unsafe_take[
-#         T: Movable
-#     ](deinit self, out o: T) where Self.AllTypes.contains[T]():
-#         assert self.isa[T]()
-#         o = self._inner.unsafe_bitcast[T]().unsafe_take_pointee()
-#         self._inner.unsafe_free()
-
-#     def write_to(self, mut w: Some[Writer]):
-#         comptime for i in range(Self.AllTypes.length):
-#             comptime T = Self.AllTypes[i]
-#             comptime assert Self.AllTypes.contains[T]()
-#             comptime assert conforms_to(T, Writable)
-
-#             if self.isa[T]():
-#                 comptime if T == Self.Array:
-#                     w.write("[")
-#                     for i, v in enumerate(self.unsafe_ref[Self.Array]()):
-#                         if i != 0:
-#                             w.write(", ")
-#                         w.write(v)
-#                     w.write("]")
-#                 elif T == Self.Table:
-#                     w.write("{")
-#                     for i, v in enumerate(
-#                         self.unsafe_ref[Self.Table]().items()
-#                     ):
-#                         var rp = t'"{v.key}": {v.value}'
-#                         if i != 0:
-#                             w.write(", ")
-#                         w.write(rp)
-#                     w.write("}")
-#                 else:
-#                     w.write(self.unsafe_ref[T]())
-#                 return
-
-#     def __eq__(self, other: Self) -> Bool:
-#         comptime for i in range(Self.AllTypes.length):
-#             comptime T = Self.AllTypes[i]
-#             comptime assert Self.AllTypes.contains[T]()
-#             comptime assert other.AllTypes.contains[T]()
-#             comptime assert conforms_to(T, Equatable)
-#             if self.isa[T]() and other.isa[T]():
-#                 try:
-#                     return self[T] == other[T]
-#                 except:
-#                     return False
-#         return False
-
-#     def to_json(self, mut w: Some[Writer]) raises:
-#         if self.isa[Self.String]():
-#             ref s = self[Self.String]
-#             return w.write('{"type": "string", "value": "', s, '"}')
-#         if self.isa[Self.Integer]():
-#             var intg = self[Self.Integer]
-#             return w.write('{"type": "integer", "value": "', intg, '"}')
-#         if self.isa[Self.Float]():
-#             var fl = self[Self.Float]
-#             return w.write('{"type": "float", "value": "', fl, '"}')
-#         if self.isa[NaN]():
-#             return w.write('{"type": "float", "value": "nan"}')
-#         if self.isa[Self.Boolean]():
-#             var value = "true" if self[Self.Boolean] else "false"
-#             return w.write('{"type": "bool", "value": "', value, '"}')
-#         if self.isa[Self.DateTime]():
-#             var dt = self[Self.DateTime]
-#             var nm = "datetime-local" if dt.is_local else "datetime"
-#             return w.write('{"type": "', nm, '", "value": "', dt, '"}')
-#         if self.isa[Self.Date]():
-#             var date = self[Self.Date]
-#             return w.write('{"type": "date-local", "value": "', date, '"}')
-#         if self.isa[Self.Time]():
-#             var time = self[Self.Time]
-#             return w.write('{"type": "time-local", "value": "', time, '"}')
-
-#         if self.isa[Self.Array]():
-#             ref array = self[Self.Array]
-#             w.write("[")
-#             for i, v in enumerate(array):
-#                 if i != 0:
-#                     w.write(", ")
-
-#                 v.to_json(w)
-#             w.write("]")
-#             return
-
-#         if self.isa[Self.Table]():
-#             ref table = self[Self.Table]
-#             w.write("{")
-#             for i, kv in enumerate(table.items()):
-#                 if i != 0:
-#                     w.write(", ")
-
-#                 w.write(t'"{kv.key}": ')
-#                 kv.value.to_json(w)
-#             w.write("}")
-#             return
-
-#     def __deinit__(deinit self):
-#         comptime for i in range(Self.AllTypes.length):
-#             comptime T = Self.AllTypes[i]
-#             comptime assert Self.AllTypes.contains[T]()
-#             comptime assert conforms_to(T, Deinitable)
-#             if self.isa[T]():
-#                 var typed = self._inner.unsafe_bitcast[T]()
-#                 typed.unsafe_deinit_pointee()
-#                 typed.unsafe_free()
-#                 return
-#         else:
-#             abort("Unable to dealloc")

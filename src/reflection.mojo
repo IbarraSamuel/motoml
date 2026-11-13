@@ -121,7 +121,7 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
     comptime if T == Toml:
         return .Ok(rebind_var[T](toml^))
 
-    elif TypeList[Toml._enum_case_types].contains[T]():
+    elif Toml.Types.All.contains[T]():
         return .Ok(toml^.unsafe_take[T]())
 
     elif Tr.base_name() == "List":

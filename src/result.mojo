@@ -52,24 +52,46 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         pass
 
     @always_inline
-    def unsafe_take_value(deinit self) -> Self.T:
+    def unsafe_take_value(deinit self, out o: Self.T):
+        """Take the value. You must check that there is a value. If not, you will get UB.
+        """
+        o = Pointer(
+            to=self._unsafe_get_enum_payload[1]()[0]
+        ).unsafe_take_pointee()
+        forget_deinit(self^)
+
+    @always_inline
+    def unsafe_take_error(deinit self, out o: Self.E):
+        """Take the error. You must check that there is an error. If not, you will get UB.
+        """
+        o = Pointer(
+            to=self._unsafe_get_enum_payload[0]()[0]
+        ).unsafe_take_pointee()
+        forget_deinit(self^)
+
+    @always_inline
+    def unwrap_value(deinit self) -> Self.T:
         """Take the value. You must check that there is a value. If not, you will get UB.
         """
         if case .Err = self:
             abort("Unable to take a Value on an Err type.")
 
-        var value = self.__enum_storage.payload_ptr[1]().unsafe_take_pointee()
+        var value = Pointer(
+            to=self._unsafe_get_enum_payload[1]()[0]
+        ).unsafe_take_pointee()
         forget_deinit(self^)
         return value^
 
     @always_inline
-    def unsafe_take_error(deinit self) -> Self.E:
+    def unwrap_error(deinit self) -> Self.E:
         """Take the error. You must check that there is an error. If not, you will get UB.
         """
         if case .Ok = self:
             abort("Unable to take an Error on an Ok type.")
 
-        var err = self.__enum_storage.payload_ptr[0]().unsafe_take_pointee()
+        var err = Pointer(
+            to=self._unsafe_get_enum_payload[0]()[0]
+        ).unsafe_take_pointee()
         forget_deinit(self^)
         return err^
 
@@ -81,30 +103,21 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         if case .Ok = self:
             self^.forget()
             raise "Result has a value T, not an error."
-        var err = self.__enum_storage.payload_ptr[0]().unsafe_take_pointee()
-        forget_deinit(self^)
-        return err^
+        return self^.unsafe_take_error()
 
     @always_inline
     def take(deinit self) raises -> Self.T:
         if case .Err = self:
-            var err = self.__enum_storage.payload_ptr[0]().unsafe_take_pointee()
-            forget_deinit(self^)
-            raise err
-        var value = self.__enum_storage.payload_ptr[1]().unsafe_take_pointee()
-        forget_deinit(self^)
-        return value^
+            raise self^.unsafe_take_error()
+        return self^.unsafe_take_value()
 
     @always_inline
     def as_optional(deinit self) -> Optional[Self.T]:
         """Convert to an Optional type."""
         if case .Err = self:
-            _ = self.__enum_storage.payload_ptr[0]().unsafe_take_pointee()
-            forget_deinit(self^)
+            deinit(self^.unsafe_take_error())
             return None
-        var value = self.__enum_storage.payload_ptr[1]().unsafe_take_pointee()
-        forget_deinit(self^)
-        return value^
+        return self^.unsafe_take_value()
 
     @always_inline
     def or_else(
@@ -112,13 +125,10 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     ) -> Self.T where conforms_to(Self.T, Deinitable):
         """Take the value or return a default value."""
         if case .Err = self:
-            _ = self.__enum_storage.payload_ptr[0]().unsafe_take_pointee()
-            forget_deinit(self^)
+            self^.forget()
             return default^
-        _ = default^
-        var value = self.__enum_storage.payload_ptr[1]().unsafe_take_pointee()
-        forget_deinit(self^)
-        return value^
+        deinit(default^)
+        return self^.unsafe_take_value()
 
     def and_then[
         O: Movable, //
