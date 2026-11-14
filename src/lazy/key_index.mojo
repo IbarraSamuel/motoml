@@ -4,10 +4,52 @@
 from .node import Node, NodeFlags, KeySeg, NO_NODE
 from .scalar_decode import decode_string, decode_string_to_writer
 from std.collections import Span, List
+from std.memory import bitcast, unsafe_memset_zero
 
 comptime FNV_OFFSET_BASIS: UInt32 = 2166136261
 comptime FNV_PRIME: UInt32 = 16777619
 comptime KEY_ESCAPE_BIT: UInt32 = 0x80000000
+
+
+@always_inline
+def _load_u64_unaligned(ptr: Pointer[Byte, _], offset: Int) -> UInt64:
+    return bitcast[DType.uint64, 1](ptr.unsafe_load[width=8](offset))
+
+
+@always_inline
+def _load_u32_unaligned(ptr: Pointer[Byte, _], offset: Int) -> UInt32:
+    return bitcast[DType.uint32, 1](ptr.unsafe_load[width=4](offset))
+
+
+@always_inline
+def _bytes_equal(
+    p1: Pointer[Byte, ImmutAnyOrigin], p2: Pointer[Byte, ImmutAnyOrigin], n: Int
+) -> Bool:
+    """Fast word-wise byte slice equality for known-equal length `n`."""
+    if n >= 8:
+        var i = 0
+        while i + 8 < n:
+            if _load_u64_unaligned(p1, i) != _load_u64_unaligned(p2, i):
+                return False
+            i += 8
+        return _load_u64_unaligned(p1, n - 8) == _load_u64_unaligned(p2, n - 8)
+    if n >= 4:
+        return (
+            _load_u32_unaligned(p1, 0) == _load_u32_unaligned(p2, 0)
+            and _load_u32_unaligned(p1, n - 4)
+            == _load_u32_unaligned(p2, n - 4)
+        )
+    if n == 0:
+        return True
+    if p1[unsafe_offset=0] != p2[unsafe_offset=0]:
+        return False
+    if n == 1:
+        return True
+    if p1[unsafe_offset=1] != p2[unsafe_offset=1]:
+        return False
+    if n == 2:
+        return True
+    return p1[unsafe_offset=2] == p2[unsafe_offset=2]
 
 
 @always_inline
@@ -109,7 +151,7 @@ struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
     def __init__(
         out self,
         parent: UInt32 = 0,
-        node_idx: UInt32 = NO_NODE,
+        node_idx: UInt32 = 0,
         hash_val: UInt32 = 0,
         key_len_flags: UInt32 = 0,
     ):
@@ -120,19 +162,21 @@ struct KeySlot(Copyable, Movable, TrivialRegisterPassable):
 
     @always_inline
     def is_empty(self) -> Bool:
-        return self.node_idx == NO_NODE
+        return self.node_idx == 0
 
 
 struct KeyIndex(Movable):
     """Flat open-addressing hash table for fast key lookup and duplicate detection.
 
     Maps `(parent_node_idx, key)` to child node index on the tape using linear
-    probing without storing heap-allocated strings.
+    probing without storing heap-allocated strings. Node index `0` is always the
+    root table and is never inserted as a child, so `node_idx == 0` marks empty slots.
     """
 
     var slots: List[KeySlot]
     var count: Int
     var mask: Int
+    var grow_at: Int
 
     def __init__(out self, initial_capacity: Int = 64):
         var cap = 64
@@ -140,14 +184,19 @@ struct KeyIndex(Movable):
             cap <<= 1
         self.count = 0
         self.mask = cap - 1
-        self.slots = List[KeySlot](length=cap, fill=KeySlot())
+        self.grow_at = (cap * 7) // 10
+        self.slots = List[KeySlot](capacity=cap)
+        self.slots.resize(unsafe_uninit_length=cap)
+        unsafe_memset_zero(self.slots.unsafe_ptr(), cap)
 
     def _grow(mut self):
         var old_cap = len(self.slots)
         var new_cap = old_cap << 1
         var new_mask = new_cap - 1
 
-        var new_slots = List[KeySlot](length=new_cap, fill=KeySlot())
+        var new_slots = List[KeySlot](capacity=new_cap)
+        new_slots.resize(unsafe_uninit_length=new_cap)
+        unsafe_memset_zero(new_slots.unsafe_ptr(), new_cap)
         var old_ptr = self.slots.unsafe_ptr()
         var new_ptr = new_slots.unsafe_ptr()
 
@@ -161,6 +210,7 @@ struct KeyIndex(Movable):
 
         self.slots = new_slots^
         self.mask = new_mask
+        self.grow_at = (new_cap * 7) // 10
 
     @always_inline
     def find_or_insert[
@@ -179,7 +229,7 @@ struct KeyIndex(Movable):
         inserts `new_node_idx` into the first empty slot and returns `NO_NODE`.
         If it already exists, leaves the table unchanged and returns the existing node index.
         """
-        if self.count * 10 >= len(self.slots) * 7:
+        if self.count >= self.grow_at:
             self._grow()
 
         var h = mix_parent_hash(seg.hash, parent)
@@ -202,18 +252,15 @@ struct KeyIndex(Movable):
                 if slot.parent == parent and slot.hash_val == h:
                     if not seg.has_escape and slot.key_len_flags == seg.len:
                         ref node = n_ptr[unsafe_offset=Int(slot.node_idx)]
-                        var p1 = Int(seg.start)
-                        var p2 = Int(node.key_start)
-                        var n = Int(seg.len)
-                        var eq = True
-                        for i in range(n):
-                            if (
-                                doc_ptr[unsafe_offset=p1 + i]
-                                != doc_ptr[unsafe_offset=p2 + i]
-                            ):
-                                eq = False
-                                break
-                        if eq:
+                        if _bytes_equal(
+                            doc_ptr.unsafe_offset(Int(seg.start))
+                            .unsafe_mut_cast[False]()
+                            .unsafe_origin_cast[ImmutAnyOrigin](),
+                            doc_ptr.unsafe_offset(Int(node.key_start))
+                            .unsafe_mut_cast[False]()
+                            .unsafe_origin_cast[ImmutAnyOrigin](),
+                            Int(seg.len),
+                        ):
                             return slot.node_idx
                     elif seg.has_escape or (
                         (slot.key_len_flags & KEY_ESCAPE_BIT) != 0
@@ -260,16 +307,15 @@ struct KeyIndex(Movable):
             if slot.parent == parent and slot.hash_val == h:
                 if slot.key_len_flags == key_n_u32:
                     ref node = nodes_ptr[unsafe_offset=Int(slot.node_idx)]
-                    var matches = True
-                    var ns = Int(node.key_start)
-                    for i in range(key_n):
-                        if (
-                            doc_ptr[unsafe_offset=ns + i]
-                            != key_ptr[unsafe_offset=i]
-                        ):
-                            matches = False
-                            break
-                    if matches:
+                    if _bytes_equal(
+                        doc_ptr.unsafe_offset(Int(node.key_start))
+                        .unsafe_mut_cast[False]()
+                        .unsafe_origin_cast[ImmutAnyOrigin](),
+                        key_ptr.unsafe_mut_cast[False]().unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        key_n,
+                    ):
                         return slot.node_idx
                 elif (slot.key_len_flags & KEY_ESCAPE_BIT) != 0:
                     ref node = nodes_ptr[unsafe_offset=Int(slot.node_idx)]

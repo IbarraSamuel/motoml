@@ -625,14 +625,10 @@ def decode_int(bytes: Span[Byte, _]) -> ScalarResult[Int]:
         else:
             return ScalarResult[Int](0, False)
 
-    var limit: UInt64 = UInt64(0x8000000000000000) if is_neg else UInt64(
-        0x7FFFFFFFFFFFFFFF
-    )
-    var cutoff: UInt64 = limit // base
-    var cutlim: UInt64 = limit % base
-
     var acc: UInt64 = 0
     if base == 10:
+        comptime CUTOFF_10: UInt64 = 922337203685477580
+        var cutlim: UInt64 = UInt64(8) if is_neg else UInt64(7)
         for i in range(start, n):
             var b = ptr[unsafe_offset=i]
             if b == Byte(ord("_")):
@@ -648,10 +644,21 @@ def decode_int(bytes: Span[Byte, _]) -> ScalarResult[Int]:
             if not (Byte(ord("0")) <= b <= Byte(ord("9"))):
                 return ScalarResult[Int](0, False)
             var d = UInt64(b - Byte(ord("0")))
-            if acc > cutoff or (acc == cutoff and d > cutlim):
+            if acc > CUTOFF_10 or (acc == CUTOFF_10 and d > cutlim):
                 return ScalarResult[Int](0, False)
             acc = acc * 10 + d
     else:
+        # Signed non-decimal integers are rejected above (`has_sign` check), so limit is I64_MAX.
+        var cutoff: UInt64 = (
+            UInt64(0x07FFFFFFFFFFFFFF) if base == 16 else (
+                UInt64(0x0FFFFFFFFFFFFFFF) if base == 8 else UInt64(
+                    0x3FFFFFFFFFFFFFFF
+                )
+            )
+        )
+        var cutlim: UInt64 = (
+            UInt64(15) if base == 16 else (UInt64(7) if base == 8 else UInt64(1))
+        )
         for i in range(start, n):
             var b = ptr[unsafe_offset=i]
             if b == Byte(ord("_")):
@@ -793,12 +800,12 @@ def decode_time_unchecked(bytes: Span[Byte, _]) -> Time:
     var sec_int = _u2digits(ptr, 6)
     if n == 8:
         return Time(hour=hour, minute=minute, second=Float64(sec_int))
-    var frac: Float64 = 0.0
-    var scale: Float64 = 0.1
-    for i in range(9, n):
-        frac += Float64(Int(ptr[unsafe_offset=i] - Byte(ord("0")))) * scale
-        scale *= 0.1
-    return Time(hour=hour, minute=minute, second=Float64(sec_int) + frac)
+    var frac_end = min(n, 9 + 13)
+    var acc: UInt64 = UInt64(sec_int)
+    for i in range(9, frac_end):
+        acc = acc * 10 + UInt64(ptr[unsafe_offset=i] - Byte(ord("0")))
+    var second = Float64(acc) / _pow10(frac_end - 9)
+    return Time(hour=hour, minute=minute, second=second)
 
 
 @always_inline
@@ -1127,3 +1134,233 @@ def decode_string(bytes: Span[Byte, _], flags: UInt8) -> Result[String]:
         return .Err(res^.unsafe_take_error())
     _ = res^.unsafe_take_value()
     return .Ok(s^)
+
+
+@always_inline
+def _write_json_special_byte[W: Writer](b: Byte, mut w: W):
+    """Write JSON escape sequence for `\"`, `\\`, or a byte `< 0x20`."""
+    if b == Byte(ord('"')):
+        w.write('\\"')
+    elif b == Byte(ord("\\")):
+        w.write("\\\\")
+    elif b == Byte(ord("\n")):
+        w.write("\\n")
+    elif b == Byte(ord("\r")):
+        w.write("\\r")
+    elif b == Byte(ord("\t")):
+        w.write("\\t")
+    elif b == Byte(ord("\b")):
+        w.write("\\b")
+    elif b == Byte(ord("\x0c")):
+        w.write("\\f")
+    else:
+        var hex = "0123456789abcdef".as_bytes()
+        w.write(
+            "\\u00",
+            StringSpan(unsafe_from_utf8=hex[Int(b >> 4) : Int(b >> 4) + 1]),
+            StringSpan(
+                unsafe_from_utf8=hex[Int(b & 0x0F) : Int(b & 0x0F) + 1]
+            ),
+        )
+
+
+@always_inline
+def _write_json_codepoint[W: Writer](cp: UInt32, mut w: W):
+    """Write a Unicode scalar value into a JSON string with necessary escaping."""
+    if cp == UInt32(ord('"')) or cp == UInt32(ord("\\")) or cp < 0x20:
+        _write_json_special_byte(Byte(cp), w)
+    else:
+        w.write(Codepoint(unsafe_unchecked_codepoint=cp))
+
+
+@always_inline
+def _decode_hex_n[
+    validate: Bool
+](ptr: Pointer[Byte, _], start: Int, count: Int) -> Int64:
+    """Decode `count` hex digits; returns `-1` on invalid hex when `validate=True`."""
+    var cp: Int64 = 0
+    for j in range(start, start + count):
+        var hb = ptr[unsafe_offset=j]
+        var d: Int64
+        if Byte(ord("0")) <= hb <= Byte(ord("9")):
+            d = Int64(hb - Byte(ord("0")))
+        elif Byte(ord("a")) <= hb <= Byte(ord("f")):
+            d = 10 + Int64(hb - Byte(ord("a")))
+        elif Byte(ord("A")) <= hb <= Byte(ord("F")):
+            d = 10 + Int64(hb - Byte(ord("A")))
+        else:
+            comptime if validate:
+                return -1
+            else:
+                d = 0
+        cp = (cp << 4) | d
+    return cp
+
+
+def _write_toml_string_as_json_impl[
+    validate: Bool, W: Writer
+](
+    bytes: Span[Byte, _],
+    flags: UInt8,
+    mut w: W,
+    mut err_msg: StaticString,
+) -> Bool:
+    """Decode a TOML escaped string directly into JSON string body in a single pass."""
+    var is_multiline = (flags & NodeFlags.MULTILINE) != 0
+    var i = 0
+    var n = len(bytes)
+    var ptr = bytes.unsafe_ptr()
+    comptime W_SIMD = 16
+
+    while i < n:
+        var chunk_start = i
+        while i + W_SIMD <= n:
+            var v = ptr.unsafe_load[width=W_SIMD](i)
+            var stop = v.eq(Byte(ord('"'))) | v.eq(Byte(ord("\\"))) | v.lt(0x20)
+            var mask = pack_bits(stop)
+            if not mask:
+                i += W_SIMD
+                continue
+            i += Int(count_trailing_zeros(mask))
+            break
+        while i < n:
+            var b = ptr[unsafe_offset=i]
+            if b == Byte(ord('"')) or b == Byte(ord("\\")) or b < 0x20:
+                break
+            i += 1
+        if i > chunk_start:
+            w.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
+        if i >= n:
+            break
+
+        var b = ptr[unsafe_offset=i]
+        if b != Byte(ord("\\")):
+            _write_json_special_byte(b, w)
+            i += 1
+            continue
+
+        i += 1
+        comptime if validate:
+            if i >= n:
+                err_msg = "Incomplete escape sequence."
+                return False
+
+        var esc = ptr[unsafe_offset=i]
+        if esc == Byte(ord("b")):
+            w.write("\\b")
+            i += 1
+        elif esc == Byte(ord("t")):
+            w.write("\\t")
+            i += 1
+        elif esc == Byte(ord("n")):
+            w.write("\\n")
+            i += 1
+        elif esc == Byte(ord("f")):
+            w.write("\\f")
+            i += 1
+        elif esc == Byte(ord("r")):
+            w.write("\\r")
+            i += 1
+        elif esc == Byte(ord("e")):
+            w.write("\\u001b")
+            i += 1
+        elif esc == Byte(ord("0")):
+            w.write("\\u0000")
+            i += 1
+        elif esc == Byte(ord('"')):
+            w.write('\\"')
+            i += 1
+        elif esc == Byte(ord("\\")):
+            w.write("\\\\")
+            i += 1
+        elif esc == Byte(ord("x")):
+            comptime if validate:
+                if i + 2 >= n:
+                    err_msg = "Hex escape has too few digits."
+                    return False
+            var cp = _decode_hex_n[validate](ptr, i + 1, 2)
+            comptime if validate:
+                if cp < 0:
+                    err_msg = "Invalid hex digit in hex escape."
+                    return False
+            i += 3
+            _write_json_codepoint(UInt32(cp), w)
+        elif esc == Byte(ord("u")) or esc == Byte(ord("U")):
+            var hex_len = 4 if esc == Byte(ord("u")) else 8
+            comptime if validate:
+                if i + hex_len >= n:
+                    err_msg = "Unicode escape has too few hex digits."
+                    return False
+            var cp = _decode_hex_n[validate](ptr, i + 1, hex_len)
+            comptime if validate:
+                if cp < 0:
+                    err_msg = "Invalid hex digit in unicode escape."
+                    return False
+                if (cp >= 0xD800 and cp <= 0xDFFF) or cp > 0x10FFFF:
+                    err_msg = (
+                        "Unicode escape is not a valid Unicode scalar value."
+                    )
+                    return False
+            i += 1 + hex_len
+            _write_json_codepoint(UInt32(cp), w)
+        elif is_multiline and (
+            esc == Byte(ord("\n"))
+            or esc == Byte(ord("\r"))
+            or esc == Byte(ord(" "))
+            or esc == Byte(ord("\t"))
+        ):
+            var has_nl = esc == Byte(ord("\n")) or esc == Byte(ord("\r"))
+            comptime if validate:
+                if esc == Byte(ord("\r")):
+                    if i + 1 >= n or ptr[unsafe_offset=i + 1] != Byte(ord("\n")):
+                        err_msg = "Bare CR in line-trimming backslash."
+                        return False
+            while i < n:
+                var wb = ptr[unsafe_offset=i]
+                if wb == Byte(ord(" ")) or wb == Byte(ord("\t")):
+                    i += 1
+                elif wb == Byte(ord("\r")):
+                    comptime if validate:
+                        if (
+                            i + 1 >= n
+                            or ptr[unsafe_offset=i + 1] != Byte(ord("\n"))
+                        ):
+                            err_msg = "Bare CR in line-trimming backslash."
+                            return False
+                    has_nl = True
+                    i += 2
+                elif wb == Byte(ord("\n")):
+                    has_nl = True
+                    i += 1
+                else:
+                    break
+            comptime if validate:
+                if not has_nl:
+                    err_msg = (
+                        "Line-trimming backslash must be followed by a newline."
+                    )
+                    return False
+        else:
+            comptime if validate:
+                err_msg = "Unknown escape sequence in string."
+                return False
+
+    return True
+
+
+@always_inline
+def write_toml_string_as_json_unchecked[
+    W: Writer
+](bytes: Span[Byte, _], flags: UInt8, mut w: W):
+    """Write a pre-validated escaped TOML string as JSON string contents."""
+    var err_msg: StaticString = ""
+    _ = _write_toml_string_as_json_impl[False](bytes, flags, w, err_msg)
+
+
+def write_toml_string_as_json[
+    W: Writer
+](bytes: Span[Byte, _], flags: UInt8, mut w: W) raises:
+    """Validate and write an escaped TOML string as JSON string contents."""
+    var err_msg: StaticString = ""
+    if not _write_toml_string_as_json_impl[True](bytes, flags, w, err_msg):
+        raise Error(err_msg)

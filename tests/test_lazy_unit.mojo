@@ -1,5 +1,8 @@
 from motoml.lazy import parse_lazy, Validation, Kind
+from motoml.mmap_file import MappedFile
 from motoml.types.toml import Toml
+from std.pathlib import Path
+from std.reflection import call_location
 from std.testing import TestSuite, assert_true, assert_false, assert_equal
 
 
@@ -443,6 +446,89 @@ def test_children_iterator_and_validation_levels() raises:
     else:
         _ = lex_res^.unsafe_take_value()
         raise "Expected Lexical validation to reject invalid integer"
+
+
+def test_utf8_chunk_recovery_and_toml11_cr() raises:
+    # Build an ASCII prefix > 512 bytes, insert multi-byte UTF-8 near chunk boundary 510..516,
+    # then append > 512 bytes of ASCII with UTF-8 comments and values.
+    var doc_s = String()
+    for i in range(6):
+        doc_s += 'pad_key_' + String(i) + ' = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n'
+    doc_s += 'utf8_mid = "héllo € 🚀 世界"\n'
+    doc_s += '# comment with UTF-8: café 日本語 🎉\n'
+    for i in range(6):
+        doc_s += 'tail_key_' + String(i) + ' = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"\n'
+
+    var doc = parse_lazy(doc_s.as_bytes()).take()
+    assert_equal(doc["utf8_mid"].value().as_string().take(), "héllo € 🚀 世界")
+
+    # Verify JSON and Toml conversion agree for multiline, quotes, and special escapes
+    var esc_doc_s = (
+        'ml = """\nhello "inner" ""double"" \\\n   world\\e\\x01\\x00\\u20ac\\U0001f680"""\n'
+        'ctrl_lit = \'raw\ttab\'\n'
+        '"k\\e\\x22" = true\n'
+    )
+    var d_strict = parse_lazy[Validation.Strict](esc_doc_s.as_bytes()).take()
+    var d_trusted = parse_lazy[Validation.Trusted](esc_doc_s.as_bytes()).take()
+    var j_strict = String()
+    var j_trusted = String()
+    d_strict.to_json(j_strict)
+    d_trusted.to_json(j_trusted)
+    assert_equal(j_strict, j_trusted)
+    assert_equal(d_strict.to_toml(), d_trusted.to_toml())
+
+    # Reject invalid UTF-8 placed beyond byte 512
+    var bad_utf8 = List[Byte](capacity=doc_s.byte_length() + 4)
+    for b in doc_s.as_bytes():
+        bad_utf8.append(b)
+    bad_utf8.append(Byte(ord("#")))
+    bad_utf8.append(Byte(0xFF))
+    bad_utf8.append(Byte(ord("\n")))
+    var utf8_err = parse_lazy(Span(bad_utf8))
+    if case .Err = utf8_err:
+        _ = utf8_err^.unsafe_take_error()
+    else:
+        _ = utf8_err^.unsafe_take_value()
+        raise "Expected Strict parser to reject invalid UTF-8 past 512 bytes"
+
+    # Reject bare CR in array and NUL inside array comment
+    assert_lazy_parse_error("arr = [1,\r2]\n")
+    var nul_arr = String("arr = [1, # bad") + "\0" + "\n2]\n"
+    assert_lazy_parse_error(nul_arr)
+
+
+def test_all_validation_modes_match_valid_suite() raises:
+    var loc = call_location().file_name()
+    var tests_dir = Path(loc[byte = : loc.rfind("/")])
+    var toml_dir = tests_dir / "toml_files" / "tests"
+    var v11_files = (
+        MappedFile(toml_dir / "files-toml-1.1.0").unsafe_view().splitlines()
+    )
+
+    var checked = 0
+    for fpath in v11_files:
+        var spath = String(t"{toml_dir}/{fpath}")
+        if not spath.endswith(".toml") or "invalid/" in spath:
+            continue
+        var fmap = MappedFile(Path(spath))
+        var view = fmap.unsafe_view().as_bytes()
+        var ds = parse_lazy[Validation.Strict](view).take()
+        var dl = parse_lazy[Validation.Lexical](view).take()
+        var dt = parse_lazy[Validation.Structure](view).take()
+        var dx = parse_lazy[Validation.Trusted](view).take()
+        var js = String()
+        var jl = String()
+        var jt = String()
+        var jx = String()
+        ds.to_json(js)
+        dl.to_json(jl)
+        dt.to_json(jt)
+        dx.to_json(jx)
+        assert_equal(js, jl)
+        assert_equal(js, jt)
+        assert_equal(js, jx)
+        checked += 1
+    assert_true(checked >= 200)
 
 
 def main() raises:

@@ -1,4 +1,4 @@
-from motoml.parser import parse_toml_raises
+from motoml.parser import parse_toml, ParseMode
 from motoml.lazy import parse_lazy, Validation
 from motoml.mmap_file import MappedFile
 from std.time import perf_counter_ns
@@ -10,12 +10,12 @@ def bench_corpus(name: StringSpan, path_str: String) raises:
     var size_bytes = view.byte_length()
     var size_mb = Float64(size_bytes) / (1024.0 * 1024.0)
 
-    # 1. Old parser
-    _ = parse_toml_raises[log=False](view)  # warmup
+    # 1. Old (Eager) parser
+    _ = parse_toml[mode=ParseMode.Eager, log=False](view).take()  # warmup
     var old_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()
-        var res = parse_toml_raises[log=False](view)
+        var res = parse_toml[mode=ParseMode.Eager, log=False](view).take()
         var t1 = perf_counter_ns()
         if (t1 - t0) < old_best:
             old_best = t1 - t0

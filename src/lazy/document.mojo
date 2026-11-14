@@ -21,6 +21,8 @@ from .scalar_decode import (
     decode_string_unchecked,
     decode_string_to_writer,
     decode_string_to_writer_unchecked,
+    write_toml_string_as_json,
+    write_toml_string_as_json_unchecked,
 )
 from ..types.tempo import Date, Time, DateTime
 from ..types.toml import Toml
@@ -526,18 +528,12 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
             ) == 0:
                 _write_json_escaped_bytes(self.raw_bytes(), w)
             else:
-                var adapter = _JsonEscapeWriter(Pointer(to=w))
                 comptime if validation_level(Self.validation) >= 2:
-                    decode_string_to_writer_unchecked(
-                        self.raw_bytes(), node.flags, adapter
+                    write_toml_string_as_json_unchecked(
+                        self.raw_bytes(), node.flags, w
                     )
                 else:
-                    var res = decode_string_to_writer(
-                        self.raw_bytes(), node.flags, adapter
-                    )
-                    if case .Err = res:
-                        raise Error(res^.unsafe_take_error())
-                    _ = res^.unsafe_take_value()
+                    write_toml_string_as_json(self.raw_bytes(), node.flags, w)
             w.write('"}')
         elif k == Kind.Integer:
             comptime if validation_level(Self.validation) >= 2:
@@ -591,17 +587,15 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
         elif k == Kind.Boolean:
             comptime if validation_level(Self.validation) >= 2:
                 w.write(
-                    '{"type": "bool", "value": "',
-                    "true" if decode_bool_unchecked(
+                    '{"type": "bool", "value": "true"}' if decode_bool_unchecked(
                         self.raw_bytes()
-                    ) else "false",
-                    '"}',
+                    ) else '{"type": "bool", "value": "false"}'
                 )
             else:
                 w.write(
-                    '{"type": "bool", "value": "',
-                    "true" if self.as_bool().take() else "false",
-                    '"}',
+                    '{"type": "bool", "value": "true"}' if (
+                        self.as_bool().take()
+                    ) else '{"type": "bool", "value": "false"}'
                 )
         elif k == Kind.Date:
             comptime if validation_level(Self.validation) < 2:
@@ -667,18 +661,14 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                     length=Int(child_node.key_len),
                 )
                 if (child_node.key_flags & NodeFlags.HAS_ESCAPE) != 0:
-                    var adapter = _JsonEscapeWriter(Pointer(to=w))
                     comptime if validation_level(Self.validation) >= 2:
-                        decode_string_to_writer_unchecked(
-                            k_span, child_node.key_flags, adapter
+                        write_toml_string_as_json_unchecked(
+                            k_span, child_node.key_flags, w
                         )
                     else:
-                        var dec_res = decode_string_to_writer(
-                            k_span, child_node.key_flags, adapter
+                        write_toml_string_as_json(
+                            k_span, child_node.key_flags, w
                         )
-                        if case .Err = dec_res:
-                            raise Error(dec_res^.unsafe_take_error())
-                        _ = dec_res^.unsafe_take_value()
                 else:
                     _write_json_escaped_bytes(k_span, w)
                 w.write('": ')
@@ -756,7 +746,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                 curr = self.nodes_ptr[unsafe_offset=Int(curr)].next_sibling
             return Toml.Array(list^)
         elif k == Kind.Table:
-            var dict = Dict[String, Toml]()
+            var dict = Dict[String, Toml](capacity=Int(node.len))
             var curr = node.first_child
             while curr != NO_NODE:
                 ref child_node = self.nodes_ptr[unsafe_offset=Int(curr)]
@@ -784,7 +774,7 @@ struct Value[origin: ImmOrigin, validation: Validation = Validation.Strict](
                     self.key_index_ptr,
                     curr,
                 )
-                dict[key_str] = child_val.to_toml()
+                dict[key_str^] = child_val.to_toml()
                 curr = child_node.next_sibling
             return Toml.Table(dict^)
         return Toml.Table(Dict[String, Toml]())

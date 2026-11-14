@@ -1,4 +1,4 @@
-from motoml.parser import parse_toml_raises
+from motoml.parser import parse_toml, ParseMode
 from motoml.lazy import parse_lazy, Validation
 from motoml.mmap_file import MappedFile
 from std.time import perf_counter_ns
@@ -10,9 +10,9 @@ def bench_10mb(name: StringSpan, path_str: String) raises:
     var size_bytes = view.byte_length()
     var size_mb = Float64(size_bytes) / (1024.0 * 1024.0)
 
-    # 1. Old parser
+    # 1. Old (Eager) parser
     var t0 = perf_counter_ns()
-    var res_old = parse_toml_raises[log=False](view)
+    var res_old = parse_toml[mode=ParseMode.Eager, log=False](view).take()
     var t1 = perf_counter_ns()
     var old_ms = Float64(t1 - t0) / 1_000_000.0
     var old_mbps = size_mb / (Float64(t1 - t0) / 1_000_000_000.0)

@@ -60,6 +60,13 @@ def tagged_equal(a, b) -> bool:
                     return math.isclose(fa, fb, rel_tol=1e-9, abs_tol=1e-12)
                 except ValueError:
                     return a["value"] == b["value"]
+            if a["type"] in ("datetime", "datetime-local"):
+                try:
+                    da = datetime.datetime.fromisoformat(a["value"])
+                    db = datetime.datetime.fromisoformat(b["value"])
+                    return da == db
+                except ValueError:
+                    return a["value"] == b["value"]
             return a["value"] == b["value"]
         if set(a.keys()) != set(b.keys()):
             return False
@@ -70,18 +77,20 @@ def tagged_equal(a, b) -> bool:
 
 
 def gen_key(r: random.Random, idx: int) -> str:
-    kind = r.randint(0, 3)
+    kind = r.randint(0, 4)
     if kind == 0:
         return f"k_{idx}_{r.choice(['alpha', 'beta', 'gamma', '99'])}"
     if kind == 1:
         return f'"quoted.key.{idx}"'
     if kind == 2:
         return f"'lit.key.{idx}'"
-    return f'"esc\\u0061_{idx}"'
+    if kind == 3:
+        return f'"esc\\u0061_{idx}"'
+    return f'"café_{idx}"'
 
 
 def gen_scalar(r: random.Random) -> str:
-    kind = r.randint(0, 9)
+    kind = r.randint(0, 14)
     if kind == 0:
         return str(r.randint(-10**12, 10**12))
     if kind == 1:
@@ -95,14 +104,25 @@ def gen_scalar(r: random.Random) -> str:
     if kind == 5:
         return f"{r.uniform(-1e5, 1e5):.5f}"
     if kind == 6:
-        return r.choice(["true", "false"])
+        return f"{r.randint(1, 99)}_{r.randint(10, 99)}.{r.randint(10, 99)}_{r.randint(10, 99)}e+{r.randint(1, 5)}"
     if kind == 7:
+        return r.choice(["true", "false", "nan", "inf", "-inf", "-0.0", "+0", "9223372036854775807", "-9223372036854775808"])
+    if kind == 8:
         s = "".join(r.choice("abcdefghij !@#$%^&*()") for _ in range(r.randint(0, 40)))
         return f'"{s}\\n\\t\\"\\\\\\u00e9"'
-    if kind == 8:
+    if kind == 9:
         s = "".join(r.choice("abcdefghij_12345") for _ in range(r.randint(0, 35)))
         return f"'{s}'"
-    return f"{r.randint(1990, 2030):04}-{r.randint(1, 12):02}-{r.randint(1, 28):02}"
+    if kind == 10:
+        return f'"héllo 🌍 café {r.randint(0, 99)} 日本語"'
+    if kind == 11:
+        return f'"""\nline1 ""two"" \\\n   line2 \\u00e9\\U0001F600"""'
+    if kind == 12:
+        return "'''\nraw \\path\\here ''two''\nline2'''"
+    if kind == 13:
+        return f"{r.randint(1990, 2030):04}-{r.randint(1, 12):02}-{r.randint(1, 28):02}"
+    h, mi, s = r.randint(0, 23), r.randint(0, 59), r.randint(0, 59)
+    return f"{r.randint(1990, 2030):04}-{r.randint(1, 12):02}-{r.randint(1, 28):02}T{h:02}:{mi:02}:{s:02}.{r.randint(1, 999):03}Z"
 
 
 def gen_valid_doc(r: random.Random, seed: int) -> str:
@@ -130,7 +150,8 @@ def gen_valid_doc(r: random.Random, seed: int) -> str:
             lines.append(f"id = {k}")
             lines.append(f"val = {gen_scalar(r)}")
 
-    return "\n".join(lines) + "\n"
+    eol = "\r\n" if (seed % 3 == 0) else "\n"
+    return eol.join(lines) + eol
 
 
 def mutate_doc(r: random.Random, doc: str) -> str:
@@ -141,15 +162,21 @@ def mutate_doc(r: random.Random, doc: str) -> str:
         lambda s: s + "\nbad_hex = +0x10\n",
         lambda s: s + "\nbad_float = 1..2\n",
         lambda s: s + "\nbad_float2 = .5\n",
+        lambda s: s + "\nbad_float3 = 1__2.3\n",
         lambda s: s + "\nbad_date = 2023-02-29\n",
         lambda s: s + "\nbad_time = 25:00:00\n",
+        lambda s: s + "\nbad_leap = 23:59:60.1\n",
         lambda s: s + '\nunclosed = "hello\n',
         lambda s: s + "\n[unclosed.header\n",
         lambda s: s + "\ninl = { a = 1 }\ninl.b = 2\n",
         lambda s: s + "\nbare_cr = 1\r\nerr = 2\rbad = 3\n",
         lambda s: s + '\nbad_surrogate = "\\uD800"\n',
-        lambda s: s + '\nbad_esc = "\\q"\n',
+        lambda s: s + '\nbad_esc = "\\U00110000"\n',
         lambda s: s + '\n["\\u0061"]\nx = 1\n[a]\ny = 2\n',
+        lambda s: s + '\n"\\u0061" = 1\na = 2\n',
+        lambda s: s + "\narr_cr = [1,\r2]\n",
+        lambda s: s + "\narr_ctrl = [1, # bad\x00\n2]\n",
+        lambda s: s + "\noverflow_i = 9223372036854775808\n",
     ]
     return r.choice(mutations)(doc)
 
@@ -169,15 +196,16 @@ def main():
         for seed in range(args.seeds):
             doc = gen_valid_doc(r, seed)
             expected = to_tagged(tomllib.loads(doc))
-            tmp_path.write_text(doc, encoding="utf-8")
-            proc = subprocess.run([args.bin, str(tmp_path)], capture_output=True, text=True)
-            if proc.returncode != 0 or proc.stdout.startswith("PARSE_ERR:") or proc.stdout.startswith("DECODE_ERR:"):
-                print(f"FAIL valid seed {seed}: {proc.stdout} {proc.stderr}")
-                sys.exit(1)
-            got = json.loads(proc.stdout)
-            if not tagged_equal(got, expected):
-                print(f"MISMATCH seed {seed}:\ngot: {got}\nexp: {expected}")
-                sys.exit(1)
+            tmp_path.write_bytes(doc.encode("utf-8"))
+            for mode in ("strict", "trusted"):
+                proc = subprocess.run([args.bin, "--mode", mode, str(tmp_path)], capture_output=True, text=True)
+                if proc.returncode != 0 or proc.stdout.startswith("PARSE_ERR:") or proc.stdout.startswith("DECODE_ERR:"):
+                    print(f"FAIL valid seed {seed} ({mode}): {proc.stdout} {proc.stderr}")
+                    sys.exit(1)
+                got = json.loads(proc.stdout)
+                if not tagged_equal(got, expected):
+                    print(f"MISMATCH seed {seed} ({mode}):\ngot: {got}\nexp: {expected}")
+                    sys.exit(1)
 
         mut_rejected = 0
         for m in range(args.mutations):
@@ -189,7 +217,7 @@ def main():
                 continue
             except Exception:
                 pass
-            tmp_path.write_text(bad, encoding="utf-8")
+            tmp_path.write_bytes(bad.encode("utf-8"))
             proc = subprocess.run([args.bin, str(tmp_path)], capture_output=True, text=True)
             if proc.returncode != 0:
                 print(f"CRASH on mutation {m}: {proc.stderr}")
