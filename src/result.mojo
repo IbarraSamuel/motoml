@@ -101,7 +101,6 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
     ) raises -> Self.E where conforms_to(Self.T, Deinitable):
         """Take the error or raises otherwise."""
         if case .Ok = self:
-            self^.forget()
             raise "Result has a value T, not an error."
         return self^.unsafe_take_error()
 
@@ -127,7 +126,6 @@ __enum Result[T: Movable, E: Movable & Writable & Deinitable = Error](
         if case .Err = self:
             self^.forget()
             return default^
-        deinit(default^)
         return self^.unsafe_take_value()
 
     def and_then[

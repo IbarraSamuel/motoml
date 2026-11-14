@@ -99,11 +99,12 @@ def _rebind_struct[T: Movable](var toml: Toml) -> Result[T]:
                 return .Err("Struct field doesn't exists in toml table.")
 
             var value = toml_tb.pop(NAME, materialize[Toml.NaN]())
-
             var inner = toml_to_type[TYPE](value^)
+
             if case .Err = inner:
                 _destroy_partial_struct[T](allocation^, fi)
                 return .Err(inner^.unsafe_take_error())
+
             field_ptr = inner^.unsafe_take_value()
         # print(t"Field {NAME} done!")
 
@@ -145,7 +146,4 @@ def toml_to_type[T: Movable & Deinitable](var toml: Toml) -> Result[T]:
 
 # Result Wrapper
 def toml_to_type_raises[T: Movable & Deinitable](var toml: Toml) raises -> T:
-    var res = toml_to_type[T](toml^)
-    if case .Err = res:
-        raise res^.unsafe_take_error()
-    return res^.unsafe_take_value()
+    return toml_to_type[T](toml^).take()
