@@ -3,7 +3,7 @@
 Fast, fully compliant TOML 1.1 reader and parser for Mojo.
 
 `motoml` provides two complementary parsing engines designed for different workloads:
-1. **Lazy TOML Reader (`motoml.lazy`)**: A high-performance, zero/low-allocation parser operating over borrowed byte spans (`Span[Byte]`). Uses a flat node tape and on-demand decoding to achieve **2x to 6.5x faster throughput** (up to 240+ MB/s).
+1. **Lazy TOML Reader (`motoml.lazy`)**: A high-performance, zero/low-allocation parser operating over borrowed byte spans (`Span[Byte]`). Uses a flat node tape and on-demand decoding to achieve **6.8x to 26x faster throughput** than the eager parser (up to **2,597 MB/s** Strict and **2,994 MB/s** Trusted).
 2. **Eager DOM Parser (`motoml.parser`)**: Parses TOML directly into an owned AST (`Toml` variant tree) with reflection support (`toml_to_type`) for deserializing into native Mojo structs.
 
 Both engines leverage zero-copy memory-mapped file access via `MappedFile`.
@@ -170,31 +170,55 @@ def main() raises:
 
 ## Benchmarks
 
-Measured with Mojo `1.3.0` on Apple Silicon (macOS):
+Measured with Mojo `1.3.0.dev2026111316` on Apple Silicon (macOS):
 
-### 1 MB Synthetic Corpora
+### 1 MB Synthetic Corpora (`bench_compare.mojo`)
 
 | Corpus | Old Eager Parser (ms) | Old Eager Parser (MB/s) | Lazy Strict (ms) | Lazy Strict (MB/s) | Speedup (Strict) | Lazy Trusted (MB/s) | Speedup (Trusted) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `many_tables` | 57.74 ms | 17.3 MB/s | **10.04 ms** | **99.6 MB/s** | **5.75x** | **111.3 MB/s** | **6.43x** |
-| `inline_nested` | 56.06 ms | 17.8 MB/s | **11.03 ms** | **90.6 MB/s** | **5.08x** | **104.6 MB/s** | **5.86x** |
-| `array_of_tables` | 39.81 ms | 25.1 MB/s | **8.62 ms** | **116.0 MB/s** | **4.62x** | **127.0 MB/s** | **5.06x** |
-| `dotted_keys` | 41.42 ms | 24.1 MB/s | **9.18 ms** | **109.0 MB/s** | **4.51x** | **122.4 MB/s** | **5.07x** |
-| `strings_escaped` | 21.51 ms | 46.5 MB/s | **4.97 ms** | **201.1 MB/s** | **4.33x** | **215.6 MB/s** | **4.64x** |
-| `mixed` | 28.98 ms | 34.5 MB/s | **8.01 ms** | **124.8 MB/s** | **3.62x** | **142.8 MB/s** | **4.14x** |
-| `dates` | 24.17 ms | 41.4 MB/s | **7.82 ms** | **127.8 MB/s** | **3.09x** | **151.0 MB/s** | **3.65x** |
-| `ints_floats` | 22.78 ms | 43.9 MB/s | **8.44 ms** | **118.6 MB/s** | **2.70x** | **134.5 MB/s** | **3.06x** |
-| `huge_table` | 16.48 ms | 60.7 MB/s | **7.97 ms** | **125.4 MB/s** | **2.07x** | **156.7 MB/s** | **2.58x** |
-| `strings_plain` | 8.64 ms | 115.7 MB/s | **4.16 ms** | **240.2 MB/s** | **2.08x** | **246.8 MB/s** | **2.13x** |
+| `many_tables` | 45.65 ms | 21.9 MB/s | **1.76 ms** | **569.2 MB/s** | **25.98x** | **585.1 MB/s** | **26.71x** |
+| `array_of_tables` | 27.67 ms | 36.1 MB/s | **1.21 ms** | **825.1 MB/s** | **22.83x** | **880.3 MB/s** | **24.36x** |
+| `inline_nested` | 37.95 ms | 26.4 MB/s | **2.28 ms** | **438.8 MB/s** | **16.65x** | **458.7 MB/s** | **17.41x** |
+| `strings_plain` | 5.77 ms | 173.3 MB/s | **0.39 ms** | **2,570.8 MB/s** | **14.84x** | **2,976.3 MB/s** | **17.18x** |
+| `dotted_keys` | 29.95 ms | 33.4 MB/s | **2.12 ms** | **472.1 MB/s** | **14.14x** | **478.5 MB/s** | **14.33x** |
+| `mixed` | 18.38 ms | 54.4 MB/s | **1.41 ms** | **711.3 MB/s** | **13.07x** | **737.5 MB/s** | **13.55x** |
+| `dates` | 13.30 ms | 75.2 MB/s | **1.32 ms** | **759.3 MB/s** | **10.10x** | **775.2 MB/s** | **10.31x** |
+| `ints_floats` | 14.31 ms | 69.9 MB/s | **1.61 ms** | **621.9 MB/s** | **8.90x** | **628.6 MB/s** | **9.00x** |
+| `huge_table` | 9.97 ms | 100.3 MB/s | **1.28 ms** | **781.9 MB/s** | **7.79x** | **747.4 MB/s** | **7.45x** |
+| `strings_escaped` | 9.30 ms | 107.5 MB/s | **1.37 ms** | **728.9 MB/s** | **6.78x** | **968.1 MB/s** | **9.01x** |
 
-### 10 MB Pressure Test
+### Synthetic, Hold-Out & Parse + JSON Suite (`pixi run bench-lazy`, 15 runs median)
+
+| Corpus | Set | Strict (MB/s) | Trusted (MB/s) | Parse + `to_json` (MB/s) |
+|---|---|---:|---:|---:|
+| `strings_plain` | Tuned | **2,597 MB/s** | **2,994 MB/s** | **1,379 MB/s** |
+| `array_of_tables` | Tuned | **820 MB/s** | **864 MB/s** | **436 MB/s** |
+| `huge_table` | Tuned | **761 MB/s** | **729 MB/s** | **507 MB/s** |
+| `dates` | Tuned | **740 MB/s** | **757 MB/s** | **453 MB/s** |
+| `strings_escaped` | Tuned | **715 MB/s** | **956 MB/s** | **366 MB/s** |
+| `mixed` | Tuned | **697 MB/s** | **722 MB/s** | **352 MB/s** |
+| `ints_floats` | Tuned | **620 MB/s** | **628 MB/s** | **215 MB/s** |
+| `many_tables` | Tuned | **559 MB/s** | **567 MB/s** | **376 MB/s** |
+| `dotted_keys` | Tuned | **464 MB/s** | **474 MB/s** | **386 MB/s** |
+| `inline_nested` | Tuned | **426 MB/s** | **451 MB/s** | **295 MB/s** |
+| `realworld_lock` | Hold-Out | **1,592 MB/s** | **1,773 MB/s** | **871 MB/s** |
+| `realworld_config` | Hold-Out | **933 MB/s** | **1,021 MB/s** | **551 MB/s** |
+| `toml_test_concat` | Hold-Out | **692 MB/s** | **774 MB/s** | **446 MB/s** |
+
+### 10 MB Pressure Test (`bench_10mb.mojo`)
 
 | Corpus | Old Eager Parser (ms) | Old Eager Parser (MB/s) | Lazy Strict (ms) | Lazy Strict (MB/s) | Speedup |
 |---|---:|---:|---:|---:|---:|
-| `many_tables_10mb` | 811.31 ms | 12.3 MB/s | **123.68 ms** | **80.9 MB/s** | **6.56x** |
-| `inline_nested_10mb` | 688.87 ms | 14.5 MB/s | **165.27 ms** | **60.5 MB/s** | **4.17x** |
-| `mixed_10mb` | 348.89 ms | 28.7 MB/s | **100.43 ms** | **99.6 MB/s** | **3.47x** |
-| `strings_plain_10mb` | 120.01 ms | 83.3 MB/s | **47.08 ms** | **212.4 MB/s** | **2.55x** |
+| `many_tables_10mb` | 562.07 ms | 17.8 MB/s | **37.11 ms** | **269.5 MB/s** | **15.15x** |
+| `mixed_10mb` | 257.35 ms | 38.9 MB/s | **26.33 ms** | **379.7 MB/s** | **9.77x** |
+| `inline_nested_10mb` | 489.40 ms | 20.4 MB/s | **53.14 ms** | **188.2 MB/s** | **9.21x** |
+| `strings_plain_10mb` | 72.28 ms | 138.4 MB/s | **8.05 ms** | **1,242.4 MB/s** | **8.98x** |
+
+### Generic UTF-8, Multiline & Lookup Throughput (`bench_lazy_generic.mojo`)
+
+- `utf8_heavy`: **2,257 MB/s** Strict max | **3,293 MB/s** Trusted max | **502 MB/s** Parse+JSON max
+- `multiline_comments`: **1,182 MB/s** Strict max | **1,263 MB/s** Trusted max | **253 MB/s** Parse+JSON max
+- `lookup_4k` (`doc[k]` + `as_int()`): **16.75 ns/entry** | `children()` + `as_int()`: **3.5 ns/entry** | `to_toml()` (4k entries): **0.098 ms**
 
 ---
 
