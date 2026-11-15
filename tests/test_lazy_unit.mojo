@@ -1,9 +1,24 @@
-from motoml.lazy import parse_lazy, Validation, Kind
+from motoml import (
+    parse_toml,
+    parse_toml_file,
+    Mode,
+    Kind,
+    KindTag,
+    TomlDocument,
+    TomlFile,
+)
 from motoml.mmap_file import MappedFile
-from motoml.types.toml import Toml
+from std.os import remove
 from std.pathlib import Path
 from std.reflection import call_location
-from std.testing import TestSuite, assert_true, assert_false, assert_equal
+from std.testing import (
+    TestSuite,
+    assert_true,
+    assert_false,
+    assert_equal,
+    assert_raises,
+)
+from std.math import isnan
 
 
 def test_basic_scalars() raises:
@@ -25,70 +40,39 @@ def test_basic_scalars() raises:
     str_val = "hello world"
     lit_val = 'literal string'
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
+    var doc = parse_toml(toml_str).take()
     assert_equal(len(doc), 16)
 
-    # Integer variants
-    var int_dec = doc["int_dec"].value()
-    assert_true(int_dec.is_int())
-    assert_true(int_dec.kind() == Kind.Integer)
-    assert_equal(int_dec.as_int().take(), 42)
+    assert_true(doc["int_dec"].is_kind[Kind.Integer]())
+    assert_equal(doc["int_dec"].kind(), KindTag.Integer)
+    assert_equal(doc["int_dec"].take[Kind.Integer](), 42)
+    assert_equal(doc["int_neg"][Kind.Integer], -17)
+    assert_equal(doc["int_hex"][Kind.Integer], 42)
+    assert_equal(doc["int_oct"][Kind.Integer], 493)
+    assert_equal(doc["int_bin"][Kind.Integer], 13)
+    assert_equal(doc["int_underscore"][Kind.Integer], 1_000_000)
 
-    var int_neg = doc["int_neg"].value()
-    assert_equal(int_neg.as_int().take(), -17)
+    assert_true(doc["float_val"].is_kind[Kind.Float]())
+    assert_equal(doc["float_val"].kind(), KindTag.Float)
+    assert_equal(doc["float_val"][Kind.Float], 3.1415)
+    assert_equal(doc["float_exp"][Kind.Float], 1000000.0)
+    assert_equal(doc["float_neg_exp"][Kind.Float], -0.0025)
+    assert_equal(doc["nan_val"].kind(), KindTag.Float)
+    assert_true(isnan(doc["nan_val"][Kind.Float]))
+    assert_true(doc["inf_val"][Kind.Float] > 1e300)
+    assert_true(doc["neg_inf_val"][Kind.Float] < -1e300)
 
-    var int_hex = doc["int_hex"].value()
-    assert_equal(int_hex.as_int().take(), 42)
+    assert_true(doc["bool_true"].is_kind[Kind.Boolean]())
+    assert_equal(doc["bool_true"].kind(), KindTag.Boolean)
+    assert_true(doc["bool_true"][Kind.Boolean])
+    assert_false(doc["bool_false"][Kind.Boolean])
 
-    var int_oct = doc["int_oct"].value()
-    assert_equal(int_oct.as_int().take(), 493)
-
-    var int_bin = doc["int_bin"].value()
-    assert_equal(int_bin.as_int().take(), 13)
-
-    var int_und = doc["int_underscore"].value()
-    assert_equal(int_und.as_int().take(), 1_000_000)
-
-    # Float variants
-    var fl_v = doc["float_val"].value()
-    assert_true(fl_v.is_float())
-    assert_true(fl_v.kind() == Kind.Float)
-    assert_equal(fl_v.as_float().take(), 3.1415)
-
-    var fl_exp = doc["float_exp"].value()
-    assert_equal(fl_exp.as_float().take(), 1000000.0)
-
-    var fl_nexp = doc["float_neg_exp"].value()
-    assert_equal(fl_nexp.as_float().take(), -0.0025)
-
-    var nan_v = doc["nan_val"].value()
-    assert_true(nan_v.kind() == Kind.NaN)
-
-    var inf_v = doc["inf_val"].value()
-    assert_true(inf_v.kind() == Kind.Inf)
-
-    var ninf_v = doc["neg_inf_val"].value()
-    assert_true(ninf_v.kind() == Kind.Inf)
-
-    # Booleans
-    var b_t = doc["bool_true"].value()
-    assert_true(b_t.is_bool())
-    assert_true(b_t.kind() == Kind.Boolean)
-    assert_true(b_t.as_bool().take())
-
-    var b_f = doc["bool_false"].value()
-    assert_false(b_f.as_bool().take())
-
-    # Strings
-    var s_v = doc["str_val"].value()
-    assert_true(s_v.is_string())
-    assert_true(s_v.kind() == Kind.String)
-    assert_equal(s_v.as_string().take(), "hello world")
-    assert_equal(s_v.as_slice().value(), "hello world")
-
-    var lit_v = doc["lit_val"].value()
-    assert_equal(lit_v.as_string().take(), "literal string")
-    assert_equal(lit_v.as_slice().value(), "literal string")
+    assert_true(doc["str_val"].is_kind[Kind.String]())
+    assert_equal(doc["str_val"].kind(), KindTag.String)
+    assert_equal(doc["str_val"][Kind.String], "hello world")
+    assert_equal(doc["str_val"].string_span().value(), "hello world")
+    assert_equal(doc["lit_val"][Kind.String], "literal string")
+    assert_equal(doc["lit_val"].string_span().value(), "literal string")
 
 
 def test_strings_and_escapes() raises:
@@ -107,34 +91,22 @@ second line
 '''
     """
     )
-    var doc = parse_lazy(toml_str.as_bytes()).take()
+    var doc = parse_toml(toml_str).take()
 
-    # Plain string borrows zero-copy slice
-    var plain = doc["plain"].value()
-    assert_true(plain.as_slice())
-    assert_equal(plain.as_slice().value(), "simple")
+    assert_true(Bool(doc["plain"].string_span()))
+    assert_equal(doc["plain"].string_span().value(), "simple")
 
-    # Escaped string: as_slice() returns None, as_string() resolves escapes
-    var escaped = doc["escaped"].value()
-    assert_false(escaped.as_slice())
-    var esc_str = escaped.as_string().take()
-    assert_equal(esc_str, 'hello\tworld\nwith "quotes" and \\slash\\')
-
-    # Unicode escape
-    var u_str = doc["unicode"].value().as_string().take()
-    assert_equal(u_str, "emoji A")
-
-    # Literal strings preserve backslashes
-    var lit = doc["literal"].value()
-    assert_true(lit.as_slice())
-    assert_equal(lit.as_slice().value(), r"C:\path\without\escapes")
-
-    # Multiline strings
-    var ml = doc["multiline"].value().as_string().take()
-    assert_equal(ml, "Line 1\nLine 2")
-
-    var mll = doc["multiline_lit"].value().as_string().take()
-    assert_equal(mll, "first line\nsecond line\n")
+    assert_false(Bool(doc["escaped"].string_span()))
+    assert_equal(
+        doc["escaped"][Kind.String], 'hello\tworld\nwith "quotes" and \\slash\\'
+    )
+    assert_equal(doc["unicode"][Kind.String], "emoji A")
+    assert_true(Bool(doc["literal"].string_span()))
+    assert_equal(
+        doc["literal"].string_span().value(), r"C:\path\without\escapes"
+    )
+    assert_equal(doc["multiline"][Kind.String], "Line 1\nLine 2")
+    assert_equal(doc["multiline_lit"][Kind.String], "first line\nsecond line\n")
 
 
 def test_dates_and_times() raises:
@@ -145,32 +117,31 @@ def test_dates_and_times() raises:
     datetime_tz = 2024-11-02T17:30:00Z
     datetime_offset = 2024-11-02T17:30:00-05:00
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
+    var doc = parse_toml(toml_str).take()
 
-    var d = doc["date_val"].value()
-    assert_true(d.kind() == Kind.Date)
-    var date_obj = d.as_date().take()
+    var d = doc["date_val"]
+    assert_equal(d.kind(), KindTag.Date)
+    var date_obj = d[Kind.Date]
     assert_equal(date_obj.year, 2024)
     assert_equal(date_obj.month, 11)
     assert_equal(date_obj.day, 2)
 
-    var t = doc["time_val"].value()
-    assert_true(t.kind() == Kind.Time)
-    var time_obj = t.as_time().take()
+    var t = doc["time_val"]
+    assert_equal(t.kind(), KindTag.Time)
+    var time_obj = t[Kind.Time]
     assert_equal(time_obj.hour, 17)
     assert_equal(time_obj.minute, 30)
     assert_equal(time_obj.second, 0)
 
-    var dtl = doc["datetime_local"].value()
-    assert_true(dtl.kind() == Kind.DateTime)
-    var dtl_obj = dtl.as_datetime().take()
+    var dtl = doc["datetime_local"]
+    assert_equal(dtl.kind(), KindTag.DateTime)
+    var dtl_obj = dtl[Kind.DateTime]
     assert_true(dtl_obj.is_local)
     assert_equal(dtl_obj.date.year, 2024)
 
-    var dtz = doc["datetime_tz"].value()
-    assert_true(dtz.kind() == Kind.DateTime)
-    var dtz_obj = dtz.as_datetime().take()
-    assert_false(dtz_obj.is_local)
+    var dtz = doc["datetime_tz"]
+    assert_equal(dtz.kind(), KindTag.DateTime)
+    assert_false(dtz[Kind.DateTime].is_local)
 
 
 def test_tables_and_arrays() raises:
@@ -190,27 +161,28 @@ def test_tables_and_arrays() raises:
     name = "bob"
     role = "user"
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
-    var srv = doc["server"].value()
-    assert_true(srv.is_table())
-    assert_equal(srv["host"].value().as_string().take(), "127.0.0.1")
-    assert_equal(srv["port"].value().as_int().take(), 8080)
+    var doc = parse_toml(toml_str).take()
+    var srv = doc["server"]
+    assert_true(srv.is_kind[Kind.Table]())
+    assert_equal(srv["host"][Kind.String], "127.0.0.1")
+    assert_equal(srv["port"][Kind.Integer], 8080)
 
-    var db = srv["database"].value()
-    assert_true(db.is_table())
-    assert_equal(db["name"].value().as_string().take(), "testdb")
+    var db = srv["database"]
+    assert_true(db.is_kind[Kind.Table]())
+    assert_equal(db["name"][Kind.String], "testdb")
 
-    var users = doc["users"].value()
-    assert_true(users.is_array())
+    var users = doc["users"]
+    assert_true(users.is_kind[Kind.Array]())
     assert_equal(len(users), 2)
-    assert_equal(users[0].value()["name"].value().as_string().take(), "alice")
-    assert_equal(users[0].value()["role"].value().as_string().take(), "admin")
-    assert_equal(users[1].value()["name"].value().as_string().take(), "bob")
-    assert_equal(users[1].value()["role"].value().as_string().take(), "user")
+    assert_equal(users[0]["name"][Kind.String], "alice")
+    assert_equal(users[0]["role"][Kind.String], "admin")
+    assert_equal(users[1]["name"][Kind.String], "bob")
+    assert_equal(users[1]["role"][Kind.String], "user")
 
-    # Missing keys and out of bounds indices
-    assert_false(srv["nonexistent"])
-    assert_false(users[99])
+    assert_false(Bool(srv.get("nonexistent")))
+    assert_true(srv["nonexistent"].is_missing())
+    assert_false(Bool(users.get(99)))
+    assert_true(users[99].is_missing())
 
 
 def test_dotted_keys() raises:
@@ -219,17 +191,10 @@ def test_dotted_keys() raises:
     fruit.apple.taste.sweet = true
     site."google.com".ip = "142.250.190.46"
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
-    var fruit = doc["fruit"].value()
-    var apple = fruit["apple"].value()
-    assert_equal(apple["color"].value().as_slice().value(), "red")
-    assert_true(apple["taste"].value()["sweet"].value().as_bool().take())
-
-    var site = doc["site"].value()
-    assert_equal(
-        site["google.com"].value()["ip"].value().as_slice().value(),
-        "142.250.190.46",
-    )
+    var doc = parse_toml(toml_str).take()
+    assert_equal(doc["fruit"]["apple"]["color"][Kind.String], "red")
+    assert_true(doc["fruit"]["apple"]["taste"]["sweet"][Kind.Boolean])
+    assert_equal(doc["site"]["google.com"]["ip"][Kind.String], "142.250.190.46")
 
 
 def test_inline_tables_and_arrays() raises:
@@ -240,51 +205,46 @@ def test_inline_tables_and_arrays() raises:
     inline_tbl = { x = 10, y = 20, label = "coord" }
     nested_tbl = { a = { b = 42 } }
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
-    var arr = doc["arr"].value()
+    var doc = parse_toml(toml_str).take()
+    var arr = doc["arr"]
     assert_equal(len(arr), 3)
-    assert_equal(arr[0].value().as_int().take(), 1)
-    assert_equal(arr[1].value().as_int().take(), 2)
-    assert_equal(arr[2].value().as_int().take(), 3)
+    assert_equal(arr[0][Kind.Integer], 1)
+    assert_equal(arr[1][Kind.Integer], 2)
+    assert_equal(arr[2][Kind.Integer], 3)
 
-    var empty_arr = doc["empty_arr"].value()
-    assert_equal(len(empty_arr), 0)
+    assert_equal(len(doc["empty_arr"]), 0)
 
-    var narr = doc["nested_arr"].value()
+    var narr = doc["nested_arr"]
     assert_equal(len(narr), 2)
-    assert_equal(narr[0].value()[0].value().as_int().take(), 1)
-    assert_equal(narr[1].value()[1].value().as_int().take(), 4)
+    assert_equal(narr[0][0][Kind.Integer], 1)
+    assert_equal(narr[1][1][Kind.Integer], 4)
 
-    var tbl = doc["inline_tbl"].value()
+    var tbl = doc["inline_tbl"]
     assert_equal(len(tbl), 3)
-    assert_equal(tbl["x"].value().as_int().take(), 10)
-    assert_equal(tbl["y"].value().as_int().take(), 20)
-    assert_equal(tbl["label"].value().as_slice().value(), "coord")
-
-    var nested_tbl = doc["nested_tbl"].value()
-    assert_equal(nested_tbl["a"].value()["b"].value().as_int().take(), 42)
+    assert_equal(tbl["x"][Kind.Integer], 10)
+    assert_equal(tbl["y"][Kind.Integer], 20)
+    assert_equal(tbl["label"].string_span().value(), "coord")
+    assert_equal(doc["nested_tbl"]["a"]["b"][Kind.Integer], 42)
 
 
 def test_validation_strict_vs_trusted() raises:
-    # Valid TOML parses in both modes
     var valid_toml = "a = 1\nb = 2\n"
-    var strict_res = parse_lazy[Validation.Strict](valid_toml.as_bytes())
+    var strict_res = parse_toml[Mode.Strict](valid_toml)
     if case .Ok = strict_res:
         _ = strict_res^.unsafe_take_value()
     else:
         _ = strict_res^.unsafe_take_error()
         raise "Expected strict parse to succeed"
 
-    var trusted_res = parse_lazy[Validation.Trusted](valid_toml.as_bytes())
+    var trusted_res = parse_toml[Mode.Trusted](valid_toml)
     if case .Ok = trusted_res:
         _ = trusted_res^.unsafe_take_value()
     else:
         _ = trusted_res^.unsafe_take_error()
         raise "Expected trusted parse to succeed"
 
-    # Duplicate key is rejected in Strict mode
     var dup_toml = "a = 1\na = 2\n"
-    var dup_strict = parse_lazy[Validation.Strict](dup_toml.as_bytes())
+    var dup_strict = parse_toml[Mode.Strict](dup_toml)
     if case .Err = dup_strict:
         _ = dup_strict^.unsafe_take_error()
     else:
@@ -292,7 +252,7 @@ def test_validation_strict_vs_trusted() raises:
         raise "Expected duplicate key to fail in strict mode"
 
 
-def test_to_json_and_to_toml() raises:
+def test_to_json_eager_and_lazy() raises:
     var toml_str = """
     title = "TOML Test"
     count = 10
@@ -302,33 +262,21 @@ def test_to_json_and_to_toml() raises:
     neg_inf_val = -inf
     nan_val = nan
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
+    var lazy_doc = parse_toml(toml_str).take()
+    var eager_doc = parse_toml[Mode.Eager](toml_str).take()
 
-    # to_json streaming
-    var json_out = String()
-    doc.to_json(json_out)
-    assert_true(json_out.startswith("{"))
-    assert_true(json_out.endswith("}"))
-    assert_true('"title"' in json_out)
-
-    # to_toml AST conversion
-    var toml_ast = doc.to_toml()
-    if case .Table(ref t) = toml_ast:
-        assert_equal(t["title"][String], "TOML Test")
-        assert_equal(t["count"][Int], 10)
-        assert_equal(t["enabled"][Bool], True)
-        assert_equal(t["inf_val"][Float64], Float64.MAX)
-        assert_equal(t["neg_inf_val"][Float64], Float64.MIN)
-        if case .NaN = t["nan_val"]:
-            pass
-        else:
-            raise "Expected nan_val to be NaN"
-    else:
-        raise "Expected root toml to be Table"
+    var j_lazy = String()
+    var j_eager = String()
+    lazy_doc.to_json(j_lazy)
+    eager_doc.to_json(j_eager)
+    assert_equal(j_lazy, j_eager)
+    assert_true(j_lazy.startswith("{"))
+    assert_true(j_lazy.endswith("}"))
+    assert_true('"title"' in j_lazy)
 
 
 def assert_lazy_parse_error(input: String) raises:
-    var res = parse_lazy(input.as_bytes())
+    var res = parse_toml(input)
     if case .Err = res:
         _ = res^.unsafe_take_error()
     else:
@@ -343,95 +291,94 @@ def test_malformed_input_returns_error() raises:
 
 
 def test_escaped_table_header_keys() raises:
-    # ["\u0061"] and [a] refer to the same table key "a" -> duplicate in Strict mode
     assert_lazy_parse_error('["\\u0061"]\nx = 1\n[a]\ny = 2\n')
     assert_lazy_parse_error('[a]\nx = 1\n["\\u0061"]\ny = 2\n')
 
-    # Escaped table header lookup and materialization
-    var toml_str = '["\\u0061\\u0062"."c\\td"]\nval = 99\n'
-    var doc = parse_lazy(toml_str.as_bytes()).take()
-    var ab = doc["ab"].value()
-    var cd = ab["c\td"].value()
-    assert_equal(cd["val"].value().as_int().take(), 99)
+    var toml_str = '"e\\nf" = "v\\t1"\n["\\u0061\\u0062"."c\\td"]\nval = 99\n'
+    var doc = parse_toml(toml_str).take()
+    assert_equal(doc["ab"]["c\td"]["val"][Kind.Integer], 99)
+    assert_equal(doc["e\nf"][Kind.String], "v\t1")
 
-    var ast = doc.to_toml()
-    if case .Table(ref t) = ast:
-        if case .Table(ref t_ab) = t["ab"]:
-            if case .Table(ref t_cd) = t_ab["c\td"]:
-                assert_equal(t_cd["val"][Int], 99)
-            else:
-                raise "Expected nested table c\\td"
-        else:
-            raise "Expected table ab"
-    else:
-        raise "Expected root table"
+    var edoc = parse_toml[Mode.Eager](toml_str).take()
+    assert_equal(edoc["ab"]["c\td"]["val"][Kind.Integer], 99)
+    assert_equal(edoc["e\nf"][Kind.String], "v\t1")
+
+    var seen_keys = List[String]()
+    for k in edoc.keys():
+        seen_keys.append(k)
+    assert_equal(len(seen_keys), 2)
+    assert_equal(seen_keys[0], "e\nf")
+    assert_equal(seen_keys[1], "ab")
+
+    var j_lazy = String()
+    var j_eager = String()
+    doc.to_json(j_lazy)
+    edoc.to_json(j_eager)
+    assert_equal(j_lazy, j_eager)
 
 
 def test_spec_edge_cases() raises:
-    # 64-bit signed integer boundaries
     var valid_bounds = (
         "max_i64 = 9223372036854775807\nmin_i64 = -9223372036854775808\n"
     )
-    var doc = parse_lazy(valid_bounds.as_bytes()).take()
-    assert_equal(doc["max_i64"].value().as_int().take(), 9223372036854775807)
-    assert_equal(
-        doc["min_i64"].value().as_int().take(), -9223372036854775807 - 1
-    )
+    var doc = parse_toml(valid_bounds).take()
+    assert_equal(doc["max_i64"][Kind.Integer], 9223372036854775807)
+    assert_equal(doc["min_i64"][Kind.Integer], -9223372036854775807 - 1)
 
     assert_lazy_parse_error("overflow_pos = 9223372036854775808\n")
     assert_lazy_parse_error("overflow_neg = -9223372036854775809\n")
     assert_lazy_parse_error("overflow_hex = 0x8000000000000000\n")
-
-    # Integer lexical rules
     assert_lazy_parse_error("neg_hex = -0x1\n")
     assert_lazy_parse_error("double_under = 1__0\n")
     assert_lazy_parse_error("leading_zero = 00\n")
 
-    # Leap year rules (Gregorian calendar)
     var valid_dates = (
         "leap1 = 2024-02-29\nleap2 = 2000-02-29\nleap_sec = 23:59:60\n"
     )
-    var ddoc = parse_lazy(valid_dates.as_bytes()).take()
-    assert_equal(ddoc["leap1"].value().as_date().take().day, 29)
-    assert_equal(ddoc["leap2"].value().as_date().take().day, 29)
-    assert_equal(ddoc["leap_sec"].value().as_time().take().second, 60.0)
+    var ddoc = parse_toml(valid_dates).take()
+    assert_equal(ddoc["leap1"][Kind.Date].day, 29)
+    assert_equal(ddoc["leap2"][Kind.Date].day, 29)
+    assert_equal(ddoc["leap_sec"][Kind.Time].second, 60.0)
 
     assert_lazy_parse_error("non_leap1 = 2023-02-29\n")
     assert_lazy_parse_error("non_leap2 = 1900-02-29\n")
     assert_lazy_parse_error("bad_hour = 24:00:00\n")
     assert_lazy_parse_error("bad_leap_sec = 23:59:60.1\n")
     assert_lazy_parse_error("bad_offset = 2024-01-01T00:00:00+25:00\n")
-
-    # Unicode surrogate and out-of-range escapes rejected at parse time
     assert_lazy_parse_error('surrogate = "\\uD800"\n')
     assert_lazy_parse_error('out_of_range = "\\U00110000"\n')
 
 
-def test_children_iterator_and_validation_levels() raises:
+def test_iterators_and_validation_levels() raises:
     var toml_str = """
     arr = [10, 20, 30]
     [tbl]
     x = 1
     y = 2
     """
-    var doc = parse_lazy(toml_str.as_bytes()).take()
-    var arr = doc["arr"].value()
+    var doc = parse_toml(toml_str).take()
+    var arr = doc["arr"]
     assert_equal(len(arr), 3)
     var sum_arr = 0
-    for item in arr.children():
-        sum_arr += item.as_int().take()
+    for item in arr:
+        sum_arr += item[Kind.Integer]
     assert_equal(sum_arr, 60)
 
-    var tbl = doc["tbl"].value()
+    var tbl = doc["tbl"]
     assert_equal(len(tbl), 2)
     var sum_tbl = 0
-    for entry in tbl.children():
-        sum_tbl += entry.as_int().take()
+    for entry in tbl:
+        sum_tbl += entry[Kind.Integer]
     assert_equal(sum_tbl, 3)
+
+    var item_sum = 0
+    for _, val in tbl.items():
+        item_sum += val[Kind.Integer]
+    assert_equal(item_sum, 3)
 
     # Validation levels: Structure catches duplicates without lexical scalar overhead
     var dup = "a = 1\na = 2\n"
-    var struct_res = parse_lazy[Validation.Structure](dup.as_bytes())
+    var struct_res = parse_toml[Mode.Structure](dup)
     if case .Err = struct_res:
         _ = struct_res^.unsafe_take_error()
     else:
@@ -440,7 +387,7 @@ def test_children_iterator_and_validation_levels() raises:
 
     # Lexical catches bad scalars
     var bad_scalar = "a = 1__0\n"
-    var lex_res = parse_lazy[Validation.Lexical](bad_scalar.as_bytes())
+    var lex_res = parse_toml[Mode.Lexical](bad_scalar)
     if case .Err = lex_res:
         _ = lex_res^.unsafe_take_error()
     else:
@@ -448,50 +395,114 @@ def test_children_iterator_and_validation_levels() raises:
         raise "Expected Lexical validation to reject invalid integer"
 
 
+def _make_eager_doc_from_temporary() raises -> TomlDocument[Mode.Eager]:
+    var tmp = String(
+        'title = "escaped\\nvalue"\n'
+        '"k\\t1" = 42\n'
+        "f = -12.5\n"
+        "b = true\n"
+        "d = 2025-07-04\n"
+        "t = 12:34:56.789\n"
+        "dt = 2025-07-04T12:34:56-04:00\n"
+        "[[aot]]\n"
+        "n = 10\n"
+        "[aot.sub]\n"
+        "ok = true\n"
+        "[[aot]]\n"
+        "n = 20\n"
+    )
+    var doc = parse_toml[Mode.Eager](tmp).take()
+    # Mutate/overwrite tmp in place to ensure no dangling reference exists.
+    tmp = String("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")
+    _ = tmp^
+    return doc^
+
+
+def test_eager_outlives_freed_source() raises:
+    var doc = _make_eager_doc_from_temporary()
+    assert_equal(doc["title"][Kind.String], "escaped\nvalue")
+    assert_equal(doc["title"].string_span().value(), "escaped\nvalue")
+    assert_equal(doc["k\t1"][Kind.Integer], 42)
+    assert_equal(doc["f"][Kind.Float], -12.5)
+    assert_equal(doc["b"][Kind.Boolean], True)
+    assert_equal(doc["d"][Kind.Date].year, 2025)
+    assert_equal(doc["t"][Kind.Time].hour, 12)
+    assert_equal(doc["dt"][Kind.DateTime].offset.hour, 4)
+    assert_false(doc["dt"][Kind.DateTime].offset.positive)
+    assert_equal(len(doc["aot"]), 2)
+    assert_equal(doc["aot"][0]["n"][Kind.Integer], 10)
+    assert_true(doc["aot"][0]["sub"]["ok"][Kind.Boolean])
+    assert_equal(doc["aot"][1]["n"][Kind.Integer], 20)
+    var j = String()
+    doc.to_json(j)
+    assert_true('"title"' in j)
+
+
+def test_toml_file_strict_and_eager() raises:
+    var tmp_path = "/tmp/motoml_test_toml_file.toml"
+    with open(tmp_path, "w") as f:
+        f.write('msg = "from\\tfile"\nnums = [10, 20, 30]\n')
+
+    var tf_lazy = parse_toml_file(tmp_path)
+    assert_equal(tf_lazy["msg"][Kind.String], "from\tfile")
+    assert_equal(tf_lazy["nums"][2][Kind.Integer], 30)
+
+    var tf_eager = parse_toml_file[Mode.Eager](tmp_path)
+    remove(tmp_path)
+    assert_equal(tf_eager["msg"][Kind.String], "from\tfile")
+    assert_equal(tf_eager["nums"][1][Kind.Integer], 20)
+
+
 def test_utf8_chunk_recovery_and_toml11_cr() raises:
-    # Build an ASCII prefix > 512 bytes, insert multi-byte UTF-8 near chunk boundary 510..516,
-    # then append > 512 bytes of ASCII with UTF-8 comments and values.
     var doc_s = String()
     for i in range(6):
-        doc_s += 'pad_key_' + String(i) + ' = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n'
+        doc_s += (
+            "pad_key_"
+            + String(i)
+            + ' = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\n'
+        )
     doc_s += 'utf8_mid = "héllo € 🚀 世界"\n'
-    doc_s += '# comment with UTF-8: café 日本語 🎉\n'
+    doc_s += "# comment with UTF-8: café 日本語 🎉\n"
     for i in range(6):
-        doc_s += 'tail_key_' + String(i) + ' = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"\n'
+        doc_s += (
+            "tail_key_"
+            + String(i)
+            + ' = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"\n'
+        )
 
-    var doc = parse_lazy(doc_s.as_bytes()).take()
-    assert_equal(doc["utf8_mid"].value().as_string().take(), "héllo € 🚀 世界")
+    var doc = parse_toml(doc_s).take()
+    assert_equal(doc["utf8_mid"][Kind.String], "héllo € 🚀 世界")
 
-    # Verify JSON and Toml conversion agree for multiline, quotes, and special escapes
     var esc_doc_s = (
-        'ml = """\nhello "inner" ""double"" \\\n   world\\e\\x01\\x00\\u20ac\\U0001f680"""\n'
-        'ctrl_lit = \'raw\ttab\'\n'
-        '"k\\e\\x22" = true\n'
+        'ml = """\nhello "inner" ""double"" \\\n  '
+        ' world\\e\\x01\\x00\\u20ac\\U0001f680"""\nctrl_lit ='
+        " 'raw\ttab'\n\"k\\e\\x22\" = true\n"
     )
-    var d_strict = parse_lazy[Validation.Strict](esc_doc_s.as_bytes()).take()
-    var d_trusted = parse_lazy[Validation.Trusted](esc_doc_s.as_bytes()).take()
+    var d_strict = parse_toml[Mode.Strict](esc_doc_s).take()
+    var d_trusted = parse_toml[Mode.Trusted](esc_doc_s).take()
+    var d_eager = parse_toml[Mode.Eager](esc_doc_s).take()
     var j_strict = String()
     var j_trusted = String()
+    var j_eager = String()
     d_strict.to_json(j_strict)
     d_trusted.to_json(j_trusted)
+    d_eager.to_json(j_eager)
     assert_equal(j_strict, j_trusted)
-    assert_equal(d_strict.to_toml(), d_trusted.to_toml())
+    assert_equal(j_strict, j_eager)
 
-    # Reject invalid UTF-8 placed beyond byte 512
     var bad_utf8 = List[Byte](capacity=doc_s.byte_length() + 4)
     for b in doc_s.as_bytes():
         bad_utf8.append(b)
     bad_utf8.append(Byte(ord("#")))
     bad_utf8.append(Byte(0xFF))
     bad_utf8.append(Byte(ord("\n")))
-    var utf8_err = parse_lazy(Span(bad_utf8))
+    var utf8_err = parse_toml(StringSpan(unsafe_from_utf8=Span(bad_utf8)))
     if case .Err = utf8_err:
         _ = utf8_err^.unsafe_take_error()
     else:
         _ = utf8_err^.unsafe_take_value()
         raise "Expected Strict parser to reject invalid UTF-8 past 512 bytes"
 
-    # Reject bare CR in array and NUL inside array comment
     assert_lazy_parse_error("arr = [1,\r2]\n")
     var nul_arr = String("arr = [1, # bad") + "\0" + "\n2]\n"
     assert_lazy_parse_error(nul_arr)
@@ -501,9 +512,8 @@ def test_all_validation_modes_match_valid_suite() raises:
     var loc = call_location().file_name()
     var tests_dir = Path(loc[byte = : loc.rfind("/")])
     var toml_dir = tests_dir / "toml_files" / "tests"
-    var v11_files = (
-        MappedFile(toml_dir / "files-toml-1.1.0").unsafe_view().splitlines()
-    )
+    var manifest = MappedFile(toml_dir / "files-toml-1.1.0")
+    var v11_files = manifest.unsafe_view().splitlines()
 
     var checked = 0
     for fpath in v11_files:
@@ -511,19 +521,23 @@ def test_all_validation_modes_match_valid_suite() raises:
         if not spath.endswith(".toml") or "invalid/" in spath:
             continue
         var fmap = MappedFile(Path(spath))
-        var view = fmap.unsafe_view().as_bytes()
-        var ds = parse_lazy[Validation.Strict](view).take()
-        var dl = parse_lazy[Validation.Lexical](view).take()
-        var dt = parse_lazy[Validation.Structure](view).take()
-        var dx = parse_lazy[Validation.Trusted](view).take()
+        var view = fmap.unsafe_view()
+        var de = parse_toml[Mode.Eager](view).take()
+        var ds = parse_toml[Mode.Strict](view).take()
+        var dl = parse_toml[Mode.Lexical](view).take()
+        var dt = parse_toml[Mode.Structure](view).take()
+        var dx = parse_toml[Mode.Trusted](view).take()
+        var je = String()
         var js = String()
         var jl = String()
         var jt = String()
         var jx = String()
+        de.to_json(je)
         ds.to_json(js)
         dl.to_json(jl)
         dt.to_json(jt)
         dx.to_json(jx)
+        assert_equal(js, je)
         assert_equal(js, jl)
         assert_equal(js, jt)
         assert_equal(js, jx)

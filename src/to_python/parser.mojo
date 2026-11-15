@@ -8,15 +8,16 @@ from ..parser import parse_toml
 @export
 def PyInit_motoml() abi("C") -> PythonObject:
     try:
-        var module = PythonModuleBuilder("motoml")
-        module.def_function[loads]("loads", "Parse a toml file from a string.")
-        return module.finalize()
+        var m = PythonModuleBuilder("motoml")
+        m.def_function[loads]("loads", docstring="Parse TOML string")
+        return m.finalize()
     except e:
-        abort(String("failed to create Python module: ", e))
+        abort(String("failed to create Python extension module: ", e))
 
 
 def loads(v: PythonObject) raises -> PythonObject:
+    var s = String(py=v)
     var w = String()
-    var toml = parse_toml(String(py=v)).take()
-    toml.to_json(w)
+    var doc = parse_toml(s).take()
+    doc.to_json(w)
     return w

@@ -1,7 +1,7 @@
 """Low-level scanner and lexing helpers for lazy TOML parsing.
 """
 
-from .node import Kind
+from .node import NodeKind
 from std.memory import pack_bits
 from std.bit import count_trailing_zeros
 from std.collections.string._utf8 import _is_valid_utf8
@@ -97,7 +97,9 @@ def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
         if any(hi.ne(0)):
             var chunk_end = min(n, i + 512)
             var cont = 0
-            while chunk_end < n and (ptr[unsafe_offset=chunk_end] & 0xC0) == 0x80:
+            while (
+                chunk_end < n and (ptr[unsafe_offset=chunk_end] & 0xC0) == 0x80
+            ):
                 if cont >= 3:
                     return False
                 chunk_end += 1
@@ -242,7 +244,9 @@ def _dec_2digits(ptr: Pointer[Byte, _], offset: Int) -> Int:
 
 
 @always_inline
-def _is_scalar_delim(ptr: Pointer[Byte, _], sp_ptr: Pointer[Byte, _], n: Int, pos: Int) -> Bool:
+def _is_scalar_delim(
+    ptr: Pointer[Byte, _], sp_ptr: Pointer[Byte, _], n: Int, pos: Int
+) -> Bool:
     if pos == n:
         return True
     var b = ptr[unsafe_offset=pos]
@@ -296,18 +300,18 @@ def _scan_date_or_datetime(
     n: Int,
     start: Int,
     mut idx: Int,
-) -> Tuple[Int, Kind, UInt8]:
+) -> Tuple[Int, NodeKind, UInt8]:
     """Single-pass scan and validation for RFC 3339 dates and date-times.
 
-    Returns `(0, Kind.Empty, 0)` when the candidate does not match a valid
+    Returns `(0, NodeKind.Empty, 0)` when the candidate does not match a valid
     calendar date/time shape, letting the general scanner classify or reject it.
     """
     if start + 10 > n or ptr[unsafe_offset=start + 7] != Byte(ord("-")):
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
     var month = _dec_2digits(ptr, start + 5)
     var day = _dec_2digits(ptr, start + 8)
     if month < 1 or month > 12 or day < 1:
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
     var year = (
         Int(ptr[unsafe_offset=start] - Byte(ord("0"))) * 1000
         + Int(ptr[unsafe_offset=start + 1] - Byte(ord("0"))) * 100
@@ -321,12 +325,12 @@ def _scan_date_or_datetime(
         var leap = (year % 4 == 0) and (year % 100 != 0 or year % 400 == 0)
         days_in_month = 29 if leap else 28
     if day > days_in_month:
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
 
     var p = start + 10
     if p == n or sp_ptr[unsafe_offset=Int(ptr[unsafe_offset=p])] == 1:
         idx = p
-        return (10, Kind.Date, 1)
+        return (10, NodeKind.Date, 1)
 
     var sep = ptr[unsafe_offset=p]
     if sep == Space:
@@ -334,13 +338,13 @@ def _scan_date_or_datetime(
             Byte(ord("0")) <= ptr[unsafe_offset=p + 1] <= Byte(ord("9"))
         ):
             idx = p
-            return (10, Kind.Date, 1)
+            return (10, NodeKind.Date, 1)
     elif sep != Byte(ord("T")) and sep != Byte(ord("t")):
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
 
     var cur = p + 1
     if not _scan_time_from(ptr, n, cur):
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
 
     if cur < n:
         var tz = ptr[unsafe_offset=cur]
@@ -348,24 +352,24 @@ def _scan_date_or_datetime(
             cur += 1
         elif tz == Byte(ord("+")) or tz == Byte(ord("-")):
             if cur + 6 > n or ptr[unsafe_offset=cur + 3] != Byte(ord(":")):
-                return (0, Kind.Empty, 0)
+                return (0, NodeKind.Empty, 0)
             var off_h = _dec_2digits(ptr, cur + 1)
             var off_m = _dec_2digits(ptr, cur + 4)
             if off_h < 0 or off_h > 23 or off_m < 0 or off_m > 59:
-                return (0, Kind.Empty, 0)
+                return (0, NodeKind.Empty, 0)
             cur += 6
 
     if not _is_scalar_delim(ptr, sp_ptr, n, cur):
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
     idx = cur
-    return (cur - start, Kind.DateTime, 1)
+    return (cur - start, NodeKind.DateTime, 1)
 
 
 @always_inline
 def scan_and_classify_scalar(
     data: Span[Byte, _], mut idx: Int
-) -> Tuple[Int, Kind, UInt8]:
-    """Scan an unquoted scalar, classify its `Kind`, and fast-validate common numbers in one pass.
+) -> Tuple[Int, NodeKind, UInt8]:
+    """Scan an unquoted scalar, classify its `NodeKind`, and fast-validate common numbers in one pass.
 
     Returns:
         `(scalar_len, kind, prevalidated_level)` where `prevalidated_level` is:
@@ -389,7 +393,7 @@ def scan_and_classify_scalar(
                 and _is_scalar_delim(ptr, sp_ptr, n, idx + 4)
             ):
                 idx += 4
-                return (4, Kind.Boolean, 1)
+                return (4, NodeKind.Boolean, 1)
         elif b0 == Byte(ord("f")):
             if (
                 idx + 5 <= n
@@ -400,7 +404,7 @@ def scan_and_classify_scalar(
                 and _is_scalar_delim(ptr, sp_ptr, n, idx + 5)
             ):
                 idx += 5
-                return (5, Kind.Boolean, 1)
+                return (5, NodeKind.Boolean, 1)
 
         var dig_start = idx
         if b0 == Byte(ord("-")) or b0 == Byte(ord("+")):
@@ -424,7 +428,7 @@ def scan_and_classify_scalar(
                     var pv: UInt8 = 2 if (
                         no_leading_zero and int_digits <= 18
                     ) else 0
-                    return (p - start, Kind.Integer, pv)
+                    return (p - start, NodeKind.Integer, pv)
                 var next_b = ptr[unsafe_offset=p]
                 var next_sp = sp_ptr[unsafe_offset=Int(next_b)]
                 if next_sp == 1 or (next_sp == 6 and (p - start != 10)):
@@ -432,7 +436,7 @@ def scan_and_classify_scalar(
                     var pv: UInt8 = 2 if (
                         no_leading_zero and int_digits <= 18
                     ) else 0
-                    return (p - start, Kind.Integer, pv)
+                    return (p - start, NodeKind.Integer, pv)
                 if dig_start == start:
                     if int_digits == 4 and next_b == Byte(ord("-")):
                         var dt = _scan_date_or_datetime(
@@ -442,11 +446,11 @@ def scan_and_classify_scalar(
                             return dt
                     elif int_digits == 2 and next_b == Byte(ord(":")):
                         var cur = start
-                        if _scan_time_from(
-                            ptr, n, cur
-                        ) and _is_scalar_delim(ptr, sp_ptr, n, cur):
+                        if _scan_time_from(ptr, n, cur) and _is_scalar_delim(
+                            ptr, sp_ptr, n, cur
+                        ):
                             idx = cur
-                            return (cur - start, Kind.Time, 1)
+                            return (cur - start, NodeKind.Time, 1)
                 if next_b == Byte(ord("_")) and d0 != Byte(ord("0")):
                     var up = p
                     var total_digits = int_digits
@@ -472,14 +476,14 @@ def scan_and_classify_scalar(
                         if up == n:
                             idx = up
                             var pv: UInt8 = 1 if total_digits <= 18 else 0
-                            return (up - start, Kind.Integer, pv)
+                            return (up - start, NodeKind.Integer, pv)
                         var usp = sp_ptr[
                             unsafe_offset=Int(ptr[unsafe_offset=up])
                         ]
                         if usp == 1 or usp == 6:
                             idx = up
                             var pv: UInt8 = 1 if total_digits <= 18 else 0
-                            return (up - start, Kind.Integer, pv)
+                            return (up - start, NodeKind.Integer, pv)
                 if next_b == Byte(ord(".")) and no_leading_zero:
                     var fp = p + 1
                     while fp < n:
@@ -491,12 +495,12 @@ def scan_and_classify_scalar(
                     if fp > p + 1:
                         if fp == n:
                             idx = fp
-                            return (fp - start, Kind.Float, 2)
+                            return (fp - start, NodeKind.Float, 2)
                         var fnext = ptr[unsafe_offset=fp]
                         var end_sp = sp_ptr[unsafe_offset=Int(fnext)]
                         if end_sp == 1 or end_sp == 6:
                             idx = fp
-                            return (fp - start, Kind.Float, 2)
+                            return (fp - start, NodeKind.Float, 2)
                         if fnext == Byte(ord("e")) or fnext == Byte(ord("E")):
                             var ep = fp + 1
                             if ep < n and (
@@ -514,13 +518,13 @@ def scan_and_classify_scalar(
                             if ep > exp_start:
                                 if ep == n:
                                     idx = ep
-                                    return (ep - start, Kind.Float, 1)
+                                    return (ep - start, NodeKind.Float, 1)
                                 var esp = sp_ptr[
                                     unsafe_offset=Int(ptr[unsafe_offset=ep])
                                 ]
                                 if esp == 1 or esp == 6:
                                     idx = ep
-                                    return (ep - start, Kind.Float, 1)
+                                    return (ep - start, NodeKind.Float, 1)
                 elif (
                     next_b == Byte(ord("e")) or next_b == Byte(ord("E"))
                 ) and no_leading_zero:
@@ -540,13 +544,13 @@ def scan_and_classify_scalar(
                     if ep > exp_start:
                         if ep == n:
                             idx = ep
-                            return (ep - start, Kind.Float, 1)
+                            return (ep - start, NodeKind.Float, 1)
                         var esp = sp_ptr[
                             unsafe_offset=Int(ptr[unsafe_offset=ep])
                         ]
                         if esp == 1 or esp == 6:
                             idx = ep
-                            return (ep - start, Kind.Float, 1)
+                            return (ep - start, NodeKind.Float, 1)
                 idx = p
 
     var dashes = 0
@@ -598,7 +602,7 @@ def scan_and_classify_scalar(
 
     var s_len = idx - start
     if s_len <= 0:
-        return (0, Kind.Empty, 0)
+        return (0, NodeKind.Empty, 0)
 
     if not has_other:
         var first = ptr[unsafe_offset=start]
@@ -607,27 +611,27 @@ def scan_and_classify_scalar(
             or first == Byte(ord("+"))
             or first == Byte(ord("-"))
         ):
-            return (s_len, Kind.Empty, 0)
+            return (s_len, NodeKind.Empty, 0)
         if dashes >= 2:
             if colons > 0:
-                return (s_len, Kind.DateTime, 0)
+                return (s_len, NodeKind.DateTime, 0)
             if dashes == 2 and s_len == 10:
-                return (s_len, Kind.Date, 0)
+                return (s_len, NodeKind.Date, 0)
         if colons > 0 and dashes == 0:
-            return (s_len, Kind.Time, 0)
+            return (s_len, NodeKind.Time, 0)
         if dots > 0 or exponent:
-            return (s_len, Kind.Float, 0)
-        return (s_len, Kind.Integer, 0)
+            return (s_len, NodeKind.Float, 0)
+        return (s_len, NodeKind.Integer, 0)
 
     var k = classify_scalar(data, start, idx)
-    return (s_len, k, 1 if k == Kind.Boolean else 0)
+    return (s_len, k, 1 if k == NodeKind.Boolean else 0)
 
 
-def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
-    """Determine the `Kind` of an unquoted scalar literal from its bytes."""
+def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> NodeKind:
+    """Determine the `NodeKind` of an unquoted scalar literal from its bytes."""
     var n = end - start
     if n <= 0:
-        return Kind.Empty
+        return NodeKind.Empty
     var ptr = data.unsafe_ptr().unsafe_offset(start)
 
     var first = ptr[unsafe_offset=0]
@@ -637,7 +641,7 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
             and ptr[unsafe_offset=2] == Byte(ord("u"))
             and ptr[unsafe_offset=3] == Byte(ord("e"))
         ):
-            return Kind.Boolean
+            return NodeKind.Boolean
     elif first == Byte(ord("f")) and n == 5:
         if (
             ptr[unsafe_offset=1] == Byte(ord("a"))
@@ -645,26 +649,26 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
             and ptr[unsafe_offset=3] == Byte(ord("s"))
             and ptr[unsafe_offset=4] == Byte(ord("e"))
         ):
-            return Kind.Boolean
+            return NodeKind.Boolean
     elif (first == Byte(ord("n")) and n == 3) or (
         (first == Byte(ord("+")) or first == Byte(ord("-")))
         and n == 4
         and ptr[unsafe_offset=1] == Byte(ord("n"))
     ):
-        return Kind.NaN
+        return NodeKind.NaN
     elif (first == Byte(ord("i")) and n == 3) or (
         (first == Byte(ord("+")) or first == Byte(ord("-")))
         and n == 4
         and ptr[unsafe_offset=1] == Byte(ord("i"))
     ):
-        return Kind.Inf
+        return NodeKind.Inf
 
     if (
         first != Byte(ord("+"))
         and first != Byte(ord("-"))
         and not (first >= Byte(ord("0")) and first <= Byte(ord("9")))
     ):
-        return Kind.Empty
+        return NodeKind.Empty
 
     if (
         (first == Byte(ord("+")) or first == Byte(ord("-")))
@@ -680,12 +684,12 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
             or p == Byte(ord("o"))
             or p == Byte(ord("O"))
         ):
-            return Kind.Empty
+            return NodeKind.Empty
 
     if first == Byte(ord("0")) and n > 1:
         var p = ptr[unsafe_offset=1]
         if p == Byte(ord("X")) or p == Byte(ord("B")) or p == Byte(ord("O")):
-            return Kind.Empty
+            return NodeKind.Empty
 
     var is_hex = (
         n > 2
@@ -703,7 +707,7 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
         and ptr[unsafe_offset=1] == Byte(ord("o"))
     )
     if is_hex or is_bin or is_oct:
-        return Kind.Integer
+        return NodeKind.Integer
 
     var dashes = 0
     var colons = 0
@@ -713,7 +717,7 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
     for i in range(n):
         var b = ptr[unsafe_offset=i]
         if b < 0x20 or b == 0x7F:
-            return Kind.Empty
+            return NodeKind.Empty
         if b == Byte(ord("-")):
             if i > 0:
                 dashes += 1
@@ -733,18 +737,18 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> Kind:
             or b == Byte(ord("z"))
             or b == Byte(ord(" "))
         ):
-            return Kind.Empty
+            return NodeKind.Empty
 
     if dashes >= 2:
         if colons > 0:
-            return Kind.DateTime
+            return NodeKind.DateTime
         if dashes == 2 and n == 10:
-            return Kind.Date
+            return NodeKind.Date
 
     if colons > 0 and dashes == 0:
-        return Kind.Time
+        return NodeKind.Time
 
     if dots > 0 or exponent:
-        return Kind.Float
+        return NodeKind.Float
 
-    return Kind.Integer
+    return NodeKind.Integer

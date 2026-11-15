@@ -73,7 +73,7 @@ test-reflection = { cmd = "uv run mojo test_reflection.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
-bench-parser = { cmd = "uv run mojo bench_parser.mojo", cwd = "tests", depends-on = [
+bench-parser = { cmd = "uv run mojo bench_compare.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
 ] }
@@ -91,7 +91,7 @@ tests = { depends-on = [
     "test-parser",
     "test-toml-suite",
     "test-lazy-unit",
-    # "test-comptime-parser", # BLOCKED BY ENUMS
+    "test-comptime-parser",
     "test-reflection",
 ] }
 

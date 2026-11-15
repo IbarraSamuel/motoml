@@ -5,7 +5,7 @@ comptime NO_NODE: UInt32 = 0xFFFFFFFF
 
 
 @fieldwise_init
-struct Kind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
+struct NodeKind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
     """Type tags identifying the AST node variant stored on the tape."""
 
     var _value: UInt8
@@ -55,7 +55,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
     the original document buffer without heap allocations.
     """
 
-    var kind: Kind
+    var kind: NodeKind
     var flags: UInt8
     var key_flags: UInt8
     var _pad: UInt8
@@ -70,7 +70,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
     @always_inline
     def __init__(
         out self,
-        kind: Kind = Kind.Empty,
+        kind: NodeKind = NodeKind.Empty,
         flags: UInt8 = 0,
         key_flags: UInt8 = 0,
         start: UInt32 = 0,
@@ -84,7 +84,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
         """Initialize a tape node with type, flags, source byte offsets, and link indices.
 
         Args:
-            kind: The token kind (`Kind.Table`, `Kind.Array`, `Kind.String`, etc.).
+            kind: The token kind (`NodeKind.Table`, `NodeKind.Array`, `NodeKind.String`, etc.).
             flags: Value attribute bitmask (`NodeFlags`).
             key_flags: Key attribute bitmask (`NodeFlags.HAS_ESCAPE`, etc.).
             start: Start byte offset of the value in the document.
@@ -110,12 +110,12 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
     @always_inline
     def is_table(self) -> Bool:
         """Check whether this node represents a table."""
-        return self.kind == Kind.Table
+        return self.kind == NodeKind.Table
 
     @always_inline
     def is_array(self) -> Bool:
         """Check whether this node represents an array."""
-        return self.kind == Kind.Array
+        return self.kind == NodeKind.Array
 
     @always_inline
     def has_flag(self, flag: UInt8) -> Bool:

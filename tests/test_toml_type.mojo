@@ -1,121 +1,169 @@
-from std.testing import TestSuite, assert_equal, assert_true
-from motoml.types.toml import Toml
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_false,
+    assert_raises,
+    assert_true,
+)
+from std.math import isnan
+from motoml import (
+    parse_toml,
+    Mode,
+    _Mode,
+    Kind,
+    KindTag,
+    Toml,
+    TomlTable,
+    TomlArray,
+)
 from motoml.types import tempo
 
 
-def test_string() raises:
-    var toml = Toml.String("hello friend")
-    if case .String(s) = toml:
-        assert_equal(s, "hello friend")
-    else:
-        raise "Toml should be a string"
+def _check_all_types[
+    mode_id: Int, //, mode: _Mode[mode_id]
+](doc: Toml[_, mode]) raises:
+    # String
+    assert_equal(doc["str"].kind(), KindTag.String)
+    assert_true(doc["str"].is_kind[Kind.String]())
+    assert_equal(doc["str"][Kind.String], "hello friend")
+    assert_equal(doc["str"].take[Kind.String](), "hello friend")
+    assert_equal(doc["str"].string_span().value(), "hello friend")
+    assert_equal(doc["lit"].string_span().value(), "literal\\path")
+    assert_equal(doc["esc"][Kind.String], 'hello\n"world"')
+
+    # Integer
+    assert_equal(doc["int_v"].kind(), KindTag.Integer)
+    assert_true(doc["int_v"].is_kind[Kind.Integer]())
+    assert_equal(doc["int_v"][Kind.Integer], 3)
+    assert_equal(doc["int_v"].take[Kind.Integer](), 3)
+
+    # No implicit int -> float coercion
+    with assert_raises():
+        _ = doc["int_v"].take[Kind.Float]()
+
+    # Float, NaN, Inf
+    assert_equal(doc["float_v"].kind(), KindTag.Float)
+    assert_equal(doc["float_v"][Kind.Float], 3.14)
+    assert_equal(doc["nan_v"].kind(), KindTag.Float)
+    assert_true(isnan(doc["nan_v"][Kind.Float]))
+    assert_equal(doc["inf_v"].kind(), KindTag.Float)
+    assert_true(doc["inf_v"][Kind.Float] > 1e300)
+    assert_true(doc["ninf_v"][Kind.Float] < -1e300)
+
+    # Bool
+    assert_equal(doc["bool_f"].kind(), KindTag.Boolean)
+    assert_equal(doc["bool_f"][Kind.Boolean], False)
+    assert_equal(doc["bool_t"].take[Kind.Boolean](), True)
+
+    # Temporals
+    var expected_date = tempo.Date(year=2022, month=2, day=1)
+    assert_equal(doc["date_v"].kind(), KindTag.Date)
+    assert_equal(doc["date_v"][Kind.Date], expected_date)
+
+    var expected_time = tempo.Time(hour=22, minute=32, second=4)
+    assert_equal(doc["time_v"].kind(), KindTag.Time)
+    assert_equal(doc["time_v"][Kind.Time], expected_time)
+
+    var expected_dt = tempo.DateTime.from_string("2022-03-02 03:43:02").take()
+    assert_equal(doc["dt_v"].kind(), KindTag.DateTime)
+    assert_equal(doc["dt_v"][Kind.DateTime], expected_dt)
+
+    # Array via Kind.Array
+    assert_equal(doc["arr"].kind(), KindTag.Array)
+    var arr = doc["arr"][Kind.Array]
+    assert_equal(len(arr), 3)
+    assert_equal(arr[0][Kind.Integer], 1)
+    assert_equal(arr[1][Kind.Float], 2.0)
+    assert_equal(arr[2][Kind.Boolean], True)
+
+    # Table via Kind.Table and direct chaining
+    assert_equal(doc["tbl"].kind(), KindTag.Table)
+    var tbl = doc["tbl"][Kind.Table]
+    assert_equal(tbl["first"][Kind.Integer], 1)
+    assert_equal(tbl["second"][Kind.Float], 2.0)
+    assert_equal(tbl["third"][Kind.Boolean], True)
+    assert_true("first" in tbl)
+    assert_false("missing" in tbl)
+    assert_true(Bool(tbl.get("first")))
+    assert_false(Bool(tbl.get("missing")))
+
+    assert_equal(doc["outer"]["inner"]["val"][Kind.Integer], 99)
+
+    # Missing view and wrong-kind take raise
+    var miss = doc["nonexistent"]
+    assert_equal(miss.kind(), KindTag.Missing)
+    assert_true(miss.is_missing())
+    assert_false(Bool(miss))
+    with assert_raises():
+        _ = miss.take[Kind.Integer]()
+    with assert_raises():
+        _ = doc["str"].take[Kind.Integer]()
+    with assert_raises():
+        _ = doc["int_v"].take[Kind.Table]()
+    with assert_raises():
+        _ = doc["int_v"].take[Kind.Array]()
 
 
-def test_int() raises:
-    var toml = Toml.Integer(3)
-    if case .Integer(i) = toml:
-        assert_equal(i, 3)
-    else:
-        raise "toml should be a integer."
+comptime ALL_TYPES_SRC = """
+    str = "hello friend"
+    lit = 'literal\\path'
+    esc = "hello\\n\\"world\\""
+    int_v = 3
+    float_v = 3.14
+    nan_v = nan
+    inf_v = inf
+    ninf_v = -inf
+    bool_f = false
+    bool_t = true
+    date_v = 2022-02-01
+    time_v = 22:32:04
+    dt_v = 2022-03-02T03:43:02
+    arr = [1, 2.0, true]
+    [tbl]
+    first = 1
+    second = 2.0
+    third = true
+    [outer.inner]
+    val = 99
+"""
 
 
-def test_float() raises:
-    var toml = Toml.Float(3.14)
-    assert_equal(toml[Float64], 3.14)
+def test_kinds_strict() raises:
+    var doc = parse_toml[Mode.Strict](ALL_TYPES_SRC).take()
+    _check_all_types(doc.root())
 
 
-def test_bool() raises:
-    var toml = Toml.Boolean(False)
-    assert_equal(toml[Bool], False)
+def test_kinds_eager() raises:
+    var doc = parse_toml[Mode.Eager](ALL_TYPES_SRC).take()
+    _check_all_types(doc.root())
 
 
-def test_date() raises:
-    var date = tempo.Date(year=2022, month=2, day=1)
-    var toml = Toml.Date(date)
-    assert_equal(toml[tempo.Date], date)
+def test_string_span_eager_vs_lazy() raises:
+    var real_src = 'plain = "abc"\nesc = "a\\nb"\n'
+    var lazy_doc = parse_toml[Mode.Strict](real_src).take()
+    assert_true(Bool(lazy_doc["plain"].string_span()))
+    assert_false(Bool(lazy_doc["esc"].string_span()))
 
-
-def test_datetime() raises:
-    var datetime = tempo.DateTime.from_string("2022-03-02 03:43:02").take()
-    var toml = Toml.DateTime(datetime)
-    assert_equal(toml[tempo.DateTime], datetime)
-
-
-def test_time() raises:
-    var time = tempo.Time(hour=22, minute=32, second=4)
-    var toml = Toml.Time(time)
-    assert_equal(toml[tempo.Time], time)
-
-
-def test_array() raises:
-    var array: List = [
-        Toml.Integer(1),
-        Toml.Float(2.0),
-        Toml.Boolean(True),
-    ]
-    var toml = Toml.Array(array^)
-
-    ref arr = toml[List[Toml]]
-    assert_equal(arr[0][Int], 1)
-    assert_equal(arr[1][Float64], 2.0)
-    assert_equal(arr[2][Bool], True)
-
-    var own_arr = toml^.unsafe_take[List[Toml]]()
-    assert_equal(own_arr[0][Int], 1)
-    assert_equal(own_arr[1][Float64], 2.0)
-    assert_equal(own_arr[2][Bool], True)
-
-
-def test_table() raises:
-    var table = Dict[String, Toml]()
-    table["first"] = Toml.Integer(1)
-    table["second"] = Toml.Float(2.0)
-    table["third"] = Toml.Boolean(True)
-
-    var toml = Toml.Table(table^)
-
-    ref tb = toml[Dict[String, Toml]]
-    assert_equal(tb["first"][Int], 1)
-    assert_equal(tb["second"][Float64], 2.0)
-    assert_equal(tb["third"][Bool], True)
-
-    var own_tb = toml^.unsafe_take[Dict[String, Toml]]()
-    assert_equal(own_tb["first"][Int], 1)
-    assert_equal(own_tb["second"][Float64], 2.0)
-    assert_equal(own_tb["third"][Bool], True)
-
-
-def test_nested_table() raises:
-    var inner_tb = Dict[String, Toml]()
-    inner_tb["second"] = Toml.Integer(1)
-    var outer_tb = Dict[String, Toml]()
-    outer_tb["first"] = Toml.Table(inner_tb^)
-    var toml = Toml.Table(outer_tb^)
-
-    assert_equal(
-        toml[Dict[String, Toml]]["first"][Dict[String, Toml]]["second"][Int], 1
-    )
+    var eager_doc = parse_toml[Mode.Eager](real_src).take()
+    assert_equal(eager_doc["plain"].string_span().value(), "abc")
+    # Eager decodes escaped strings into its arena, so string_span() succeeds.
+    assert_equal(eager_doc["esc"].string_span().value(), "a\nb")
 
 
 def test_to_json_unescaped_strings() raises:
-    var tml_str = Toml.String('Hello "world"\n\t\\')
-    var out_str = String()
-    tml_str.to_json(out_str)
+    var src = 'msg = "Hello \\"world\\"\\n\\t\\\\"\n'
+    var lazy_doc = parse_toml(src).take()
+    var out_lazy = String()
+    lazy_doc["msg"].to_json(out_lazy)
     assert_equal(
-        out_str,
+        out_lazy,
         '{"type": "string", "value": "Hello \\"world\\"\\n\\t\\\\"}',
     )
 
-    var tbl = Dict[String, Toml]()
-    tbl['key "with" quotes\n'] = Toml.String('val "with" quotes')
-    var tml_tbl = Toml.Table(tbl^)
-    var out_tbl = String()
-    tml_tbl.to_json(out_tbl)
-    assert_equal(
-        out_tbl,
-        '{"key \\"with\\" quotes\\n": {"type": "string", "value": "val'
-        ' \\"with\\" quotes"}}',
-    )
+    var eager_doc = parse_toml[Mode.Eager](src).take()
+    var out_eager = String()
+    eager_doc["msg"].to_json(out_eager)
+    assert_equal(out_eager, out_lazy)
 
 
 def main() raises:

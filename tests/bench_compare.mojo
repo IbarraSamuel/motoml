@@ -1,5 +1,4 @@
-from motoml.parser import parse_toml, ParseMode
-from motoml.lazy import parse_lazy, Validation
+from motoml import parse_toml, Mode
 from motoml.mmap_file import MappedFile
 from std.time import perf_counter_ns
 
@@ -10,50 +9,53 @@ def bench_corpus(name: StringSpan, path_str: String) raises:
     var size_bytes = view.byte_length()
     var size_mb = Float64(size_bytes) / (1024.0 * 1024.0)
 
-    # 1. Old (Eager) parser
-    _ = parse_toml[mode=ParseMode.Eager, log=False](view).take()  # warmup
-    var old_best: Int = 1_000_000_000_000
+    # 1. Eager (Strict + materialize)
+    _ = parse_toml[Mode.Eager](view).take()
+    var eager_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()
-        var res = parse_toml[mode=ParseMode.Eager, log=False](view).take()
+        var res = parse_toml[Mode.Eager](view).take()
         var t1 = perf_counter_ns()
-        if (t1 - t0) < old_best:
-            old_best = t1 - t0
-    var old_ms = Float64(old_best) / 1_000_000.0
-    var old_mbps = size_mb / (Float64(old_best) / 1_000_000_000.0)
+        _ = len(res)
+        if (t1 - t0) < eager_best:
+            eager_best = t1 - t0
+    var eager_ms = Float64(eager_best) / 1_000_000.0
+    var eager_mbps = size_mb / (Float64(eager_best) / 1_000_000_000.0)
 
     # 2. Lazy Strict
-    _ = parse_lazy[Validation.Strict](view.as_bytes()).take()  # warmup
+    _ = parse_toml[Mode.Strict](view).take()
     var strict_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()
-        var res = parse_lazy[Validation.Strict](view.as_bytes()).take()
+        var res = parse_toml[Mode.Strict](view).take()
         var t1 = perf_counter_ns()
+        _ = len(res)
         if (t1 - t0) < strict_best:
             strict_best = t1 - t0
     var strict_ms = Float64(strict_best) / 1_000_000.0
     var strict_mbps = size_mb / (Float64(strict_best) / 1_000_000_000.0)
-    var strict_speedup = Float64(old_best) / Float64(strict_best)
+    var strict_speedup = Float64(eager_best) / Float64(strict_best)
 
-    # 3. Lazy Trusted (no-validation mode)
-    _ = parse_lazy[Validation.Trusted](view.as_bytes()).take()  # warmup
+    # 3. Lazy Trusted
+    _ = parse_toml[Mode.Trusted](view).take()
     var trusted_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()
-        var res = parse_lazy[Validation.Trusted](view.as_bytes()).take()
+        var res = parse_toml[Mode.Trusted](view).take()
         var t1 = perf_counter_ns()
+        _ = len(res)
         if (t1 - t0) < trusted_best:
             trusted_best = t1 - t0
     var trusted_ms = Float64(trusted_best) / 1_000_000.0
     var trusted_mbps = size_mb / (Float64(trusted_best) / 1_000_000_000.0)
-    var trusted_speedup = Float64(old_best) / Float64(trusted_best)
+    var trusted_speedup = Float64(eager_best) / Float64(trusted_best)
 
     print(
         name,
-        "| Old:",
-        old_ms,
+        "| Eager:",
+        eager_ms,
         "ms (",
-        old_mbps,
+        eager_mbps,
         "MB/s) | Lazy Strict:",
         strict_ms,
         "ms (",
@@ -71,10 +73,7 @@ def bench_corpus(name: StringSpan, path_str: String) raises:
 
 
 def main() raises:
-    print(
-        "=================== TOML READER BENCHMARK COMPARISON"
-        " ==================="
-    )
+    print("=================== TOML READER MODE COMPARISON ===================")
     bench_corpus("strings_plain   ", "bench_data/strings_plain_1mb.toml")
     bench_corpus("strings_escaped ", "bench_data/strings_escaped_1mb.toml")
     bench_corpus("ints_floats     ", "bench_data/ints_floats_1mb.toml")

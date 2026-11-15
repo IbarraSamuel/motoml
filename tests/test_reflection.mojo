@@ -1,132 +1,62 @@
-from std.testing import TestSuite, assert_equal
+from std.testing import TestSuite, assert_equal, assert_raises
+from std.collections import List, Optional
 
-# from motoml.parser import parse_toml, parse_toml_raises
-from motoml.types.toml import Toml
-from motoml.reflection import toml_to_type, toml_to_type_raises
-
-
-# comptime TOML_OBJ = parse_toml(TOML_CONTENT)
+from motoml import parse_toml, Mode, _Mode, Date, Time, DateTime
 
 
-def test_int() raises:
-    var init_v = 1
-    var toml_obj = Toml.Integer(init_v)
-    var result = toml_to_type_raises[Int](toml_obj^)
-    assert_equal(result, init_v)
-
-
-def test_float() raises:
-    var init_v = 3.14
-    var toml_obj = Toml.Float(init_v)
-    var result = toml_to_type_raises[Float64](toml_obj^)
-    assert_equal(result, init_v)
-
-
-def test_bool() raises:
-    var init_v = True
-    var toml_obj = Toml.Boolean(init_v)
-    var result = toml_to_type_raises[Bool](toml_obj^)
-    assert_equal(result, init_v)
-
-
-def test_date() raises:
-    var init_v = Toml.Types.Date(year=2023, month=2, day=1)
-    var toml_obj = Toml.Date(init_v)
-    var result = toml_to_type_raises[Toml.Types.Date](toml_obj^)
-    assert_equal(result, init_v)
-
-
-def test_time() raises:
-    var init_v = Toml.Types.Time(hour=23, minute=1, second=1)
-    var toml_obj = Toml.Time(init_v)
-    var result = toml_to_type_raises[Toml.Types.Time](toml_obj^)
-    assert_equal(result, init_v)
-
-
-def test_datetime() raises:
-    var date = Toml.Types.Date(year=2023, month=2, day=1)
-    var time = Toml.Types.Time(hour=23, minute=1, second=1)
-    var init_v = Toml.Types.DateTime(
-        date=date, time=time, offset={}, is_local=True
+def test_scalar_and_temporal_take() raises:
+    var src = """
+    i = 1
+    f = 3.14
+    b = true
+    s = "hello world"
+    d = 2023-02-01
+    t = 23:01:01
+    dt = 2023-02-01T23:01:01
+    """
+    var doc = parse_toml(src).take()
+    assert_equal(doc["i"].take[Int](), 1)
+    assert_equal(doc["f"].take[Float64](), 3.14)
+    assert_equal(doc["b"].take[Bool](), True)
+    assert_equal(doc["s"].take[String](), "hello world")
+    assert_equal(doc["d"].take[Date](), Date(year=2023, month=2, day=1))
+    assert_equal(doc["t"].take[Time](), Time(hour=23, minute=1, second=1))
+    var expected_dt = DateTime(
+        date=Date(year=2023, month=2, day=1),
+        time=Time(hour=23, minute=1, second=1),
+        offset={},
+        is_local=True,
     )
-    var toml_obj = Toml.DateTime(init_v)
-    var result = toml_to_type_raises[Toml.Types.DateTime](toml_obj^)
-    assert_equal(result, init_v)
+    assert_equal(doc["dt"].take[DateTime](), expected_dt)
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    assert_equal(edoc["i"].take[Int](), 1)
+    assert_equal(edoc["f"].take[Float64](), 3.14)
+    assert_equal(edoc["b"].take[Bool](), True)
+    assert_equal(edoc["s"].take[String](), "hello world")
+    assert_equal(edoc["dt"].take[DateTime](), expected_dt)
 
 
-def test_string() raises:
-    var init_string = "hello world"
-    var toml_obj = Toml.String(init_string)
-    var result = toml_to_type_raises[String](toml_obj^)
-    assert_equal(result, init_string)
+def test_lists() raises:
+    var src = """
+    floats = [3.12, 1.5e14, -2.5]
+    ints = [3, 4, 5]
+    strings = ["hello", "hello", "hello", "hello"]
+    """
+    var doc = parse_toml(src).take()
+    var rf = doc["floats"].take[List[Float64]]()
+    assert_equal(rf[0], 3.12)
+    assert_equal(rf[1], 1.5e14)
+    assert_equal(rf[2], -2.5)
 
+    var ri = doc["ints"].take[List[Int]]()
+    assert_equal(ri[0], 3)
+    assert_equal(ri[1], 4)
+    assert_equal(ri[2], 5)
 
-# TODO: Add Variant into this, to be able to store a list of distinct types.
-def test_float_list() raises:
-    var f = Toml.Float(3.12)
-    var f2 = Toml.Float(Float64.MAX)
-    var f3 = Toml.Float(3e14)
-    var l: List = [f^, f2^, f3^]
-    var toml_list = Toml.Array(l^)
-    var result = toml_to_type_raises[List[Float64]](toml_list^)
-    assert_equal(result[0], 3.12)
-    assert_equal(result[1], Float64.MAX)
-    assert_equal(result[2], 3e14)
-
-
-def test_int_list() raises:
-    var l = [Toml.Integer(i) for i in range(3, 6)]
-    var toml_list = Toml.Array(l^)
-    var result = toml_to_type_raises[List[Int]](toml_list^)
-    assert_equal(result[0], 3)
-    assert_equal(result[1], 4)
-    assert_equal(result[2], 5)
-
-
-def test_string_list() raises:
-    var string_v = String("hello")
-    var l: List = [
-        Toml.String(string_v),
-        Toml.String(string_v),
-        Toml.String(string_v),
-        Toml.String(string_v),
-    ]
-
-    var toml_list = Toml.Array(l^)
-    var result = toml_to_type_raises[List[String]](toml_list^)
-    assert_equal(result[0], string_v)
-    assert_equal(result[1], string_v)
-    assert_equal(result[2], string_v)
-    assert_equal(result[3], string_v)
-
-
-def test_toml_list() raises:
-    var string_v = Toml.String("hello")
-    var l: List = [
-        Toml.String("hello"),
-        Toml.String("hello"),
-        Toml.String("hello"),
-        Toml.String("hello"),
-    ]
-
-    var toml_list = Toml.Array(l^)
-    var result = toml_to_type_raises[List[Toml]](toml_list^)
-    assert_equal(result[0], string_v)
-    assert_equal(result[1], string_v)
-    assert_equal(result[2], string_v)
-    assert_equal(result[3], string_v)
-
-
-def test_toml_table() raises:
-    var dct = Dict[String, Toml]()
-    dct["first_value"] = Toml.Integer(1)
-    dct["second_value"] = Toml.Float(3.1)
-    var toml_obj = Toml.Table(dct^)
-
-    var simple_struct = toml_to_type_raises[Dict[String, Toml]](toml_obj^)
-
-    assert_equal(simple_struct["first_value"][Int], 1)
-    assert_equal(simple_struct["second_value"][Float64], 3.1)
+    var rs = doc["strings"].take[List[String]]()
+    assert_equal(rs[0], "hello")
+    assert_equal(rs[3], "hello")
 
 
 struct SimpleStruct(Movable):
@@ -135,15 +65,21 @@ struct SimpleStruct(Movable):
 
 
 def test_simple_struct() raises:
-    var dct = Dict[String, Toml]()
-    dct["first_value"] = Toml.Integer(1)
-    dct["second_value"] = Toml.Float(3.1)
-    var toml_obj = Toml.Table(dct^)
-
-    var simple_struct = toml_to_type_raises[SimpleStruct](toml_obj^)
-
+    var src = "first_value = 1\nsecond_value = 3.1\n"
+    var doc = parse_toml(src).take()
+    var simple_struct = doc.take[SimpleStruct]()
     assert_equal(simple_struct.first_value, 1)
     assert_equal(simple_struct.second_value, 3.1)
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    var eager_struct = edoc.take[SimpleStruct]()
+    assert_equal(eager_struct.first_value, 1)
+    assert_equal(eager_struct.second_value, 3.1)
+
+
+struct Table(Movable):
+    var key: Int
+    var key2: Int
 
 
 struct AllTypes(Movable):
@@ -151,16 +87,11 @@ struct AllTypes(Movable):
     var float: Float64
     var boolean: Bool
     var string: String
-    var date: Toml.Types.Date
-    var time: Toml.Types.Time
-    var datetime: Toml.Types.DateTime
-    var list: List[Toml]
+    var date: Date
+    var time: Time
+    var datetime: DateTime
+    var list: List[Int]
     var table: Table
-
-
-struct Table(Movable):
-    var key: Int
-    var key2: Int
 
 
 struct StringThenMissingField(Movable):
@@ -169,60 +100,42 @@ struct StringThenMissingField(Movable):
 
 
 def test_struct_conversion_failure_cleans_initialized_fields() raises:
-    var dct = Dict[String, Toml]()
-    dct["owned_string"] = Toml.String("owned value")
-    var toml_obj = Toml.Table(dct^)
-
-    var result = toml_to_type[StringThenMissingField](toml_obj^)
-    if case .Err = result:
-        _ = result^.unsafe_take_error()
-    else:
-        _ = result^.unsafe_take_value()
-        raise "Struct conversion should fail when a required field is missing."
+    var src = 'owned_string = "owned value"\n'
+    var doc = parse_toml(src).take()
+    with assert_raises():
+        _ = doc.take[StringThenMissingField]()
 
 
 def test_struct_all_types() raises:
-    var inner_dct = Dict[String, Toml]()
-    inner_dct["key"] = Toml.Integer(32)
-    inner_dct["key2"] = Toml.Integer(84)
-    var inner_tb = Toml.Table(inner_dct^)
-    var date = Toml.Date(Toml.Types.Date.from_string("2024-02-21").take())
-    var time = Toml.Time(Toml.Types.Time.from_string("22:01:04").take())
-    var datetime = Toml.DateTime(
-        Toml.Types.DateTime.from_string("2026-02-01T22:01:38-05:00").take()
-    )
-
-    var _tb = Dict[String, Toml]()
-    _tb["integer"] = Toml.Integer(1)
-    _tb["float"] = Toml.Float(3.1)
-    _tb["boolean"] = Toml.Boolean(True)
-    _tb["string"] = Toml.String("hello")
-    _tb["nan"] = materialize[Toml.NaN]()
-    _tb["date"] = date^
-    _tb["time"] = time^
-    _tb["datetime"] = datetime^
-    _tb["list"] = Toml.Array(
-        [Toml.Integer(1), Toml.Integer(2), Toml.Integer(3), Toml.Integer(4)]
-    )
-    _tb["table"] = inner_tb^
-    var _toml_obj = Toml.Table(_tb^)
-
-    ref tb = _toml_obj[Dict[String, Toml]]
-    assert_equal(tb["integer"][Int], 1)
-    assert_equal(tb["float"][Float64], 3.1)
-    assert_equal(tb["boolean"][Bool], True)
-    assert_equal(tb["datetime"][Toml.Types.DateTime].date.day, 1)
-    assert_equal(tb["list"][List[Toml]][2][Int], 3)
-    assert_equal(tb["table"][Dict[String, Toml]]["key"][Int], 32)
-
-    var at = toml_to_type_raises[AllTypes](_toml_obj^)
-
+    var src = """
+    integer = 1
+    float = 3.1
+    boolean = true
+    string = "hello"
+    date = 2024-02-21
+    time = 22:01:04
+    datetime = 2026-02-01T22:01:38-05:00
+    list = [1, 2, 3, 4]
+    [table]
+    key = 32
+    key2 = 84
+    """
+    var doc = parse_toml(src).take()
+    var at = doc.take[AllTypes]()
     assert_equal(at.integer, 1)
     assert_equal(at.float, 3.1)
     assert_equal(at.boolean, True)
+    assert_equal(at.string, "hello")
     assert_equal(at.datetime.date.day, 1)
-    assert_equal(at.list[2][Int], 3)
+    assert_equal(at.list[2], 3)
     assert_equal(at.table.key, 32)
+    assert_equal(at.table.key2, 84)
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    var eat = edoc.take[AllTypes]()
+    assert_equal(eat.integer, 1)
+    assert_equal(eat.list[3], 4)
+    assert_equal(eat.table.key2, 84)
 
 
 struct StructOptional(Movable):
@@ -231,13 +144,22 @@ struct StructOptional(Movable):
 
 
 def test_struct_optional() raises:
-    var _dct = Dict[String, Toml]()
-    _dct["value_1"] = Toml.String("hello")
-    var toml_obj = Toml.Table(_dct^)
-    var value = toml_to_type_raises[StructOptional](toml_obj^)
-
+    var src = 'value_1 = "hello"\n'
+    var doc = parse_toml(src).take()
+    var value = doc.take[StructOptional]()
     assert_equal(value.value_1, "hello")
     assert_equal(Bool(value.value_2), False)
+
+
+struct Info(Movable):
+    var name: String
+    var version: String
+
+
+struct Language(Movable):
+    var current_version: Optional[Float64]
+    var stable_version: Optional[Float64]
+    var info: Info
 
 
 struct TestBuild(Movable):
@@ -247,43 +169,30 @@ struct TestBuild(Movable):
     var language: Language
 
 
-struct Language(Movable):
-    var current_version: Optional[Float64]
-    var stable_version: Optional[Float64]
-    var info: Info
-
-
-struct Info(Movable):
-    var name: String
-    var version: String
-
-
 def test_nested() raises:
-    var _info = Dict[String, Toml]()
-    _info["name"] = Toml.String("mojo")
-    _info["version"] = Toml.String("0.26.2.0")
-
-    var _language = Dict[String, Toml]()
-    _language["current_version"] = Toml.Float(0.26)
-    _language["info"] = Toml.Table(_info^)
-
-    var _tb = Dict[String, Toml]()
-    _tb["name"] = Toml.String("samuel")
-    _tb["age"] = Toml.Integer(30)
-    _tb["other_types"] = Toml.Array(
-        [Toml.Float(1.0), Toml.Float(2.0), Toml.Float(3.0)]
-    )
-    _tb["language"] = Toml.Table(_language^)
-
-    var toml_obj = Toml.Table(_tb^)
-
-    var value = toml_to_type_raises[TestBuild](toml_obj^)
+    var src = """
+    name = "samuel"
+    age = 30
+    other_types = [1.0, 2.0, 3.0]
+    [language]
+    current_version = 0.26
+    [language.info]
+    name = "mojo"
+    version = "0.26.2.0"
+    """
+    var doc = parse_toml(src).take()
+    var value = doc.take[TestBuild]()
 
     assert_equal(value.name, "samuel")
     assert_equal(value.age, 30)
     assert_equal(value.language.info.name, "mojo")
     assert_equal(value.language.current_version.value(), 0.26)
     assert_equal(Bool(value.language.stable_version), False)
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    var evalue = edoc.take[TestBuild]()
+    assert_equal(evalue.name, "samuel")
+    assert_equal(evalue.language.info.version, "0.26.2.0")
 
 
 def main() raises:

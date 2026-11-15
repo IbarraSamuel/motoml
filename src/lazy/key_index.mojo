@@ -34,11 +34,9 @@ def _bytes_equal(
             i += 8
         return _load_u64_unaligned(p1, n - 8) == _load_u64_unaligned(p2, n - 8)
     if n >= 4:
-        return (
-            _load_u32_unaligned(p1, 0) == _load_u32_unaligned(p2, 0)
-            and _load_u32_unaligned(p1, n - 4)
-            == _load_u32_unaligned(p2, n - 4)
-        )
+        return _load_u32_unaligned(p1, 0) == _load_u32_unaligned(
+            p2, 0
+        ) and _load_u32_unaligned(p1, n - 4) == _load_u32_unaligned(p2, n - 4)
     if n == 0:
         return True
     if p1[unsafe_offset=0] != p2[unsafe_offset=0]:

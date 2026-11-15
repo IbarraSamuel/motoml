@@ -1,30 +1,42 @@
-from motoml.parser import parse_toml, ParseMode
-from motoml.types.toml import Toml
+from motoml import parse_toml, Mode, _Mode
 from motoml.mmap_file import MappedFile
-from json_parser import parse_json, translate_json_to_types
+from json_parser import JsonDoc, parse_json, translate_json_to_types
 from std.pathlib import Path
-from std.reflection import call_location, SourceLocation, source_location
+from std.reflection import call_location, SourceLocation
 from std.testing import assert_true, assert_raises, assert_equal
 from std.testing.suite import TestReport, TestResult, TestSuiteReport
 
 from std.time import perf_counter_ns
 
 
-def toml_single_test[mode: ParseMode](strpath: String) raises -> None:
+def _to_tagged_json_for_mode[
+    mode_id: Int, //, mode: _Mode[mode_id]
+](content: StringSpan) raises -> String:
+    var out = String()
+    comptime if mode_id == 0:
+        var doc = parse_toml[Mode.Eager](content).take()
+        doc.to_json(out)
+    else:
+        var doc = parse_toml[mode](content).take()
+        doc.to_json(out)
+    return out^
+
+
+def toml_single_test[
+    mode_id: Int, //, mode: _Mode[mode_id]
+](strpath: String) raises -> None:
     var file = Path(strpath)
-    # var strpath = StaticString(TOML_FILES).splitlines()[testno]
     if not file.exists():
         raise t"file not exists: {file}"
     var fmap = MappedFile(file)
     var content = fmap.unsafe_view()
 
-    # print(t"test readed! file: {strpath}")
     if "invalid/" in strpath:
         with assert_raises():
-            var toml_r = parse_toml[mode=mode](content).take()
+            _ = _to_tagged_json_for_mode[mode](content)
         return
 
-    var toml_result = parse_toml[mode=mode](content).take()
+    var result_json = _to_tagged_json_for_mode[mode](content)
 
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not exp_file.exists():
@@ -32,16 +44,13 @@ def toml_single_test[mode: ParseMode](strpath: String) raises -> None:
 
     var expected_result = exp_file.read_text()
 
-    var expected: Toml
+    var expected: JsonDoc
     try:
         expected = translate_json_to_types(parse_json(expected_result))
     except:
         raise "[TESTCASE ERR]"
 
-    var result_json = String()
-    toml_result.to_json(result_json)
-
-    var result: Toml
+    var result: JsonDoc
     try:
         result = translate_json_to_types(parse_json(result_json))
     except:
@@ -58,39 +67,44 @@ def toml_files() -> Path:
     return Path(loc[byte = : loc.rfind("/")]) / "toml_files"
 
 
+def _run_suite[
+    mode_id: Int, //, mode: _Mode[mode_id]
+](
+    label: String,
+    toml_dir: Path,
+    v11_files: List[StringSpan[_]],
+    valid_only: Bool = False,
+) raises:
+    var suite = NamedTestSuite[mode]()
+    for li, fpath in enumerate(v11_files):
+        var spath = String(t"{toml_dir}/{fpath}")
+        if not spath.endswith(".toml"):
+            continue
+        if valid_only and "invalid/" in spath:
+            continue
+        var root_fpath = String(t"[{label} 1.1 {li}]: {toml_dir}/{fpath}")
+        suite.add_test(name=root_fpath, location=spath)
+    suite^.run()
+
+
 def main() raises:
     """Main entrypoint."""
     var toml_dir = toml_files() / "tests"
 
-    var v11_files = (
-        MappedFile(toml_dir / "files-toml-1.1.0").unsafe_view().splitlines()
+    var files_map = MappedFile(toml_dir / "files-toml-1.1.0")
+    var v11_files = files_map.unsafe_view().splitlines()
+
+    _run_suite[Mode.Strict]("Strict", toml_dir, v11_files, valid_only=False)
+    _run_suite[Mode.Eager]("Eager", toml_dir, v11_files, valid_only=False)
+    _run_suite[Mode.Lexical]("Lexical", toml_dir, v11_files, valid_only=True)
+    _run_suite[Mode.Structure](
+        "Structure", toml_dir, v11_files, valid_only=True
     )
-
-    # Lazy
-    var lazy_suite = NamedTestSuite[.Lazy]()
-
-    for li, fpath in enumerate(v11_files):
-        var spath = String(t"{toml_dir}/{fpath}")
-        if not spath.endswith(".toml"):
-            continue
-        var root_fpath = String(t"[Lazy 1.1 {li}]: {toml_dir}/{fpath}")
-        lazy_suite.add_test(name=root_fpath, location=spath)
-    lazy_suite^.run()
-
-    # Eager
-    var eager_suite = NamedTestSuite[.Eager]()
-
-    for li, fpath in enumerate(v11_files):
-        var spath = String(t"{toml_dir}/{fpath}")
-        if not spath.endswith(".toml"):
-            continue
-        var root_fpath = String(t"[Eager 1.1 {li}]: {toml_dir}/{fpath}")
-        eager_suite.add_test(name=root_fpath, location=spath)
-    eager_suite^.run()
+    _run_suite[Mode.Trusted]("Trusted", toml_dir, v11_files, valid_only=True)
 
 
 @fieldwise_init
-struct NamedTestSuite[mode: ParseMode](
+struct NamedTestSuite[mode_id: Int, //, mode: _Mode[mode_id]](
     not Deinitable else "run tests or abandon them.", Movable
 ):
     var tests: List[Tuple[String, String]]
@@ -127,11 +141,6 @@ struct NamedTestSuite[mode: ParseMode](
             )
             reports.append(report^)
 
-        # parallelize[test_n](len(reports))
-        # for ti in range(len(reports)):
-        #     tg.create_task(test_n(ti))
-
-        # tg.wait()
         var report = TestSuiteReport(reports=reports^, location=self.location)
 
         if report.failures > 0:

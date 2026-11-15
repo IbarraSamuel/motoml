@@ -1,12 +1,9 @@
-from motoml.parser import toml_to_tagged_json, parse_toml
+from motoml import toml_to_tagged_json, Mode
 from std.io.io import _fdopen
 from std.sys import stdin
-from std.sys.defines import get_defined_bool
-from std.sys import argv
 
 
 def main() raises:
-    comptime log = get_defined_bool["LOG", False]()
     var stdh = _fdopen["r"](stdin)
 
     var in_str = String()
@@ -17,5 +14,5 @@ def main() raises:
         except:
             break
 
-    var json = toml_to_tagged_json[log=log](in_str)
+    var json = toml_to_tagged_json[Mode.Strict](in_str)
     print(json)

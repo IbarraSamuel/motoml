@@ -1,4 +1,4 @@
-from motoml.lazy import parse_lazy, Validation
+from motoml import parse_toml, Mode
 from motoml.mmap_file import MappedFile
 from std.time import perf_counter_ns
 from std.sys import argv
@@ -34,23 +34,25 @@ def bench_one(
 ) raises:
     var mf = MappedFile(path_str)
     var view = mf.unsafe_view()
-    var bytes = view.as_bytes()
     var size_mb = Float64(view.byte_length()) / (1024.0 * 1024.0)
 
     # Warmup
     for _ in range(warmups):
-        var d1 = parse_lazy[Validation.Strict](bytes).take()
+        var d1 = parse_toml[Mode.Strict](view).take()
         _ = len(d1.nodes)
-        var d2 = parse_lazy[Validation.Trusted](bytes).take()
+        var d2 = parse_toml[Mode.Trusted](view).take()
         _ = len(d2.nodes)
+        var d3 = parse_toml[Mode.Eager](view).take()
+        _ = len(d3.nodes)
 
     var strict_times = List[Int](capacity=iters)
     var trusted_times = List[Int](capacity=iters)
+    var eager_times = List[Int](capacity=iters)
     var strict_json_times = List[Int](capacity=iters)
 
     for _ in range(iters):
         var t0 = perf_counter_ns()
-        var d = parse_lazy[Validation.Strict](bytes).take()
+        var d = parse_toml[Mode.Strict](view).take()
         var t1 = perf_counter_ns()
         strict_times.append(Int(t1 - t0))
 
@@ -61,13 +63,21 @@ def bench_one(
 
     for _ in range(iters):
         var t0 = perf_counter_ns()
-        var d = parse_lazy[Validation.Trusted](bytes).take()
+        var d = parse_toml[Mode.Trusted](view).take()
         var t1 = perf_counter_ns()
         _ = len(d.nodes)
         trusted_times.append(Int(t1 - t0))
 
+    for _ in range(iters):
+        var t0 = perf_counter_ns()
+        var d = parse_toml[Mode.Eager](view).take()
+        var t1 = perf_counter_ns()
+        _ = len(d.nodes)
+        eager_times.append(Int(t1 - t0))
+
     _sort_ints(strict_times)
     _sort_ints(trusted_times)
+    _sort_ints(eager_times)
     _sort_ints(strict_json_times)
 
     var med_idx = iters // 2
@@ -75,6 +85,8 @@ def bench_one(
     var s_max_mbps = size_mb / (Float64(strict_times[0]) / 1e9)
     var t_med_mbps = size_mb / (Float64(trusted_times[med_idx]) / 1e9)
     var t_max_mbps = size_mb / (Float64(trusted_times[0]) / 1e9)
+    var e_med_mbps = size_mb / (Float64(eager_times[med_idx]) / 1e9)
+    var e_max_mbps = size_mb / (Float64(eager_times[0]) / 1e9)
     var sj_med_mbps = size_mb / (Float64(strict_json_times[med_idx]) / 1e9)
 
     var tag = "HOLDOUT" if is_holdout else "TUNED"
@@ -91,6 +103,10 @@ def bench_one(
             t_med_mbps,
             ",",
             t_max_mbps,
+            ",",
+            e_med_mbps,
+            ",",
+            e_max_mbps,
             ",",
             sj_med_mbps,
             sep="",
@@ -109,6 +125,10 @@ def bench_one(
             Int(t_med_mbps),
             " MB/s (max ",
             Int(t_max_mbps),
+            ") | Eager med: ",
+            Int(e_med_mbps),
+            " MB/s (max ",
+            Int(e_max_mbps),
             ") | Parse+JSON med: ",
             Int(sj_med_mbps),
             " MB/s",
@@ -121,11 +141,11 @@ def main() raises:
     var csv = len(args) > 1 and StringSpan(args[1]) == "--csv"
     if csv:
         print(
-            "corpus,set,strict_med_mbps,strict_max_mbps,trusted_med_mbps,trusted_max_mbps,parse_plus_json_med_mbps"
+            "corpus,set,strict_med_mbps,strict_max_mbps,trusted_med_mbps,trusted_max_mbps,eager_med_mbps,eager_max_mbps,parse_plus_json_med_mbps"
         )
     else:
         print(
-            "=================== LAZY PARSER BENCHMARK (15 runs, median/max)"
+            "=================== PARSER BENCHMARK (15 runs, median/max)"
             " ==================="
         )
 

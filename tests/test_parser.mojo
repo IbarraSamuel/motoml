@@ -1,37 +1,38 @@
-from std.testing import assert_equal, TestSuite, assert_true
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
 
-from motoml.mmap_file import MappedFile
-from motoml.parser import parse_toml, parse_toml_file, parse_toml
+from motoml import parse_toml, parse_toml_file, Mode, Kind, KindTag
 from motoml.types.string_ref import parse_string_escape
-from motoml.types.toml import Toml
-
-
-# struct SimpleStruct(Movable):
-#     var first_value: Int
-#     var second_value: Float64
 
 
 def test_empty_table() raises:
     var empty_data = ""
-    var empty_toml = parse_toml[log=False](empty_data).take()
-    if case .Table = empty_toml:
-        pass
-    else:
-        raise "Value is expected to be a table"
-    assert_equal(len(empty_toml[Dict[String, Toml]]), 0)
+    var empty_toml = parse_toml(empty_data).take()
+    assert_equal(empty_toml.root().kind(), KindTag.Table)
+    assert_equal(len(empty_toml), 0)
+
+    var empty_eager = parse_toml[Mode.Eager](empty_data).take()
+    assert_equal(empty_eager.root().kind(), KindTag.Table)
+    assert_equal(len(empty_eager), 0)
 
 
 def assert_parse_error(content: StringSpan) raises:
-    var result = parse_toml[log=False](content)
+    var result = parse_toml(content)
     if case .Err = result:
         _ = result^.unsafe_take_error()
     else:
         _ = result^.unsafe_take_value()
         raise "Malformed TOML input should return a parse error."
 
+    var eager_res = parse_toml[Mode.Eager](content)
+    if case .Err = eager_res:
+        _ = eager_res^.unsafe_take_error()
+    else:
+        _ = eager_res^.unsafe_take_value()
+        raise "Malformed TOML input should return an Eager parse error."
+
 
 def assert_parse_success(content: StringSpan) raises:
-    var result = parse_toml[log=False](content)
+    var result = parse_toml(content)
     if case .Ok = result:
         _ = result^.unsafe_take_value()
     else:
@@ -62,8 +63,12 @@ def test_simple_struct() raises:
     """
 
     var toml_obj = parse_toml(test_table).take()
-    assert_equal(toml_obj[Dict[String, Toml]]["first_value"][Int], 1)
-    assert_equal(toml_obj[Dict[String, Toml]]["second_value"][Float64], 3.1)
+    assert_equal(toml_obj["first_value"][Kind.Integer], 1)
+    assert_equal(toml_obj["second_value"][Kind.Float], 3.1)
+
+    var eager_obj = parse_toml[Mode.Eager](test_table).take()
+    assert_equal(eager_obj["first_value"][Kind.Integer], 1)
+    assert_equal(eager_obj["second_value"][Kind.Float], 3.1)
 
 
 def test_struct_all_types() raises:
@@ -86,16 +91,11 @@ def test_struct_all_types() raises:
     table = {key=32, key2=84}
     """
 
-    var toml_obj = parse_toml[log=False](test_table).take()
-    # var at = toml_to_type_raises[AllTypes](toml_obj^)
-
-    assert_equal(toml_obj[Dict[String, Toml]]["integer"][Int], 1)
-    assert_equal(toml_obj[Dict[String, Toml]]["float"][Float64], 3.1)
-    assert_equal(toml_obj[Dict[String, Toml]]["boolean"][Bool], True)
-    assert_equal(
-        toml_obj[Dict[String, Toml]]["table"][Dict[String, Toml]]["key2"][Int],
-        84,
-    )
+    var toml_obj = parse_toml(test_table).take()
+    assert_equal(toml_obj["integer"][Kind.Integer], 1)
+    assert_equal(toml_obj["float"][Kind.Float], 3.1)
+    assert_equal(toml_obj["boolean"][Kind.Boolean], True)
+    assert_equal(toml_obj["table"]["key2"][Kind.Integer], 84)
 
 
 def test_struct_optional() raises:
@@ -103,8 +103,7 @@ def test_struct_optional() raises:
     value_1 = "hello"
     """
     var toml_obj = parse_toml(toml).take()
-
-    assert_equal(toml_obj[Dict[String, Toml]]["value_1"][String], "hello")
+    assert_equal(toml_obj["value_1"][Kind.String], "hello")
 
 
 def test_plain_unicode_strings() raises:
@@ -112,10 +111,9 @@ def test_plain_unicode_strings() raises:
     basic = "Café 🔥"
     literal = 'A plain literal'
     """
-    var parsed = parse_toml[log=False](toml).take()
-    ref values = parsed[Dict[String, Toml]]
-    assert_equal(values["basic"][String], "Café 🔥")
-    assert_equal(values["literal"][String], "A plain literal")
+    var parsed = parse_toml(toml).take()
+    assert_equal(parsed["basic"][Kind.String], "Café 🔥")
+    assert_equal(parsed["literal"][Kind.String], "A plain literal")
 
 
 def test_multiline_quote_escapes() raises:
@@ -126,22 +124,21 @@ def test_multiline_quote_escapes() raises:
     str7 = """"This," she said, "is just a pointless statement.""""
     '''
     var toml_obj = parse_toml(test_content).take()
-    ref values = toml_obj[Dict[String, Toml]]
 
     assert_equal(
-        values["str4"][String],
+        toml_obj["str4"][Kind.String],
         """Here are two quotation marks: \"\". Simple enough.""",
     )
     assert_equal(
-        values["str5"][String],
+        toml_obj["str5"][Kind.String],
         """Here are three quotation marks: \"\"\".""",
     )
     assert_equal(
-        values["str6"][String],
+        toml_obj["str6"][Kind.String],
         """Here are fifteen quotation marks: \"\"\"\"\"\"\"\"\"\"\"\"\"\"\".""",
     )
     assert_equal(
-        values["str7"][String],
+        toml_obj["str7"][Kind.String],
         """\"This,\" she said, \"is just a pointless statement.\"""",
     )
 
@@ -157,50 +154,19 @@ def test_nested() raises:
     name = "mojo"
     version = "0.26.2.0"
     """
-    var toml_obj = parse_toml(TOML_CONTENT).take()
-    # var value = toml_to_type_raises[TestBuild](toml_obj^)
-    var value = toml_obj^.unsafe_take[Dict[String, Toml]]()
+    var doc = parse_toml(TOML_CONTENT).take()
 
-    if case .String(name) = value["name"]:
-        assert_equal(name, "samuel")
-    else:
-        raise "match not found"
+    assert_equal(doc["name"].kind(), KindTag.String)
+    assert_equal(doc["name"][Kind.String], "samuel")
+    assert_equal(doc["age"][Kind.Integer], 30)
+    assert_equal(doc["language"]["info"]["name"][Kind.String], "mojo")
+    assert_equal(doc["language"]["current_version"][Kind.Float], 0.26)
+    assert_equal(doc["other_types"][1][Kind.Float], 2.0)
 
-    assert_equal(value["name"][String], "samuel")
-
-    if case .Integer(age) = value["age"]:
-        assert_equal(age, 30)
-    else:
-        raise "match not found"
-
-    assert_equal(value["age"][Int], 30)
-
-    if case .Table(lang) = value["language"]:
-        if case .Table(info) = lang["info"]:
-            if case .String(name) = info["name"]:
-                assert_equal(name, "mojo")
-            else:
-                raise "match not found"
-        else:
-            raise "match not found"
-    else:
-        raise "match not found"
-
-    assert_equal(
-        value["language"][Dict[String, Toml]]["info"][Dict[String, Toml]][
-            "name"
-        ][String],
-        "mojo",
-    )
-
-    if case .Table(lang) = value["language"]:
-        if case .Float(version) = lang["current_version"]:
-            assert_equal(version, 0.26)
-
-    assert_equal(
-        value["language"][Dict[String, Toml]]["current_version"][Float64],
-        0.26,
-    )
+    var eager = parse_toml[Mode.Eager](TOML_CONTENT).take()
+    assert_equal(eager["name"][Kind.String], "samuel")
+    assert_equal(eager["language"]["info"]["version"][Kind.String], "0.26.2.0")
+    assert_equal(eager["other_types"][2][Kind.Float], 3.0)
 
 
 def main() raises:

@@ -1,7 +1,7 @@
 """Fast, low-allocation lazy TOML reader using a flat node tape.
 """
 
-from .node import Node, Kind, NodeFlags, KeySeg, NO_NODE
+from .node import Node, NodeKind, NodeFlags, KeySeg, NO_NODE
 from .key_index import (
     KeyIndex,
     FNV_OFFSET_BASIS,
@@ -9,7 +9,6 @@ from .key_index import (
     compute_escaped_key_hash,
 )
 from .validation import Validation, validation_level
-from .document import Document, Value
 from .scalar_decode import validate_scalar, check_escape_at
 from .lexer import (
     SquareBracketOpen,
@@ -81,7 +80,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         self.length = len(data)
         self.idx = 0
         self.nodes = List[Node](capacity=max(16, self.length // 14))
-        self.nodes.append(Node(kind=Kind.Table, flags=NodeFlags.DEFINED))
+        self.nodes.append(Node(kind=NodeKind.Table, flags=NodeFlags.DEFINED))
         self.key_index = KeyIndex(initial_capacity=max(64, self.length // 12))
         self.key_segs = List[KeySeg](capacity=32)
         self.esc_scratch = String()
@@ -111,16 +110,10 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         return Error(self.err_msg^)
 
     @always_inline
-    def into_document(
-        deinit self,
-    ) -> Document[Self.origin, Self.validation]:
-        return Document[Self.origin, Self.validation](
-            self.data, self.nodes^, self.key_index^, 0
-        )
+    def into_tape(deinit self) -> _ParsedTape:
+        return _ParsedTape(self.nodes^, self.key_index^)
 
-    def _parse_quoted_key_seg(
-        mut self, quote: Byte, mut seg: KeySeg
-    ) -> Bool:
+    def _parse_quoted_key_seg(mut self, quote: Byte, mut seg: KeySeg) -> Bool:
         """Scan a quoted key segment and compute its FNV-1a unescaped hash."""
         var n = self.length
         var is_literal = quote == SingleQuote
@@ -153,16 +146,15 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
             )
             comptime if validation_level(Self.validation) >= 2:
                 if not eh[0]:
-                    return self._fail(
-                        "Invalid escape sequence in quoted key."
-                    )
+                    return self._fail("Invalid escape sequence in quoted key.")
             h = eh[1]
         seg = KeySeg(UInt32(start), UInt32(seg_len), h, has_escape)
         return True
 
     @always_inline
     def _parse_one_key_seg(mut self, mut seg: KeySeg) -> Bool:
-        """Parse a single bare or quoted key segment at `self.idx` into `seg`."""
+        """Parse a single bare or quoted key segment at `self.idx` into `seg`.
+        """
         var n = self.length
         var b = self._at(self.idx)
         if is_bare_key_byte(b):
@@ -249,9 +241,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                 if not is_literal:
                     stop |= v.eq(Escape)
                 comptime if strict_ctrl:
-                    stop |= (
-                        v.lt(0x20) & v.ne(0x09) & v.ne(0x0A)
-                    ) | v.eq(0x7F)
+                    stop |= (v.lt(0x20) & v.ne(0x09) & v.ne(0x0A)) | v.eq(0x7F)
                 var mask = pack_bits(stop)
                 if not mask:
                     self.idx += W
@@ -271,8 +261,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     var extra_quotes = q_count - 3
                     if extra_quotes > 2:
                         return self._fail_node(
-                            "Too many consecutive quotes in multiline"
-                            " string."
+                            "Too many consecutive quotes in multiline string."
                         )
                     var v_len = (self.idx + extra_quotes) - start
                     self.idx += q_count
@@ -284,7 +273,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     var node_idx = UInt32(len(self.nodes))
                     self.nodes.append(
                         Node(
-                            kind=Kind.String,
+                            kind=NodeKind.String,
                             flags=flags,
                             start=UInt32(start),
                             len=UInt32(v_len),
@@ -358,7 +347,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     var node_idx = UInt32(len(self.nodes))
                     self.nodes.append(
                         Node(
-                            kind=Kind.String,
+                            kind=NodeKind.String,
                             flags=flags,
                             start=UInt32(start),
                             len=UInt32(v_len),
@@ -379,9 +368,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         has_escape = True
                         var esc_idx = cur + 1
                         comptime if validation_level(Self.validation) >= 2:
-                            if not check_escape_at[False](
-                                self.ptr, n, esc_idx
-                            ):
+                            if not check_escape_at[False](self.ptr, n, esc_idx):
                                 self.idx = esc_idx
                                 return self._fail_node(
                                     "Invalid escape sequence in string."
@@ -425,7 +412,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         var node_idx = UInt32(len(self.nodes))
         self.nodes.append(
             Node(
-                kind=Kind.String,
+                kind=NodeKind.String,
                 flags=flags,
                 start=UInt32(start),
                 len=UInt32(v_len),
@@ -459,7 +446,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         var pv = sc[2]
         if s_len == 0:
             return self._fail_node("Empty scalar value.")
-        if kind == Kind.Empty:
+        if kind == NodeKind.Empty:
             return self._fail_invalid_scalar(start)
         comptime if validation_level(Self.validation) >= 2:
             if pv == 0 and not validate_scalar(
@@ -479,7 +466,8 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
 
     @always_inline
     def _parse_value_at_cursor(mut self, depth: Int) -> UInt32:
-        """Parse a value when `self.idx < self.length` and whitespace is already skipped."""
+        """Parse a value when `self.idx < self.length` and whitespace is already skipped.
+        """
         var b = self._at(self.idx)
         if b == DoubleQuote or b == SingleQuote:
             return self.parse_string_node()
@@ -496,13 +484,11 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         var n = self.length
         self.idx += 1
         var arr_idx = UInt32(len(self.nodes))
-        self.nodes.append(Node(kind=Kind.Array, flags=NodeFlags.INLINE))
+        self.nodes.append(Node(kind=NodeKind.Array, flags=NodeFlags.INLINE))
         comptime strict_ws = Self.validation != Validation.Trusted
 
         while True:
-            if not skip_whitespace_and_comments[strict_ws](
-                self.data, self.idx
-            ):
+            if not skip_whitespace_and_comments[strict_ws](self.data, self.idx):
                 return self._fail_node(
                     "Invalid control character or bare CR in array."
                 )
@@ -517,9 +503,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                 return NO_NODE
             _link_child(self.nodes, arr_idx, elem_idx)
 
-            if not skip_whitespace_and_comments[strict_ws](
-                self.data, self.idx
-            ):
+            if not skip_whitespace_and_comments[strict_ws](self.data, self.idx):
                 return self._fail_node(
                     "Invalid control character or bare CR in array."
                 )
@@ -543,13 +527,11 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         var n = self.length
         self.idx += 1
         var tbl_idx = UInt32(len(self.nodes))
-        self.nodes.append(Node(kind=Kind.Table, flags=NodeFlags.INLINE))
+        self.nodes.append(Node(kind=NodeKind.Table, flags=NodeFlags.INLINE))
         comptime strict_ws = Self.validation != Validation.Trusted
 
         while True:
-            if not skip_whitespace_and_comments[strict_ws](
-                self.data, self.idx
-            ):
+            if not skip_whitespace_and_comments[strict_ws](self.data, self.idx):
                 return self._fail_node(
                     "Invalid control character or bare CR in inline table."
                 )
@@ -608,7 +590,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     if existing == NO_NODE:
                         self.nodes.append(
                             Node(
-                                kind=Kind.Table,
+                                kind=NodeKind.Table,
                                 flags=NodeFlags.DOTTED,
                                 key_start=kseg.start,
                                 key_len=kseg.len,
@@ -621,7 +603,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         ref cnode = self.nodes.unsafe_ptr()[
                             unsafe_offset=Int(existing)
                         ]
-                        if cnode.kind != Kind.Table:
+                        if cnode.kind != NodeKind.Table:
                             self.key_segs.shrink(key_base)
                             return self._fail_node(
                                 "Cannot define dotted key on non-table."
@@ -700,9 +682,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     vnode.key_flags = NodeFlags.HAS_ESCAPE
                 _link_child(self.nodes, tbl_idx, val_idx)
 
-            if not skip_whitespace_and_comments[strict_ws](
-                self.data, self.idx
-            ):
+            if not skip_whitespace_and_comments[strict_ws](self.data, self.idx):
                 return self._fail_node(
                     "Invalid control character or bare CR in inline table."
                 )
@@ -804,7 +784,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     if child == NO_NODE:
                         self.nodes.append(
                             Node(
-                                kind=Kind.Table,
+                                kind=NodeKind.Table,
                                 flags=NodeFlags.IMPLICIT,
                                 key_start=kseg.start,
                                 key_len=kseg.len,
@@ -817,7 +797,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         ref cnode = self.nodes.unsafe_ptr()[
                             unsafe_offset=Int(child)
                         ]
-                        if cnode.kind == Kind.Array:
+                        if cnode.kind == NodeKind.Array:
                             if (cnode.flags & NodeFlags.ARRAY_OF_TABLES) == 0:
                                 return self._fail(
                                     "Cannot extend static array as table."
@@ -825,7 +805,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                             if cnode.last_child == NO_NODE:
                                 return self._fail("Array of tables is empty.")
                             parent = cnode.last_child
-                        elif cnode.kind == Kind.Table:
+                        elif cnode.kind == NodeKind.Table:
                             if (cnode.flags & NodeFlags.INLINE) != 0:
                                 return self._fail("Cannot extend inline table.")
                             parent = child
@@ -855,7 +835,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         arr_idx = cand_arr
                         self.nodes.append(
                             Node(
-                                kind=Kind.Array,
+                                kind=NodeKind.Array,
                                 flags=NodeFlags.ARRAY_OF_TABLES,
                                 key_start=final_kseg.start,
                                 key_len=final_kseg.len,
@@ -869,7 +849,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                             unsafe_offset=Int(arr_idx)
                         ]
                         if (
-                            anode.kind != Kind.Array
+                            anode.kind != NodeKind.Array
                             or (anode.flags & NodeFlags.ARRAY_OF_TABLES) == 0
                         ):
                             return self._fail(
@@ -879,7 +859,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
 
                     var new_table = UInt32(len(self.nodes))
                     self.nodes.append(
-                        Node(kind=Kind.Table, flags=NodeFlags.DEFINED)
+                        Node(kind=NodeKind.Table, flags=NodeFlags.DEFINED)
                     )
                     _link_child(self.nodes, arr_idx, new_table)
                     curr_table = new_table
@@ -895,7 +875,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                     if existing == NO_NODE:
                         self.nodes.append(
                             Node(
-                                kind=Kind.Table,
+                                kind=NodeKind.Table,
                                 flags=NodeFlags.DEFINED,
                                 key_start=final_kseg.start,
                                 key_len=final_kseg.len,
@@ -908,7 +888,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         ref enode = self.nodes.unsafe_ptr()[
                             unsafe_offset=Int(existing)
                         ]
-                        if enode.kind != Kind.Table:
+                        if enode.kind != NodeKind.Table:
                             return self._fail(
                                 "Cannot redefine non-table as table."
                             )
@@ -995,7 +975,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                         if child == NO_NODE:
                             self.nodes.append(
                                 Node(
-                                    kind=Kind.Table,
+                                    kind=NodeKind.Table,
                                     flags=NodeFlags.DOTTED,
                                     key_start=kseg.start,
                                     key_len=kseg.len,
@@ -1008,7 +988,7 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
                             ref cnode = self.nodes.unsafe_ptr()[
                                 unsafe_offset=Int(child)
                             ]
-                            if cnode.kind != Kind.Table:
+                            if cnode.kind != NodeKind.Table:
                                 return self._fail(
                                     "Cannot define dotted key on non-table."
                                 )
@@ -1109,28 +1089,28 @@ struct _Parser[validation: Validation, origin: ImmOrigin](Movable):
         return True
 
 
-def parse_lazy[
+struct _ParsedTape(Movable):
+    """Internal raw tape output from `_parse_tape`."""
+
+    var nodes: List[Node]
+    var key_index: KeyIndex
+
+    @always_inline
+    def __init__(out self, var nodes: List[Node], var key_index: KeyIndex):
+        self.nodes = nodes^
+        self.key_index = key_index^
+
+    @always_inline
+    def take_into(deinit self, mut nodes: List[Node], mut key_index: KeyIndex):
+        nodes = self.nodes^
+        key_index = self.key_index^
+
+
+def _parse_tape[
     validation: Validation = Validation.Strict,
-](content: Span[Byte, _]) -> Result[Document[content.origin, validation]]:
-    """Parse a TOML document into a zero-allocation `Document` view backed by a flat tape.
-
-    Scans headers, keys, and values without allocating heap objects for intermediate
-    strings, tables, or arrays. Keys and values borrow directly from `content`.
-
-    Parameters:
-        validation: Validation mode:
-            - `Validation.Strict` (default): Enforces UTF-8, duplicate key checks,
-              and full TOML 1.1 spec conformance.
-            - `Validation.Trusted`: Omits UTF-8 and duplicate key checks for maximum
-              parsing speed on known-valid inputs.
-
-    Args:
-        content: Borrowed span of document UTF-8 bytes.
-
-    Returns:
-        A `Result` containing the parsed `Document` view, or a parsing error.
-    """
+](content: Span[Byte, _]) -> Result[_ParsedTape]:
+    """Internal tape parser shared by all `Mode`s."""
     var parser = _Parser[validation, content.origin](content)
     if not parser.parse_document():
         return .Err(parser^.into_error())
-    return .Ok(parser^.into_document())
+    return .Ok(parser^.into_tape())

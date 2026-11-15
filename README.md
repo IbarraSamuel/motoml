@@ -1,28 +1,26 @@
 # motoml
 
-Fast, fully compliant TOML 1.1 reader and parser for Mojo.
+Fast, fully compliant TOML 1.1 parser and view API for Mojo.
 
-`motoml` provides two complementary parsing engines designed for different workloads:
-1. **Lazy TOML Reader (`motoml.lazy`)**: A high-performance, zero/low-allocation parser operating over borrowed byte spans (`Span[Byte]`). Uses a flat node tape and on-demand decoding to achieve **6.8x to 26x faster throughput** than the eager parser (up to **2,597 MB/s** Strict and **2,994 MB/s** Trusted).
-2. **Eager DOM Parser (`motoml.parser`)**: Parses TOML directly into an owned AST (`Toml` variant tree) with reflection support (`toml_to_type`) for deserializing into native Mojo structs.
+`motoml` uses a single high-performance flat-tape parser and exposes `Toml` as a lightweight 32-byte value view over the parsed document, parameterized by `Mode`:
 
-Both engines leverage zero-copy memory-mapped file access via `MappedFile`.
+- **Lazy modes (zero/low allocation, default `Mode.Strict`)**: Borrow directly from the source `StringSpan` or memory-mapped file and decode scalars, temporals, and escapes on demand (**up to 2,597 MB/s Strict** and **3,048 MB/s Trusted**).
+  - `Mode.Strict` (default): Full TOML 1.1 compliance (UTF-8, duplicate keys, escape rules, lexical scalar validation).
+  - `Mode.Lexical`: UTF-8 and lexical/scalar validation without hash-index duplicate checks.
+  - `Mode.Structure`: Duplicate-key and table-redefinition checks without UTF-8 or scalar lexical overhead.
+  - `Mode.Trusted`: Maximum throughput on trusted inputs by compiling out validation checks.
+- **Eager mode (`Mode.Eager`)**: Parses with `Mode.Strict` validation, then materializes decoded strings, keys, scalars, arrays, and temporals into compact owned storage so documents outlive the source buffer and reads become O(1) loads (**3.6x–22.8x faster than legacy AST parsing**, up to **2,293 MB/s**).
 
 ---
 
 ## Features
 
-- **Full TOML 1.1 Compliance**: Passes all 712 official TOML 1.1 test suite cases (100% compliant).
-- **Zero/Low-Allocation Lazy Reader**:
-  - **Flat Tape Architecture**: Parses the document hierarchy into a single contiguous tape of 32-byte `Node`s with intrusive links, eliminating nested heap collections (`Dict` and `List`).
-  - **Zero-Copy Strings & Keys**: Borrows slices directly from the input buffer. Escape sequences are resolved lazily on demand (`as_string()`) or streamed without intermediate allocations (`to_json`).
-  - **Flat KeyIndex**: Table lookup and duplicate key detection use an open-addressing hash table referencing byte offsets.
-  - **Lazy Scalar Decoding**: Numbers, booleans, dates, times, and timestamps are classified during scanning and parsed only when queried.
-  - **Parametrized Validation**:
-    - `Validation.Strict` (default): Spec-compliant UTF-8 validation, duplicate key checking, and syntax verification.
-    - `Validation.Trusted`: Bypasses UTF-8 and duplicate key checks for maximum parsing speed on known-valid inputs.
-- **Mojo Struct Reflection**: Automatically deserialize TOML tables into typed Mojo structs with compile-time reflection.
-- **Memory Mapped File I/O (`MappedFile`)**: Read files with zero-copy memory mapping, avoiding full-file allocations.
+- **Full TOML 1.1 Compliance**: Passes all 712 official `toml-test` 1.1.0 cases in both `Mode.Strict` and `Mode.Eager`, and all 218 valid cases across `Mode.Lexical`, `Mode.Structure`, and `Mode.Trusted`.
+- **Single `Toml` View API**:
+  - **Kind-based casting**: Unchecked `val[Kind.Integer]` (aborts on missing/mismatch) and checked `val.take[Kind.Integer]()` (raises on missing/mismatch). Spec-strict types (integers are only readable via `Kind.Integer`, floats via `Kind.Float`).
+  - **First-class containers**: `Kind.Table` yields `TomlTable`, `Kind.Array` yields `TomlArray`, alongside direct indexing (`doc["server"]["port"][Kind.Integer]`, `doc["users"][0]["name"][Kind.String]`).
+  - **Compile-time struct reflection**: `doc.take[MyStruct]()` deserializes tables directly into native Mojo structs (`Int`, `Float64`, `Bool`, `String`, `Date`, `Time`, `DateTime`, `List[T]`, `Optional[T]`, and nested structs).
+- **Zero-Copy File Parsing (`parse_toml_file`)**: Returns an owning `TomlFile[mode]` backed by `MappedFile` (released immediately after materialization in `Mode.Eager`).
 
 ---
 
@@ -35,7 +33,7 @@ Both engines leverage zero-copy memory-mapped file access via `MappedFile`.
 git clone https://github.com/mojoto/motoml.git
 cd motoml
 
-# Install dependencies and precompile
+# Precompile package
 pixi run package
 
 # Run all test suites
@@ -44,83 +42,52 @@ pixi run tests
 
 ---
 
-## Lazy TOML Reader (`motoml.lazy`)
-
-The lazy reader is recommended for read-heavy workloads, configuration extraction, large TOML files, and high-throughput pipelines.
-
-### Quickstart
+## Quickstart
 
 ```mojo
-from motoml.lazy import parse_lazy, Validation, Kind
-from motoml.mmap_file import MappedFile
+from motoml import parse_toml, parse_toml_file, Mode, Kind, KindTag
 
 def main() raises:
-    # 1. Zero-copy memory map the file
-    var mf = MappedFile("config.toml")
-    var view = mf.unsafe_view()
+    var src = """
+    title = "motoml"
+    [server]
+    host = "127.0.0.1"
+    port = 8080
+    [[users]]
+    name = "alice"
+    """
 
-    # 2. Parse into a lazy Document view
-    var doc = parse_lazy(view.as_bytes()).take()
+    # 1. Parse with default lazy Mode.Strict (borrows `src`)
+    var doc = parse_toml(src).take()
 
-    # 3. Access table values by key (O(1) open-addressing lookup)
-    var server = doc["server"].value()
-    var port = server["port"].value().as_int().take()
+    # 2. Index and cast by Kind
+    var title = doc["title"][Kind.String]
+    var port = doc["server"]["port"].take[Kind.Integer]()  # checked, raises on error
 
-    # 4. Zero-copy string slice (no allocation if unescaped)
-    if var host_slice = server["host"].value().as_slice():
-        print("Host:", host_slice.value())
+    # 3. Zero-copy unescaped string slice (always succeeds in Mode.Eager)
+    if var host = doc["server"]["host"].string_span():
+        print("Host:", host.value())
 
-    # 5. Owned string (resolves escape sequences if needed)
-    var title = doc["title"].value().as_string().take()
+    # 4. Iterate arrays and tables
+    for user in doc["users"]:
+        print("User:", user["name"][Kind.String])
 
-    # 6. Iterate arrays by index and length
-    var users = doc["users"].value()
-    for i in range(len(users)):
-        var user = users[i].value()
-        print("User:", user["name"].value().as_string().take())
+    for (k, v) in doc["server"].items():
+        print(k, v.kind())
 
-    # 7. Maximum parsing throughput for trusted inputs
-    var trusted_doc = parse_lazy[Validation.Trusted](view.as_bytes()).take()
+    # 5. Parse eagerly into an owned document (no lifetime dependency on `src`)
+    var eager_doc = parse_toml[Mode.Eager](src).take()
+    print(eager_doc["title"][Kind.String])
+
+    # 6. Memory-mapped file parsing
+    var cfg = parse_toml_file("config.toml")
+    print(cfg["title"][Kind.String])
 ```
 
-### Lazy Value API
-
-Each `Value` borrowed from a `Document` provides zero-allocation inspection and on-demand decoding methods:
-
-| Method | Return Type | Description |
-|---|---|---|
-| `val.kind()` | `Kind` | Returns the node type (`Kind.Integer`, `Kind.String`, `Kind.Table`, etc.) |
-| `val.is_table()` | `Bool` | Returns `True` if the node is a table |
-| `val.is_array()` | `Bool` | Returns `True` if the node is an array |
-| `val.is_string()` | `Bool` | Returns `True` if the node is a string |
-| `val.is_int()` | `Bool` | Returns `True` if the node is an integer |
-| `val.is_float()` | `Bool` | Returns `True` if the node is a float |
-| `val.is_bool()` | `Bool` | Returns `True` if the node is a boolean |
-| `val.key_slice()` | `StringSpan` | Returns the key name as a borrowed string slice |
-| `val.as_slice()` | `Optional[StringSpan]` | Zero-copy borrowed string slice (returns `None` if escaped) |
-| `val.as_string()` | `Result[String]` | Decodes to an owned `String`, resolving escapes |
-| `val.as_int()` | `Result[Int]` | Decodes to an `Int` (supports dec, hex, oct, bin, underscores) |
-| `val.as_float()` | `Result[Float64]` | Decodes to `Float64` (supports floats, exponents, nan, inf) |
-| `val.as_bool()` | `Result[Bool]` | Decodes to `Bool` |
-| `val.as_date()` | `Result[Date]` | Decodes to a local `Date` (`year`, `month`, `day`) |
-| `val.as_time()` | `Result[Time]` | Decodes to a local `Time` (`hour`, `minute`, `second`) |
-| `val.as_datetime()` | `Result[DateTime]` | Decodes to a `DateTime` (local or offset timestamp) |
-| `val[key]` | `Optional[Value]` | Table lookup by key name in $O(1)$ time |
-| `val[index]` | `Optional[Value]` | Array element lookup by zero-based index |
-| `len(val)` | `Int` | Number of child entries in a table or array |
-| `val.to_json(writer)` | `None raises` | Streams the subtree formatted as JSON directly to any `Writer` |
-| `val.to_toml()` | `Toml raises` | Converts the subtree into an eager `Toml` variant |
-
----
-
-## Eager DOM Parser & Struct Reflection
-
-The eager parser builds an owned `Toml` variant tree and supports deserializing directly into native Mojo structs using compile-time reflection.
+### Struct Reflection
 
 ```mojo
-from motoml.parser import parse_toml_raises
-from motoml.reflection import toml_to_type_raises
-from motoml.types.toml import Toml
+from motoml import parse_toml
 
 @fieldwise_init
 struct ServerConfig(Movable):
@@ -134,91 +101,68 @@ def main() raises:
     port = 8080
     enabled = true
     """
-
-    # Parse into eager Toml variant
-    var toml_obj = parse_toml_raises(toml_str)
-
-    # Convert directly into a Mojo struct
-    var config = toml_to_type_raises[ServerConfig](toml_obj^)
+    var doc = parse_toml(toml_str).take()
+    var config = doc.take[ServerConfig]()
     print(config.host, config.port, config.enabled)
 ```
 
 ---
 
-## Memory-Mapped File Access (`MappedFile`)
+## `Toml` View & `Kind` API
 
-`parse_toml_file(path)` parses a file using a read-only memory mapping, avoiding full-file heap allocations and copies.
-
-For direct access with the lazy reader or eager parser:
-
-```mojo
-from motoml.mmap_file import MappedFile
-from motoml.lazy import parse_lazy
-
-def main() raises:
-    var mf = MappedFile("large_dataset.toml")
-    var view = mf.unsafe_view()  # Borrowed string view
-
-    var doc = parse_lazy(view.as_bytes()).take()
-    # Keep `mf` alive while `doc` and any borrowed views are in use.
-```
+| Method / Operator | Return Type | Description |
+|---|---|---|
+| `val.kind()` | `KindTag` | Dynamic tag (`String`, `Integer`, `Float`, `Boolean`, `Date`, `Time`, `DateTime`, `Array`, `Table`, `Missing`) |
+| `val.is_kind[Kind.X]()` | `Bool` | Compile-time parameterized kind check |
+| `val.is_missing()` / `Bool(val)` | `Bool` | Check whether a key/index lookup succeeded |
+| `val[key]` / `val[index]` | `Toml` | $O(1)$ table lookup or array element lookup ($O(1)$ in Eager, $O(i)$ in lazy) |
+| `val.get(key)` / `val.get(index)` | `Optional[Toml]` | Safe lookup returning `None` if absent |
+| `key in val` | `Bool` | Table key membership check |
+| `len(val)` | `Int` | $O(1)$ child count for tables and arrays |
+| `val[Kind.String]` | `String` | Extract decoded string (aborts on missing/mismatch) |
+| `val[Kind.Integer]` | `Int` | Extract `Int` (aborts on missing/mismatch) |
+| `val[Kind.Float]` | `Float64` | Extract `Float64` including `nan`/`inf`/`-inf` (aborts on missing/mismatch) |
+| `val[Kind.Boolean]` | `Bool` | Extract `Bool` (aborts on missing/mismatch) |
+| `val[Kind.Date]` / `Time` / `DateTime` | `Date` / `Time` / `DateTime` | Extract temporal value (aborts on missing/mismatch) |
+| `val[Kind.Table]` / `val[Kind.Array]` | `TomlTable` / `TomlArray` | Narrow view to typed table or array wrapper |
+| `val.take[Kind.X]()` | `KindPayload[X]` | Checked extraction (raises on missing, mismatch, or invalid lazy scalar) |
+| `val.take[T]()` | `T` | Reflection-based deserialization into scalar, `List`, `Optional`, or struct `T` |
+| `val.string_span()` | `Optional[StringSpan]` | Zero-copy borrowed UTF-8 span if contiguous (always available in `Mode.Eager`) |
+| `val.to_json(writer)` | `None raises` | Stream `toml-test` tagged JSON directly to any `Writer` |
 
 > [!NOTE]
-> `unsafe_view()` does not validate UTF-8 upfront; pass it directly to `parse_lazy` (which validates in `Strict` mode) or `parse_toml`. Keep the `MappedFile` instance alive while referencing its views, and do not truncate the underlying file while mapped.
+> In lazy modes (`Mode.Strict`, `Mode.Lexical`, `Mode.Structure`, `Mode.Trusted`), `TomlDocument` borrows the input `StringSpan` — keep the source buffer (or `TomlFile`) alive while using the document. In `Mode.Eager`, the source buffer can be freed immediately after `parse_toml[Mode.Eager]` returns.
 
 ---
 
 ## Benchmarks
 
-Measured with Mojo `1.3.0.dev2026111316` on Apple Silicon (macOS):
+Measured with Mojo `1.3` on Apple Silicon (macOS):
 
-### 1 MB Synthetic Corpora (`bench_compare.mojo`)
+### 1 MB Synthetic & Hold-Out Corpora (`pixi run bench-lazy`, 15 runs median)
 
-| Corpus | Old Eager Parser (ms) | Old Eager Parser (MB/s) | Lazy Strict (ms) | Lazy Strict (MB/s) | Speedup (Strict) | Lazy Trusted (MB/s) | Speedup (Trusted) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `many_tables` | 45.65 ms | 21.9 MB/s | **1.76 ms** | **569.2 MB/s** | **25.98x** | **585.1 MB/s** | **26.71x** |
-| `array_of_tables` | 27.67 ms | 36.1 MB/s | **1.21 ms** | **825.1 MB/s** | **22.83x** | **880.3 MB/s** | **24.36x** |
-| `inline_nested` | 37.95 ms | 26.4 MB/s | **2.28 ms** | **438.8 MB/s** | **16.65x** | **458.7 MB/s** | **17.41x** |
-| `strings_plain` | 5.77 ms | 173.3 MB/s | **0.39 ms** | **2,570.8 MB/s** | **14.84x** | **2,976.3 MB/s** | **17.18x** |
-| `dotted_keys` | 29.95 ms | 33.4 MB/s | **2.12 ms** | **472.1 MB/s** | **14.14x** | **478.5 MB/s** | **14.33x** |
-| `mixed` | 18.38 ms | 54.4 MB/s | **1.41 ms** | **711.3 MB/s** | **13.07x** | **737.5 MB/s** | **13.55x** |
-| `dates` | 13.30 ms | 75.2 MB/s | **1.32 ms** | **759.3 MB/s** | **10.10x** | **775.2 MB/s** | **10.31x** |
-| `ints_floats` | 14.31 ms | 69.9 MB/s | **1.61 ms** | **621.9 MB/s** | **8.90x** | **628.6 MB/s** | **9.00x** |
-| `huge_table` | 9.97 ms | 100.3 MB/s | **1.28 ms** | **781.9 MB/s** | **7.79x** | **747.4 MB/s** | **7.45x** |
-| `strings_escaped` | 9.30 ms | 107.5 MB/s | **1.37 ms** | **728.9 MB/s** | **6.78x** | **968.1 MB/s** | **9.01x** |
+| Corpus | Set | Strict (MB/s) | Trusted (MB/s) | Eager (MB/s) | Parse + `to_json` (MB/s) |
+|---|---|---:|---:|---:|---:|
+| `strings_plain` | Tuned | **2,597 MB/s** | **3,048 MB/s** | **2,293 MB/s** | **1,377 MB/s** |
+| `array_of_tables` | Tuned | **831 MB/s** | **881 MB/s** | **673 MB/s** | **442 MB/s** |
+| `huge_table` | Tuned | **783 MB/s** | **744 MB/s** | **659 MB/s** | **523 MB/s** |
+| `dates` | Tuned | **752 MB/s** | **773 MB/s** | **631 MB/s** | **450 MB/s** |
+| `strings_escaped` | Tuned | **729 MB/s** | **973 MB/s** | **392 MB/s** | **372 MB/s** |
+| `mixed` | Tuned | **701 MB/s** | **735 MB/s** | **497 MB/s** | **356 MB/s** |
+| `ints_floats` | Tuned | **629 MB/s** | **640 MB/s** | **411 MB/s** | **219 MB/s** |
+| `many_tables` | Tuned | **573 MB/s** | **585 MB/s** | **498 MB/s** | **388 MB/s** |
+| `dotted_keys` | Tuned | **477 MB/s** | **483 MB/s** | **421 MB/s** | **394 MB/s** |
+| `inline_nested` | Tuned | **436 MB/s** | **463 MB/s** | **348 MB/s** | **302 MB/s** |
+| `realworld_lock` | Hold-Out | **1,631 MB/s** | **1,802 MB/s** | **1,274 MB/s** | **891 MB/s** |
+| `realworld_config` | Hold-Out | **952 MB/s** | **1,044 MB/s** | **716 MB/s** | **560 MB/s** |
+| `toml_test_concat` | Hold-Out | **707 MB/s** | **789 MB/s** | **488 MB/s** | **453 MB/s** |
 
-### Synthetic, Hold-Out & Parse + JSON Suite (`pixi run bench-lazy`, 15 runs median)
+### Access, Iteration & Reflection (`bench_lazy_generic.mojo`)
 
-| Corpus | Set | Strict (MB/s) | Trusted (MB/s) | Parse + `to_json` (MB/s) |
-|---|---|---:|---:|---:|
-| `strings_plain` | Tuned | **2,597 MB/s** | **2,994 MB/s** | **1,379 MB/s** |
-| `array_of_tables` | Tuned | **820 MB/s** | **864 MB/s** | **436 MB/s** |
-| `huge_table` | Tuned | **761 MB/s** | **729 MB/s** | **507 MB/s** |
-| `dates` | Tuned | **740 MB/s** | **757 MB/s** | **453 MB/s** |
-| `strings_escaped` | Tuned | **715 MB/s** | **956 MB/s** | **366 MB/s** |
-| `mixed` | Tuned | **697 MB/s** | **722 MB/s** | **352 MB/s** |
-| `ints_floats` | Tuned | **620 MB/s** | **628 MB/s** | **215 MB/s** |
-| `many_tables` | Tuned | **559 MB/s** | **567 MB/s** | **376 MB/s** |
-| `dotted_keys` | Tuned | **464 MB/s** | **474 MB/s** | **386 MB/s** |
-| `inline_nested` | Tuned | **426 MB/s** | **451 MB/s** | **295 MB/s** |
-| `realworld_lock` | Hold-Out | **1,592 MB/s** | **1,773 MB/s** | **871 MB/s** |
-| `realworld_config` | Hold-Out | **933 MB/s** | **1,021 MB/s** | **551 MB/s** |
-| `toml_test_concat` | Hold-Out | **692 MB/s** | **774 MB/s** | **446 MB/s** |
-
-### 10 MB Pressure Test (`bench_10mb.mojo`)
-
-| Corpus | Old Eager Parser (ms) | Old Eager Parser (MB/s) | Lazy Strict (ms) | Lazy Strict (MB/s) | Speedup |
-|---|---:|---:|---:|---:|---:|
-| `many_tables_10mb` | 562.07 ms | 17.8 MB/s | **37.11 ms** | **269.5 MB/s** | **15.15x** |
-| `mixed_10mb` | 257.35 ms | 38.9 MB/s | **26.33 ms** | **379.7 MB/s** | **9.77x** |
-| `inline_nested_10mb` | 489.40 ms | 20.4 MB/s | **53.14 ms** | **188.2 MB/s** | **9.21x** |
-| `strings_plain_10mb` | 72.28 ms | 138.4 MB/s | **8.05 ms** | **1,242.4 MB/s** | **8.98x** |
-
-### Generic UTF-8, Multiline & Lookup Throughput (`bench_lazy_generic.mojo`)
-
-- `utf8_heavy`: **2,257 MB/s** Strict max | **3,293 MB/s** Trusted max | **502 MB/s** Parse+JSON max
-- `multiline_comments`: **1,182 MB/s** Strict max | **1,263 MB/s** Trusted max | **253 MB/s** Parse+JSON max
-- `lookup_4k` (`doc[k]` + `as_int()`): **16.75 ns/entry** | `children()` + `as_int()`: **3.5 ns/entry** | `to_toml()` (4k entries): **0.098 ms**
+- **4k-key lookup + integer read** (`doc[k][Kind.Integer]`): **15.25 ns/entry** (Strict) | **14.25 ns/entry** (Eager)
+- **Child iteration + integer read**: **3.5 ns/entry** (Strict) | **2.0 ns/entry** (Eager)
+- **Array index (`arr[i][Kind.Integer]`)**: **0.5 ns/elem** (Eager)
+- **Struct reflection (`parse_toml` + `take[Struct]()`)**: **310 ns/call** (Strict) | **390 ns/call** (Eager)
 
 ---
 
@@ -227,22 +171,15 @@ Measured with Mojo `1.3.0.dev2026111316` on Apple Silicon (macOS):
 All unit tests and spec compliance suites use Mojo's standard `TestSuite`:
 
 ```bash
-# Run all unit and compliance tests
+# Run all unit, compliance, comptime, and reflection suites
 pixi run tests
 
-# Run lazy reader unit tests
-pixi run test-lazy-unit
-
-# Run full TOML 1.1 compliance suite against the lazy reader
-pixi run test-lazy-suite
-
-# Run eager parser unit tests
+# Individual suites
+pixi run test-toml-type
 pixi run test-parser
-
-# Run eager parser TOML 1.1 compliance suite
 pixi run test-toml-suite
-
-# Run struct reflection tests
+pixi run test-lazy-unit
+pixi run test-comptime-parser
 pixi run test-reflection
 ```
 

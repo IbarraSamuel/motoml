@@ -1,10 +1,8 @@
 from std.testing import assert_equal, TestSuite
 
-from motoml.types.toml import Toml
-from motoml.parser import parse_toml
+from motoml import parse_toml, Mode, Kind
 
 
-# TODO: Test nested keys..
 comptime TOML_TYPES = r'''
 string = "abcd"
 string_with_scape = "ab\"cd"
@@ -37,25 +35,24 @@ second = 2
 some_v = 1
 '''
 
-comptime desired_multiline_string = "select * from something\\n"
+comptime desired_multiline_string = "select * from something\n"
 
 
 def test_all_toml_types() raises:
-    # Materialize compile time values.
-    comptime TOML_TYPES_RES = parse_toml(TOML_TYPES)
-    # var res = parse_toml(TOML_TYPES)
+    comptime TOML_TYPES_RES = parse_toml[Mode.Eager](TOML_TYPES)
     var res = materialize[TOML_TYPES_RES]()
 
     if case .Err = res:
         var err = res^.take_error()
         raise err
 
-    var r = res^.take()
-    print("Parsed and saved!")
-    ref tb = r[Dict[String, Toml]]
-    assert_equal(tb["string"][String], "abcd")
-    assert_equal(tb["string_with_scape"][String], r"ab\"cd")
-    assert_equal(tb["multiline_string"][String], desired_multiline_string)
+    var doc = res^.take()
+    assert_equal(doc["string"][Kind.String], "abcd")
+    assert_equal(doc["string_with_scape"][Kind.String], 'ab"cd')
+    assert_equal(doc["multiline_string"][Kind.String], desired_multiline_string)
+    assert_equal(doc["positive_integer"][Kind.Integer], 30)
+    assert_equal(doc["negative_integer"][Kind.Integer], -30)
+    assert_equal(doc["table"]["first"][Kind.Integer], 1)
 
 
 def main() raises:

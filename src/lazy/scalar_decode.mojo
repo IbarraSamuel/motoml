@@ -2,7 +2,7 @@
 """
 
 from ..result import Result, ScalarResult
-from .node import Kind, NodeFlags
+from .node import NodeKind, NodeFlags
 from ..types.tempo import Date, Time, DateTime, Offset
 from std.collections import Span
 from std.math import nan
@@ -340,22 +340,22 @@ def validate_int(bytes: Span[Byte, _]) -> Bool:
 
 
 @always_inline
-def validate_scalar(kind: Kind, bytes: Span[Byte, _]) -> Bool:
-    """Validate an unquoted scalar according to its classified `Kind` without heap allocations.
+def validate_scalar(kind: NodeKind, bytes: Span[Byte, _]) -> Bool:
+    """Validate an unquoted scalar according to its classified `NodeKind` without heap allocations.
     """
-    if kind == Kind.Integer:
+    if kind == NodeKind.Integer:
         return validate_int(bytes)
-    if kind == Kind.Float:
+    if kind == NodeKind.Float:
         return validate_float(bytes)
-    if kind == Kind.Boolean:
+    if kind == NodeKind.Boolean:
         return validate_bool(bytes)
-    if kind == Kind.Date:
+    if kind == NodeKind.Date:
         return validate_date(bytes)
-    if kind == Kind.Time:
+    if kind == NodeKind.Time:
         return validate_time(bytes)
-    if kind == Kind.DateTime:
+    if kind == NodeKind.DateTime:
         return validate_datetime(bytes)
-    if kind == Kind.NaN or kind == Kind.Inf:
+    if kind == NodeKind.NaN or kind == NodeKind.Inf:
         return validate_float(bytes)
     return False
 
@@ -649,15 +649,12 @@ def decode_int(bytes: Span[Byte, _]) -> ScalarResult[Int]:
             acc = acc * 10 + d
     else:
         # Signed non-decimal integers are rejected above (`has_sign` check), so limit is I64_MAX.
-        var cutoff: UInt64 = (
-            UInt64(0x07FFFFFFFFFFFFFF) if base == 16 else (
-                UInt64(0x0FFFFFFFFFFFFFFF) if base == 8 else UInt64(
-                    0x3FFFFFFFFFFFFFFF
-                )
-            )
+        var cutoff: UInt64 = UInt64(0x07FFFFFFFFFFFFFF) if base == 16 else (
+            UInt64(0x0FFFFFFFFFFFFFFF) if base
+            == 8 else UInt64(0x3FFFFFFFFFFFFFFF)
         )
-        var cutlim: UInt64 = (
-            UInt64(15) if base == 16 else (UInt64(7) if base == 8 else UInt64(1))
+        var cutlim: UInt64 = UInt64(15) if base == 16 else (
+            UInt64(7) if base == 8 else UInt64(1)
         )
         for i in range(start, n):
             var b = ptr[unsafe_offset=i]
@@ -1158,15 +1155,14 @@ def _write_json_special_byte[W: Writer](b: Byte, mut w: W):
         w.write(
             "\\u00",
             StringSpan(unsafe_from_utf8=hex[Int(b >> 4) : Int(b >> 4) + 1]),
-            StringSpan(
-                unsafe_from_utf8=hex[Int(b & 0x0F) : Int(b & 0x0F) + 1]
-            ),
+            StringSpan(unsafe_from_utf8=hex[Int(b & 0x0F) : Int(b & 0x0F) + 1]),
         )
 
 
 @always_inline
 def _write_json_codepoint[W: Writer](cp: UInt32, mut w: W):
-    """Write a Unicode scalar value into a JSON string with necessary escaping."""
+    """Write a Unicode scalar value into a JSON string with necessary escaping.
+    """
     if cp == UInt32(ord('"')) or cp == UInt32(ord("\\")) or cp < 0x20:
         _write_json_special_byte(Byte(cp), w)
     else:
@@ -1177,7 +1173,8 @@ def _write_json_codepoint[W: Writer](cp: UInt32, mut w: W):
 def _decode_hex_n[
     validate: Bool
 ](ptr: Pointer[Byte, _], start: Int, count: Int) -> Int64:
-    """Decode `count` hex digits; returns `-1` on invalid hex when `validate=True`."""
+    """Decode `count` hex digits; returns `-1` on invalid hex when `validate=True`.
+    """
     var cp: Int64 = 0
     for j in range(start, start + count):
         var hb = ptr[unsafe_offset=j]
@@ -1205,7 +1202,8 @@ def _write_toml_string_as_json_impl[
     mut w: W,
     mut err_msg: StaticString,
 ) -> Bool:
-    """Decode a TOML escaped string directly into JSON string body in a single pass."""
+    """Decode a TOML escaped string directly into JSON string body in a single pass.
+    """
     var is_multiline = (flags & NodeFlags.MULTILINE) != 0
     var i = 0
     var n = len(bytes)
@@ -1312,7 +1310,9 @@ def _write_toml_string_as_json_impl[
             var has_nl = esc == Byte(ord("\n")) or esc == Byte(ord("\r"))
             comptime if validate:
                 if esc == Byte(ord("\r")):
-                    if i + 1 >= n or ptr[unsafe_offset=i + 1] != Byte(ord("\n")):
+                    if i + 1 >= n or ptr[unsafe_offset=i + 1] != Byte(
+                        ord("\n")
+                    ):
                         err_msg = "Bare CR in line-trimming backslash."
                         return False
             while i < n:
@@ -1321,9 +1321,8 @@ def _write_toml_string_as_json_impl[
                     i += 1
                 elif wb == Byte(ord("\r")):
                     comptime if validate:
-                        if (
-                            i + 1 >= n
-                            or ptr[unsafe_offset=i + 1] != Byte(ord("\n"))
+                        if i + 1 >= n or ptr[unsafe_offset=i + 1] != Byte(
+                            ord("\n")
                         ):
                             err_msg = "Bare CR in line-trimming backslash."
                             return False
