@@ -8,7 +8,9 @@ Single parser pipeline (`_parse_tape`) backing all five `Mode`s:
   `TomlDocument[Mode.Eager]` with no lifetime dependency on the source buffer.
 """
 
+from std.builtin.variadics import TypeList, _MLIR
 from std.collections import Optional, Span
+from std.utils import Variant
 from .lazy.key_index import KeyIndex
 from .lazy.node import Node
 from .lazy.reader import _parse_tape
@@ -107,6 +109,21 @@ struct TomlFile[mode_id: Int, //, mode: _Mode[mode_id] = Mode.Strict](
     @always_inline
     def take[T: Movable & Deinitable](ref self) raises -> T:
         return self.root().take[T]()
+
+    @always_inline
+    def take[
+        *Ts: Movable & Deinitable
+    ](ref self) raises -> Variant[*Ts] where Ts.length > 1:
+        return self.root().take[*Ts]()
+
+    @always_inline
+    def take[
+        Trait: type_of(AnyType),
+        values: _MLIR.KGENParamListType[Trait],
+        //,
+        ts: TypeList[Trait=Trait, values],
+    ](ref self) raises -> Variant[*ts] where ts.length > 0:
+        return self.root().take[ts]()
 
     def to_json[W: Writer](ref self, mut w: W) raises:
         self.root().to_json(w)

@@ -27,12 +27,21 @@ from ..mode import _Mode, Mode, _validation_of
 from .kind import KindTag, _Kind, Kind
 from .tempo import Date, Time, DateTime, Offset
 from ..result import Result, ScalarResult
-from ..reflection import _destroy_partial_struct
+from ..reflection import (
+    _IsValidTomlEnum,
+    _VariantConstructible,
+    _destroy_partial_struct,
+)
 from ..json_write import _write_json_escaped_bytes
+from std.builtin._enum import __Enum
+from std.builtin.rebind import downcast
+from std.builtin.tuple import __TupleLike
+from std.builtin.variadics import TypeList, _MLIR
 from std.collections import Span, List
 from std.math import nan
 from std.memory import Layout, Pointer, alloc, bitcast, unsafe_memcpy
 from std.os import abort
+from std.utils import Variant
 
 
 comptime KindPayload[id: Int, o: ImmOrigin, m_id: Int] = TypeList.of[
@@ -1104,8 +1113,63 @@ struct Toml[
 
         return allocation^.unsafe_leak().unsafe_take_pointee()
 
+    def _take_enum[
+        E: __Enum & Movable & Deinitable
+    ](self) raises -> E where _IsValidTomlEnum[E]:
+        """Deserialize this TOML value into the first matching single-payload `__enum` case.
+        """
+        comptime cases = TypeList[Trait=AnyType, E._enum_case_types]()
+        comptime for i in range(cases.length):
+            comptime CaseTuple = cases[i]
+            comptime elts = TypeList[
+                Trait=AnyType, downcast[CaseTuple, __TupleLike].__element_types
+            ]()
+            comptime Payload = elts[0]
+            comptime assert conforms_to(Payload, Movable & Deinitable)
+            try:
+                var val = self.take[Payload]()
+                return E.__enum_init[i](val^)
+            except:
+                pass
+        raise Error(
+            String(
+                "TOML value of kind ",
+                self.kind(),
+                " did not match any case of enum ",
+                reflect[E].name(),
+                ".",
+            )
+        )
+
+    def _take_variant[
+        Trait: type_of(AnyType),
+        values: _MLIR.KGENParamListType[Trait],
+        //,
+        ts: TypeList[Trait=Trait, values],
+    ](self) raises -> Variant[*ts]:
+        """Deserialize this TOML value into the first matching type in `ts`."""
+        comptime assert ts.length > 0, "Variant must declare at least one type."
+        comptime for i in range(ts.length):
+            comptime Elem = ts[i]
+            comptime assert conforms_to(Elem, Movable & Deinitable), String(
+                t"Variant element {reflect[Elem].name()} must be Movable and"
+                t" Deinitable."
+            )
+            try:
+                var val = self.take[Elem]()
+                return Variant[*ts](val^)
+            except:
+                pass
+        raise Error(
+            String(
+                "TOML value of kind ",
+                self.kind(),
+                " did not match any variant type.",
+            )
+        )
+
     def take[T: Movable & Deinitable](self) raises -> T:
-        """Deserialize this TOML value into `T` (scalar, `List`, `Optional`, or struct).
+        """Deserialize this TOML value into `T` (scalar, `List`, `Optional`, `__enum`, `OneOf`, or struct).
         """
         comptime Tr = reflect[T]
 
@@ -1152,12 +1216,45 @@ struct Toml[
             comptime assert conforms_to(Elem, Movable & Deinitable)
             var lst = self._take_list[Elem]()
             return rebind_var[T](lst^)
+        elif conforms_to(T, _VariantConstructible):
+            comptime V = downcast[T, _VariantConstructible]
+            comptime ts = TypeList[Trait=AnyType, V._variant_types]()
+            comptime assert (
+                ts.length > 0
+            ), "Variant wrapper must declare at least one type."
+            return rebind_var[T](V._from_variant(self._take_variant[ts]()))
+        elif conforms_to(T, __Enum):
+            comptime E = downcast[T, __Enum & Movable & Deinitable]
+            comptime assert _IsValidTomlEnum[E], (
+                "Enum type must have at least one case and every case must"
+                " carry exactly one payload."
+            )
+            return rebind_var[T](self._take_enum[E]())
+        elif Tr.base_name() == "Variant":
+            raise Error(
+                "Direct Variant reflection is not supported; use take[*Ts](),"
+                " take[TypeList](), an __enum, or OneOf[*Ts]."
+            )
         elif Tr.is_struct():
             return self._take_struct[T]()
-        elif Tr.base_name() == "Variant":
-            raise Error("Variant types not supported yet!")
         else:
             raise Error("Type Not Supported!")
+
+    def take[
+        *Ts: Movable & Deinitable
+    ](self) raises -> Variant[*Ts] where Ts.length > 1:
+        """Deserialize this TOML value into the first matching type in `Ts`."""
+        comptime ts = TypeList[Trait=Movable & Deinitable, Ts.values]()
+        return rebind_var[Variant[*Ts]](self._take_variant[ts]())
+
+    def take[
+        Trait: type_of(AnyType),
+        values: _MLIR.KGENParamListType[Trait],
+        //,
+        ts: TypeList[Trait=Trait, values],
+    ](self) raises -> Variant[*ts] where ts.length > 0:
+        """Deserialize this TOML value into the first matching type in `ts`."""
+        return self._take_variant[ts]()
 
     # --- Iteration ---
 
@@ -1603,6 +1700,21 @@ struct TomlDocument[
     @always_inline
     def take[T: Movable & Deinitable](ref self) raises -> T:
         return self.root().take[T]()
+
+    @always_inline
+    def take[
+        *Ts: Movable & Deinitable
+    ](ref self) raises -> Variant[*Ts] where Ts.length > 1:
+        return self.root().take[*Ts]()
+
+    @always_inline
+    def take[
+        Trait: type_of(AnyType),
+        values: _MLIR.KGENParamListType[Trait],
+        //,
+        ts: TypeList[Trait=Trait, values],
+    ](ref self) raises -> Variant[*ts] where ts.length > 0:
+        return self.root().take[ts]()
 
     def to_json[W: Writer](ref self, mut w: W) raises:
         self.root().to_json(w)

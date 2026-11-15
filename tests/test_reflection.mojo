@@ -1,7 +1,15 @@
-from std.testing import TestSuite, assert_equal, assert_raises
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_false,
+    assert_raises,
+    assert_true,
+)
+from std.builtin.variadics import TypeList
 from std.collections import List, Optional
+from std.utils import Variant
 
-from motoml import parse_toml, Mode, _Mode, Date, Time, DateTime
+from motoml import parse_toml, Mode, _Mode, Date, Time, DateTime, OneOf
 
 
 def test_scalar_and_temporal_take() raises:
@@ -193,6 +201,211 @@ def test_nested() raises:
     var evalue = edoc.take[TestBuild]()
     assert_equal(evalue.name, "samuel")
     assert_equal(evalue.language.info.version, "0.26.2.0")
+
+
+struct EndpointA(Equatable, Movable):
+    var label: String
+    var port: Int
+
+
+struct EndpointB(Equatable, Movable):
+    var label: String
+    var host: String
+
+
+__enum ValueEnum(Movable):
+    case integer(Int)
+    case float(Float64)
+    case text(String)
+    case endpoint_a(EndpointA)
+    case endpoint_b(EndpointB)
+
+
+struct EnumContainer(Movable):
+    var primary: ValueEnum
+    var secondary: Optional[ValueEnum]
+    var missing_opt: Optional[ValueEnum]
+    var items: List[ValueEnum]
+
+
+struct OneOfContainer(Movable):
+    var port_or_host: OneOf[Int, String]
+    var opt_present: Optional[OneOf[Int, String]]
+    var opt_missing: Optional[OneOf[Int, String]]
+    var mixed: List[OneOf[Int, EndpointB]]
+
+
+def test_take_variadic_variant() raises:
+    var src = """
+    i = 42
+    f = 2.5
+    s = "hello"
+    [ep]
+    label = "api"
+    host = "localhost"
+    """
+    var doc = parse_toml(src).take()
+    var vi = doc["i"].take[Int, Float64, String]()
+    assert_true(vi.isa[Int]())
+    assert_equal(vi[Int], 42)
+
+    var vf = doc["f"].take[Int, Float64, String]()
+    assert_true(vf.isa[Float64]())
+    assert_equal(vf[Float64], 2.5)
+
+    var vs = doc["s"].take[Int, Float64, String]()
+    assert_true(vs.isa[String]())
+    assert_equal(vs[String], "hello")
+
+    # EndpointA initializes `label` then fails on missing `port` and falls back to EndpointB.
+    var vep = doc["ep"].take[EndpointA, EndpointB, Int]()
+    assert_true(vep.isa[EndpointB]())
+    assert_equal(vep[EndpointB].label, "api")
+    assert_equal(vep[EndpointB].host, "localhost")
+
+    with assert_raises():
+        _ = doc["s"].take[Int, Float64]()
+    with assert_raises():
+        _ = doc["missing"].take[Int, String]()
+
+    # Root TomlDocument forwarding + Mode.Eager
+    var root_src = 'label = "root"\nhost = "0.0.0.0"\n'
+    var root_doc = parse_toml[Mode.Eager](root_src).take()
+    var vroot = root_doc.take[EndpointA, EndpointB]()
+    assert_true(vroot.isa[EndpointB]())
+    assert_equal(vroot[EndpointB].host, "0.0.0.0")
+
+
+def test_take_typelist() raises:
+    var src = """
+    i = 7
+    s = "typelist"
+    [ep]
+    label = "svc"
+    port = 8080
+    """
+    comptime AnyTypes = TypeList.of[Int, String, EndpointA]()
+    comptime MovableTypes = TypeList.of[
+        Trait=Movable & Deinitable, Int, String
+    ]()
+
+    var doc = parse_toml(src).take()
+    var vi = doc["i"].take[AnyTypes]()
+    assert_true(vi.isa[Int]())
+    assert_equal(vi[Int], 7)
+
+    var vep = doc["ep"].take[AnyTypes]()
+    assert_true(vep.isa[EndpointA]())
+    assert_equal(vep[EndpointA].label, "svc")
+    assert_equal(vep[EndpointA].port, 8080)
+
+    var vs = doc["s"].take[MovableTypes]()
+    assert_true(vs.isa[String]())
+    assert_equal(vs[String], "typelist")
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    var evep = edoc["ep"].take[AnyTypes]()
+    assert_true(evep.isa[EndpointA]())
+    assert_equal(evep[EndpointA].port, 8080)
+
+
+def test_enum_reflection() raises:
+    var arr_src = """
+    primary = "fast"
+    secondary = 99
+    items = [1, 2.5, "ok", { label = "inline", host = "db" }]
+    """
+    var doc = parse_toml(arr_src).take()
+    var c = doc.take[EnumContainer]()
+
+    if case .text(s) = c.primary:
+        assert_equal(s, "fast")
+    else:
+        assert_true(False, "expected ValueEnum.text")
+
+    assert_true(Bool(c.secondary))
+    if case .integer(n) = c.secondary.value():
+        assert_equal(n, 99)
+    else:
+        assert_true(False, "expected ValueEnum.integer")
+
+    assert_false(Bool(c.missing_opt))
+    assert_equal(len(c.items), 4)
+
+    if case .integer(v0) = c.items[0]:
+        assert_equal(v0, 1)
+    else:
+        assert_true(False, "expected ValueEnum.integer at index 0")
+
+    if case .float(v1) = c.items[1]:
+        assert_equal(v1, 2.5)
+    else:
+        assert_true(False, "expected ValueEnum.float at index 1")
+
+    if case .text(v2) = c.items[2]:
+        assert_equal(v2, "ok")
+    else:
+        assert_true(False, "expected ValueEnum.text at index 2")
+
+    if case .endpoint_b(ep) = c.items[3]:
+        assert_equal(ep.label, "inline")
+        assert_equal(ep.host, "db")
+    else:
+        assert_true(False, "expected ValueEnum.endpoint_b at index 3")
+
+    with assert_raises():
+        _ = parse_toml("b = true\n").take()["b"].take[ValueEnum]()
+
+    var edoc = parse_toml[Mode.Eager](arr_src).take()
+    var ec = edoc.take[EnumContainer]()
+    if case .endpoint_b(ep) = ec.items[3]:
+        assert_equal(ep.host, "db")
+    else:
+        assert_true(False, "expected ValueEnum.endpoint_b in Eager mode")
+
+
+def test_one_of_wrapper() raises:
+    var src = """
+    port_or_host = 8080
+    opt_present = "localhost"
+    mixed = [10, { label = "web", host = "example.com" }]
+    """
+    var doc = parse_toml(src).take()
+    var direct = doc["port_or_host"].take[OneOf[Int, String]]()
+    assert_true(direct.isa[Int]())
+    assert_equal(direct[Int], 8080)
+    assert_equal(direct, OneOf[Int, String](8080))
+    var as_variant = direct^.into_variant()
+    assert_equal(as_variant[Int], 8080)
+
+    var c = doc.take[OneOfContainer]()
+    assert_true(c.port_or_host.isa[Int]())
+    assert_equal(c.port_or_host[Int], 8080)
+    assert_true(Bool(c.opt_present))
+    assert_true(c.opt_present.value().isa[String]())
+    assert_equal(c.opt_present.value()[String], "localhost")
+    assert_false(Bool(c.opt_missing))
+
+    assert_equal(len(c.mixed), 2)
+    assert_true(c.mixed[0].isa[Int]())
+    assert_equal(c.mixed[0][Int], 10)
+    assert_true(c.mixed[1].isa[EndpointB]())
+    assert_equal(c.mixed[1][EndpointB].label, "web")
+    assert_equal(c.mixed[1][EndpointB].host, "example.com")
+
+    var edoc = parse_toml[Mode.Eager](src).take()
+    var ec = edoc.take[OneOfContainer]()
+    assert_equal(ec.mixed[1][EndpointB].host, "example.com")
+
+    with assert_raises():
+        _ = (
+            parse_toml("flag = true\n")
+            .take()["flag"]
+            .take[OneOf[Int, String]]()
+        )
+
+    with assert_raises():
+        _ = doc["port_or_host"].take[Variant[Int, String]]()
 
 
 def main() raises:
