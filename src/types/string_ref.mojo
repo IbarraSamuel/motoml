@@ -405,8 +405,8 @@ def parse_string_escape(v: StringSpan) -> Result[String]:
 
     # print("Codepoint Replacements done: Final value is:", ss)
     var last_esc = 0
-    var esc = ss.find("\\", last_esc)
-    while esc != -1:
+    var esc_res = ss.find("\\", last_esc)
+    while case .Some(var esc) = esc_res:
         # print("escape found:...")
         # print("raw value is: `{}`".format(ss))
         last_esc = esc
@@ -423,7 +423,7 @@ def parse_string_escape(v: StringSpan) -> Result[String]:
             # if it's a scape, skip by 2
             last_esc += 1 + Int(ss[byte=esc + 1] == "\\")
             # Continue after this escape so the loop cannot find it again.
-            esc = ss.find("\\", last_esc)
+            esc_res = ss.find("\\", last_esc)
             # print("Next value after escape is not a space, skipping...")
             continue
 
@@ -438,12 +438,12 @@ def parse_string_escape(v: StringSpan) -> Result[String]:
 
         ss = String(ss[byte=:last_esc]) + String(ss[byte=esc:])
         # ssb = ss.as_bytes()
-        esc = ss.find("\\", last_esc)
+        esc_res = ss.find("\\", last_esc)
 
     var last_qte = -1
-    var qte = ss.find('"', last_qte + 1)
+    var qte_res = ss.find('"', last_qte + 1)
     # print("Before quote replace:", ss)
-    while qte != -1:
+    while case .Some(qte) = qte_res:
         last_qte = qte
 
         var esc_count = 0
@@ -452,13 +452,13 @@ def parse_string_escape(v: StringSpan) -> Result[String]:
 
         # print("for string: '{}' esc count:".format(ss), esc_count)
         if esc_count != 0 and esc_count % 2 != 0:
-            qte = ss.find('"', qte + 1)
+            qte_res = ss.find('"', qte + 1)
             continue
 
         last_qte += 1
         ss = ss[byte=:qte] + "\\" + String(ss[byte=qte:])
 
-        qte = ss.find('"', last_qte + 1)
+        qte_res = ss.find('"', last_qte + 1)
     # if ssb[len(ssb) - 1] == Byte(ord("\\")) and (
     #     len(ssb) == 1 or ssb[len(ssb) - 2] != Byte(ord("\\"))
     # ):

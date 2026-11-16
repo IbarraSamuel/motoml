@@ -231,23 +231,25 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
     @always_inline
     @staticmethod
     def from_string(v: StringSpan) -> Result[Self]:
-        var split = v.find("T")
-        split = v.find("t") if split == -1 else split
-        split = v.find(" ") if split == -1 else split
+        var split_opt = v.find("T")
+        if not split_opt:
+            split_opt = v.find("t")
+        if not split_opt:
+            split_opt = v.find(" ")
 
-        if split == -1:
+        if not split_opt:
             return .Err(t"Datetime is not datetime: `{v}`")
+        var split = split_opt.unsafe_value()
         var date_s = v[byte=:split]
         # print("date is:", date_s)
 
         var z = v.find("Z", split)
-        z = z if z != -1 else v.find("z", split)
+        if not z:
+            z = v.find("z", split)
         var neg = v.find("-", split)
         var pos = v.find("+", split)
 
-        var t_split = z if (z != -1) else neg if (neg != -1) else pos if (
-            pos != -1
-        ) else v.byte_length()
+        var t_split = z.unsafe_value() if z else neg.unsafe_value() if neg else pos.unsafe_value() if pos else v.byte_length()
 
         var time_s = v[byte = split + 1 : t_split]
         # print("time is:", time_s)
@@ -259,7 +261,7 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         # print("offset is:", v[byte=t_split:], "or just a utc value")
         var offset = .Ok(Offset.utc) if t_split == (
             v.byte_length()
-        ) or z != -1 else Offset.from_string(v[byte=t_split:])
+        ) or z else Offset.from_string(v[byte=t_split:])
         # print("offset is:", offset)
 
         try:
@@ -301,6 +303,7 @@ def _align[i: Intable & Writable, //, size: Int](n: i, mut w: Some[Writer]):
 
 def _align_fraction[size: Int](n: Float64, mut w: Some[Writer]):
     var st = String(n)
-    var curr_fmt = st.byte_length() - st.find(".") - 1
+    var dot = st.find(".")
+    var curr_fmt = st.byte_length() - dot.unsafe_value() - 1 if dot else st.byte_length()
     for _ in range(max(size - curr_fmt, 0)):
         w.write("0")

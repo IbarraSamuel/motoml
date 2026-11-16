@@ -355,9 +355,9 @@ struct JsonParser(Movable):
                 break
         var number = String(self.source[byte = start : self.position])
         if (
-            number.find(".") >= 0
-            or number.find("e") >= 0
-            or number.find("E") >= 0
+            Bool(number.find("."))
+            or Bool(number.find("e"))
+            or Bool(number.find("E"))
         ):
             var n = _JsonNode(_JsonNode.TAG_FLOAT)
             n.float_val = Float64(number)
