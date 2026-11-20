@@ -7,7 +7,7 @@ mapped.
 
 from std.collections import Span
 from std.ffi import c_int, c_size_t, external_call
-from std.memory import OptionalPointer, Pointer
+from std.memory import Pointer
 from std.os import PathLike as StdPathLike, SEEK_END
 from std.sys._libc_errno import get_errno
 

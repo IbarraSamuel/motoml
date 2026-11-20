@@ -1,5 +1,5 @@
 from std.os import abort
-from std.python import PythonObject, Python
+from std.python import PythonObject
 from std.python.bindings import PythonModuleBuilder
 
 from ..parser import parse_toml

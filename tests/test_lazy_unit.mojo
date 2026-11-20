@@ -5,7 +5,6 @@ from motoml import (
     Kind,
     KindTag,
     TomlDocument,
-    TomlFile,
 )
 from motoml.mmap_file import MappedFile
 from std.os import remove
@@ -16,7 +15,6 @@ from std.testing import (
     assert_true,
     assert_false,
     assert_equal,
-    assert_raises,
 )
 from std.math import isnan
 

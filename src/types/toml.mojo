@@ -2,7 +2,7 @@
 
 from ..lazy.node import Node, NodeKind, NodeFlags, NO_NODE
 from ..lazy.key_index import KeyIndex, KEY_ESCAPE_BIT
-from ..lazy.validation import Validation, validation_level
+from ..lazy.validation import validation_level
 from ..lazy.reader import _ParsedTape
 from ..lazy.scalar_decode import (
     decode_int,
@@ -26,7 +26,6 @@ from ..lazy.scalar_decode import (
 from ..mode import _Mode, Mode, _validation_of
 from .kind import KindTag, _Kind, Kind
 from .tempo import Date, Time, DateTime, Offset
-from ..result import Result, ScalarResult
 from ..reflection import (
     _IsValidTomlEnum,
     _VariantConstructible,

@@ -3,7 +3,7 @@ from motoml.mmap_file import MappedFile
 from json_parser import JsonDoc, parse_json, translate_json_to_types
 from std.pathlib import Path
 from std.reflection import call_location, SourceLocation
-from std.testing import assert_true, assert_raises, assert_equal
+from std.testing import assert_raises, assert_equal
 from std.testing.suite import TestReport, TestResult, TestSuiteReport
 
 from std.time import perf_counter_ns

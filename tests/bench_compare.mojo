@@ -23,7 +23,7 @@ def bench_corpus(name: StringSpan, path_str: String) raises:
     var eager_mbps = size_mb / (Float64(eager_best) / 1_000_000_000.0)
 
     # 2. Lazy Strict
-    _ = parse_toml[Mode.Strict](view).take()
+    parse_toml[Mode.Strict](view).forget()
     var strict_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()
@@ -37,7 +37,7 @@ def bench_corpus(name: StringSpan, path_str: String) raises:
     var strict_speedup = Float64(eager_best) / Float64(strict_best)
 
     # 3. Lazy Trusted
-    _ = parse_toml[Mode.Trusted](view).take()
+    parse_toml[Mode.Trusted](view).forget()
     var trusted_best: Int = 1_000_000_000_000
     for _ in range(3):
         var t0 = perf_counter_ns()

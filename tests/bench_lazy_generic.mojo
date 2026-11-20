@@ -204,7 +204,7 @@ def bench_lookup_and_decode() raises:
         var dt = Int(t1 - t0)
         if dt < best_eager_arr_ns:
             best_eager_arr_ns = dt
-    _ = len(lazy_arr_v)
+    var _ = len(lazy_arr_v)
 
     var cfg_src = (
         'host = "localhost"\nport = 8080\nratio = 0.75\nenabled = true\n'

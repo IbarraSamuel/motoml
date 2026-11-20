@@ -17,8 +17,6 @@ from .lexer import (
     CurlyBracketClose,
     NewLine,
     Enter,
-    Space,
-    Tab,
     Comment,
     Comma,
     Equal,

@@ -1,7 +1,5 @@
-from std.utils import Variant
 from std.os import abort
 from std.memory import forget_deinit
-from std.iter import downcast
 
 
 @fieldwise_init
