@@ -38,11 +38,11 @@ def bench_one(
 
     # Warmup
     for _ in range(warmups):
-        var d1 = parse_toml[Mode.Strict](view).take()
+        var d1 = parse_toml[Mode.Strict](view)
         _ = len(d1.nodes)
-        var d2 = parse_toml[Mode.Trusted](view).take()
+        var d2 = parse_toml[Mode.Trusted](view)
         _ = len(d2.nodes)
-        var d3 = parse_toml[Mode.Eager](view).take()
+        var d3 = parse_toml[Mode.Eager](view)
         _ = len(d3.nodes)
 
     var strict_times = List[Int](capacity=iters)
@@ -52,7 +52,7 @@ def bench_one(
 
     for _ in range(iters):
         var t0 = perf_counter_ns()
-        var d = parse_toml[Mode.Strict](view).take()
+        var d = parse_toml[Mode.Strict](view)
         var t1 = perf_counter_ns()
         strict_times.append(Int(t1 - t0))
 
@@ -63,14 +63,14 @@ def bench_one(
 
     for _ in range(iters):
         var t0 = perf_counter_ns()
-        var d = parse_toml[Mode.Trusted](view).take()
+        var d = parse_toml[Mode.Trusted](view)
         var t1 = perf_counter_ns()
         _ = len(d.nodes)
         trusted_times.append(Int(t1 - t0))
 
     for _ in range(iters):
         var t0 = perf_counter_ns()
-        var d = parse_toml[Mode.Eager](view).take()
+        var d = parse_toml[Mode.Eager](view)
         var t1 = perf_counter_ns()
         _ = len(d.nodes)
         eager_times.append(Int(t1 - t0))

@@ -1,3 +1,8 @@
+"""Reflection tests: scalars, temporals, lists, structs, Optional, OneOf, __union, Variant."""
+
+from std.builtin.variadics import TypeList
+from std.collections import List, Optional
+from std.os import remove
 from std.testing import (
     TestSuite,
     assert_equal,
@@ -5,11 +10,17 @@ from std.testing import (
     assert_raises,
     assert_true,
 )
-from std.builtin.variadics import TypeList
-from std.collections import List, Optional
 from std.utils import Variant
 
-from motoml import parse_toml, Mode, _Mode, Date, Time, DateTime, OneOf
+from motoml import (
+    Date,
+    DateTime,
+    Mode,
+    OneOf,
+    Time,
+    parse_toml,
+    parse_toml_file,
+)
 
 
 def test_scalar_and_temporal_take() raises:
@@ -19,16 +30,19 @@ def test_scalar_and_temporal_take() raises:
     b = true
     s = "hello world"
     d = 2023-02-01
-    t = 23:01:01
+    t = 23:01:01.25
     dt = 2023-02-01T23:01:01
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     assert_equal(doc["i"].take[Int](), 1)
     assert_equal(doc["f"].take[Float64](), 3.14)
     assert_equal(doc["b"].take[Bool](), True)
     assert_equal(doc["s"].take[String](), "hello world")
     assert_equal(doc["d"].take[Date](), Date(year=2023, month=2, day=1))
-    assert_equal(doc["t"].take[Time](), Time(hour=23, minute=1, second=1))
+    assert_equal(
+        doc["t"].take[Time](),
+        Time(hour=23, minute=1, second=1, nanosecond=250_000_000),
+    )
     var expected_dt = DateTime(
         date=Date(year=2023, month=2, day=1),
         time=Time(hour=23, minute=1, second=1),
@@ -37,7 +51,7 @@ def test_scalar_and_temporal_take() raises:
     )
     assert_equal(doc["dt"].take[DateTime](), expected_dt)
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     assert_equal(edoc["i"].take[Int](), 1)
     assert_equal(edoc["f"].take[Float64](), 3.14)
     assert_equal(edoc["b"].take[Bool](), True)
@@ -51,7 +65,7 @@ def test_lists() raises:
     ints = [3, 4, 5]
     strings = ["hello", "hello", "hello", "hello"]
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var rf = doc["floats"].take[List[Float64]]()
     assert_equal(rf[0], 3.12)
     assert_equal(rf[1], 1.5e14)
@@ -74,12 +88,12 @@ struct SimpleStruct(Movable):
 
 def test_simple_struct() raises:
     var src = "first_value = 1\nsecond_value = 3.1\n"
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var simple_struct = doc.take[SimpleStruct]()
     assert_equal(simple_struct.first_value, 1)
     assert_equal(simple_struct.second_value, 3.1)
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     var eager_struct = edoc.take[SimpleStruct]()
     assert_equal(eager_struct.first_value, 1)
     assert_equal(eager_struct.second_value, 3.1)
@@ -109,7 +123,7 @@ struct StringThenMissingField(Movable):
 
 def test_struct_conversion_failure_cleans_initialized_fields() raises:
     var src = 'owned_string = "owned value"\n'
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     with assert_raises():
         _ = doc.take[StringThenMissingField]()
 
@@ -128,7 +142,7 @@ def test_struct_all_types() raises:
     key = 32
     key2 = 84
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var at = doc.take[AllTypes]()
     assert_equal(at.integer, 1)
     assert_equal(at.float, 3.1)
@@ -139,7 +153,7 @@ def test_struct_all_types() raises:
     assert_equal(at.table.key, 32)
     assert_equal(at.table.key2, 84)
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     var eat = edoc.take[AllTypes]()
     assert_equal(eat.integer, 1)
     assert_equal(eat.list[3], 4)
@@ -153,10 +167,15 @@ struct StructOptional(Movable):
 
 def test_struct_optional() raises:
     var src = 'value_1 = "hello"\n'
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var value = doc.take[StructOptional]()
     assert_equal(value.value_1, "hello")
     assert_equal(Bool(value.value_2), False)
+
+    # Wrong type on present optional field must fail and clean up earlier fields
+    var bad_opt = parse_toml('value_1 = "hello"\nvalue_2 = "not_an_int"\n')
+    with assert_raises():
+        _ = bad_opt.take[StructOptional]()
 
 
 struct Info(Movable):
@@ -188,7 +207,7 @@ def test_nested() raises:
     name = "mojo"
     version = "0.26.2.0"
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var value = doc.take[TestBuild]()
 
     assert_equal(value.name, "samuel")
@@ -197,7 +216,7 @@ def test_nested() raises:
     assert_equal(value.language.current_version.value(), 0.26)
     assert_equal(Bool(value.language.stable_version), False)
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     var evalue = edoc.take[TestBuild]()
     assert_equal(evalue.name, "samuel")
     assert_equal(evalue.language.info.version, "0.26.2.0")
@@ -213,7 +232,7 @@ struct EndpointB(Equatable, Movable):
     var host: String
 
 
-__enum ValueEnum(Movable):
+__union ValueEnum(Movable):
     case integer(Int)
     case float(Float64)
     case text(String)
@@ -244,7 +263,7 @@ def test_take_variadic_variant() raises:
     label = "api"
     host = "localhost"
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var vi = doc["i"].take[Int, Float64, String]()
     assert_true(vi.isa[Int]())
     assert_equal(vi[Int], 42)
@@ -268,9 +287,8 @@ def test_take_variadic_variant() raises:
     with assert_raises():
         _ = doc["missing"].take[Int, String]()
 
-    # Root TomlDocument forwarding + Mode.Eager
     var root_src = 'label = "root"\nhost = "0.0.0.0"\n'
-    var root_doc = parse_toml[Mode.Eager](root_src).take()
+    var root_doc = parse_toml[Mode.Eager](root_src)
     var vroot = root_doc.take[EndpointA, EndpointB]()
     assert_true(vroot.isa[EndpointB]())
     assert_equal(vroot[EndpointB].host, "0.0.0.0")
@@ -289,7 +307,7 @@ def test_take_typelist() raises:
         Trait=Movable & Deinitable, Int, String
     ]()
 
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var vi = doc["i"].take[AnyTypes]()
     assert_true(vi.isa[Int]())
     assert_equal(vi[Int], 7)
@@ -303,7 +321,7 @@ def test_take_typelist() raises:
     assert_true(vs.isa[String]())
     assert_equal(vs[String], "typelist")
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     var evep = edoc["ep"].take[AnyTypes]()
     assert_true(evep.isa[EndpointA]())
     assert_equal(evep[EndpointA].port, 8080)
@@ -315,7 +333,7 @@ def test_enum_reflection() raises:
     secondary = 99
     items = [1, 2.5, "ok", { label = "inline", host = "db" }]
     """
-    var doc = parse_toml(arr_src).take()
+    var doc = parse_toml(arr_src)
     var c = doc.take[EnumContainer]()
 
     if case .text(s) = c.primary:
@@ -324,7 +342,7 @@ def test_enum_reflection() raises:
         assert_true(False, "expected ValueEnum.text")
 
     assert_true(Bool(c.secondary))
-    if case .integer(n) = c.secondary.value():
+    if case .Some(.integer(n)) = c.secondary:
         assert_equal(n, 99)
     else:
         assert_true(False, "expected ValueEnum.integer")
@@ -354,9 +372,9 @@ def test_enum_reflection() raises:
         assert_true(False, "expected ValueEnum.endpoint_b at index 3")
 
     with assert_raises():
-        _ = parse_toml("b = true\n").take()["b"].take[ValueEnum]()
+        _ = parse_toml("b = true\n")["b"].take[ValueEnum]()
 
-    var edoc = parse_toml[Mode.Eager](arr_src).take()
+    var edoc = parse_toml[Mode.Eager](arr_src)
     var ec = edoc.take[EnumContainer]()
     if case .endpoint_b(ep) = ec.items[3]:
         assert_equal(ep.host, "db")
@@ -370,7 +388,7 @@ def test_one_of_wrapper() raises:
     opt_present = "localhost"
     mixed = [10, { label = "web", host = "example.com" }]
     """
-    var doc = parse_toml(src).take()
+    var doc = parse_toml(src)
     var direct = doc["port_or_host"].take[OneOf[Int, String]]()
     assert_true(direct.isa[Int]())
     assert_equal(direct[Int], 8080)
@@ -393,19 +411,26 @@ def test_one_of_wrapper() raises:
     assert_equal(c.mixed[1][EndpointB].label, "web")
     assert_equal(c.mixed[1][EndpointB].host, "example.com")
 
-    var edoc = parse_toml[Mode.Eager](src).take()
+    var edoc = parse_toml[Mode.Eager](src)
     var ec = edoc.take[OneOfContainer]()
     assert_equal(ec.mixed[1][EndpointB].host, "example.com")
 
     with assert_raises():
-        _ = (
-            parse_toml("flag = true\n")
-            .take()["flag"]
-            .take[OneOf[Int, String]]()
-        )
+        _ = parse_toml("flag = true\n")["flag"].take[OneOf[Int, String]]()
 
     with assert_raises():
         _ = doc["port_or_host"].take[Variant[Int, String]]()
+
+
+def test_toml_file_reflection() raises:
+    var tmp_path = "/tmp/motoml_test_reflection.toml"
+    with open(tmp_path, "w") as f:
+        f.write("first_value = 7\nsecond_value = 2.5\n")
+    var tf = parse_toml_file(tmp_path)
+    var cfg = tf.take[SimpleStruct]()
+    remove(tmp_path)
+    assert_equal(cfg.first_value, 7)
+    assert_equal(cfg.second_value, 2.5)
 
 
 def main() raises:

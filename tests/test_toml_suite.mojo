@@ -1,25 +1,11 @@
-from motoml import parse_toml, Mode, _Mode
+from motoml import Mode, _Mode, toml_to_tagged_json
 from motoml.mmap_file import MappedFile
 from json_parser import JsonDoc, parse_json, translate_json_to_types
 from std.pathlib import Path
-from std.reflection import call_location, SourceLocation
-from std.testing import assert_raises, assert_equal
+from std.reflection import SourceLocation, call_location
+from std.testing import assert_equal, assert_raises
 from std.testing.suite import TestReport, TestResult, TestSuiteReport
-
 from std.time import perf_counter_ns
-
-
-def _to_tagged_json_for_mode[
-    mode_id: Int, //, mode: _Mode[mode_id]
-](content: StringSpan) raises -> String:
-    var out = String()
-    comptime if mode_id == 0:
-        var doc = parse_toml[Mode.Eager](content).take()
-        doc.to_json(out)
-    else:
-        var doc = parse_toml[mode](content).take()
-        doc.to_json(out)
-    return out^
 
 
 def toml_single_test[
@@ -27,20 +13,20 @@ def toml_single_test[
 ](strpath: String) raises -> None:
     var file = Path(strpath)
     if not file.exists():
-        raise t"file not exists: {file}"
+        raise t"file does not exist: {file}"
     var fmap = MappedFile(file)
     var content = fmap.unsafe_view()
 
     if "invalid/" in strpath:
         with assert_raises():
-            _ = _to_tagged_json_for_mode[mode](content)
+            _ = toml_to_tagged_json[mode](content)
         return
 
-    var result_json = _to_tagged_json_for_mode[mode](content)
+    var result_json = toml_to_tagged_json[mode](content)
 
     var exp_file = Path(String(file).removesuffix(file.suffix()) + ".json")
     if not exp_file.exists():
-        raise t"json file not exists: {exp_file}"
+        raise t"json file does not exist: {exp_file}"
 
     var expected_result = exp_file.read_text()
 
@@ -88,18 +74,12 @@ def _run_suite[
 
 
 def main() raises:
-    """Main entrypoint."""
     var toml_dir = toml_files() / "tests"
-
     var files_map = MappedFile(toml_dir / "files-toml-1.1.0")
     var v11_files = files_map.unsafe_view().splitlines()
 
     _run_suite[Mode.Strict]("Strict", toml_dir, v11_files, valid_only=False)
     _run_suite[Mode.Eager]("Eager", toml_dir, v11_files, valid_only=False)
-    _run_suite[Mode.Lexical]("Lexical", toml_dir, v11_files, valid_only=True)
-    _run_suite[Mode.Structure](
-        "Structure", toml_dir, v11_files, valid_only=True
-    )
     _run_suite[Mode.Trusted]("Trusted", toml_dir, v11_files, valid_only=True)
 
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Differential & mutation fuzzer for motoml.lazy.
+"""Differential & mutation fuzzer for motoml.
 
 1. Valid TOML generation: generates random valid TOML documents and compares
-   motoml.lazy's JSON output against Python's `tomllib` (normalized).
-2. Mutation fuzzing: mutates valid TOML documents and checks that `motoml.lazy`
-   in Strict mode never crashes and rejects everything `tomllib` rejects (plus
-   comparing against an optional baseline binary).
+   motoml's JSON output across `strict`, `eager`, and `trusted` modes against
+   Python's `tomllib`.
+2. Mutation fuzzing: mutates valid TOML documents and checks that `strict` and
+   `eager` modes never crash and reject everything `tomllib` rejects.
 """
 
 import argparse
@@ -67,6 +67,13 @@ def tagged_equal(a, b) -> bool:
                     return da == db
                 except ValueError:
                     return a["value"] == b["value"]
+            if a["type"] == "time-local":
+                try:
+                    ta = datetime.time.fromisoformat(a["value"])
+                    tb = datetime.time.fromisoformat(b["value"])
+                    return ta == tb
+                except ValueError:
+                    return a["value"] == b["value"]
             return a["value"] == b["value"]
         if set(a.keys()) != set(b.keys()):
             return False
@@ -90,7 +97,7 @@ def gen_key(r: random.Random, idx: int) -> str:
 
 
 def gen_scalar(r: random.Random) -> str:
-    kind = r.randint(0, 14)
+    kind = r.randint(0, 15)
     if kind == 0:
         return str(r.randint(-10**12, 10**12))
     if kind == 1:
@@ -121,6 +128,9 @@ def gen_scalar(r: random.Random) -> str:
         return "'''\nraw \\path\\here ''two''\nline2'''"
     if kind == 13:
         return f"{r.randint(1990, 2030):04}-{r.randint(1, 12):02}-{r.randint(1, 28):02}"
+    if kind == 14:
+        h, mi, s = r.randint(0, 23), r.randint(0, 59), r.randint(0, 59)
+        return f"{h:02}:{mi:02}:{s:02}.{r.randint(1, 999999):06}"
     h, mi, s = r.randint(0, 23), r.randint(0, 59), r.randint(0, 59)
     return f"{r.randint(1990, 2030):04}-{r.randint(1, 12):02}-{r.randint(1, 28):02}T{h:02}:{mi:02}:{s:02}.{r.randint(1, 999):03}Z"
 
@@ -158,6 +168,7 @@ def mutate_doc(r: random.Random, doc: str) -> str:
     mutations = [
         lambda s: s + "\ndup = 1\ndup = 2\n",
         lambda s: s + '\nbad_esc = "\\q"\n',
+        lambda s: s + '\nbad_nul_esc = "\\0"\n',
         lambda s: s + "\nbad_int = 0123\n",
         lambda s: s + "\nbad_hex = +0x10\n",
         lambda s: s + "\nbad_float = 1..2\n",
@@ -181,12 +192,33 @@ def mutate_doc(r: random.Random, doc: str) -> str:
     return r.choice(mutations)(doc)
 
 
+def ensure_binary(bin_path: Path, tests_dir: Path) -> None:
+    """Build `lazy_to_json.mojo` into `bin_path` if missing or stale."""
+    src = tests_dir / "lazy_to_json.mojo"
+    pkg = tests_dir / "motoml.mojoc"
+    needs_build = not bin_path.exists()
+    if not needs_build and src.exists():
+        b_mtime = bin_path.stat().st_mtime
+        if src.stat().st_mtime > b_mtime or (pkg.exists() and pkg.stat().st_mtime > b_mtime):
+            needs_build = True
+    if needs_build:
+        subprocess.run(
+            ["mojo", "build", str(src), "-o", str(bin_path)],
+            cwd=str(tests_dir),
+            check=True,
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bin", default="/tmp/lazy_to_json")
+    ap.add_argument("--bin", default="/tmp/motoml_lazy_to_json")
     ap.add_argument("--seeds", type=int, default=200)
     ap.add_argument("--mutations", type=int, default=200)
     args = ap.parse_args()
+
+    tests_dir = Path(__file__).resolve().parent
+    bin_path = Path(args.bin)
+    ensure_binary(bin_path, tests_dir)
 
     r = random.Random(42)
     with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False, encoding="utf-8") as tf:
@@ -197,8 +229,8 @@ def main():
             doc = gen_valid_doc(r, seed)
             expected = to_tagged(tomllib.loads(doc))
             tmp_path.write_bytes(doc.encode("utf-8"))
-            for mode in ("strict", "trusted"):
-                proc = subprocess.run([args.bin, "--mode", mode, str(tmp_path)], capture_output=True, text=True)
+            for mode in ("strict", "eager", "trusted"):
+                proc = subprocess.run([str(bin_path), "--mode", mode, str(tmp_path)], capture_output=True, text=True)
                 if proc.returncode != 0 or proc.stdout.startswith("PARSE_ERR:") or proc.stdout.startswith("DECODE_ERR:"):
                     print(f"FAIL valid seed {seed} ({mode}): {proc.stdout} {proc.stderr}")
                     sys.exit(1)
@@ -211,24 +243,23 @@ def main():
         for m in range(args.mutations):
             base = gen_valid_doc(r, m)
             bad = mutate_doc(r, base)
-            # Confirm tomllib rejects it
             try:
                 tomllib.loads(bad)
                 continue
             except Exception:
                 pass
             tmp_path.write_bytes(bad.encode("utf-8"))
-            proc = subprocess.run([args.bin, str(tmp_path)], capture_output=True, text=True)
-            if proc.returncode != 0:
-                print(f"CRASH on mutation {m}: {proc.stderr}")
-                sys.exit(1)
-            if proc.stdout.startswith("PARSE_ERR:"):
-                mut_rejected += 1
-            else:
-                print(f"NOT REJECTED AT PARSE TIME on mutation {m} ({proc.stdout[:60]}):\n{bad}")
-                sys.exit(1)
+            for mode in ("strict", "eager"):
+                proc = subprocess.run([str(bin_path), "--mode", mode, str(tmp_path)], capture_output=True, text=True)
+                if proc.returncode != 0:
+                    print(f"CRASH on mutation {m} ({mode}): {proc.stderr}")
+                    sys.exit(1)
+                if not proc.stdout.startswith("PARSE_ERR:"):
+                    print(f"NOT REJECTED AT PARSE TIME on mutation {m} ({mode}, {proc.stdout[:60]}):\n{bad}")
+                    sys.exit(1)
+            mut_rejected += 1
 
-        print(f"Fuzz OK: {args.seeds} valid seeds matched tomllib, {mut_rejected} invalid mutations rejected at parse time.")
+        print(f"Fuzz OK: {args.seeds} valid seeds matched tomllib (strict/eager/trusted), {mut_rejected} invalid mutations rejected (strict/eager).")
     finally:
         tmp_path.unlink(missing_ok=True)
 

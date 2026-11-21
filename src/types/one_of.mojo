@@ -2,7 +2,7 @@
 
 from std.builtin.variadics import TypeList
 from std.utils import Variant
-from ..reflection import _VariantConstructible
+from .reflection import _VariantConstructible
 
 
 struct OneOf[*Ts: Movable & Deinitable](

@@ -1,12 +1,16 @@
-"""Tape Node representation for zero-allocation TOML parsing.
-"""
+"""32-byte tape node representation for flat-tape TOML parsing."""
+
+from std.builtin.enum_like import EnumLike
+from std.builtin.variadics import ParameterList, TypeList
 
 comptime NO_NODE: UInt32 = 0xFFFFFFFF
 
 
 @fieldwise_init
-struct NodeKind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
-    """Type tags identifying the AST node variant stored on the tape."""
+struct NodeKind(
+    EnumLike, Equatable, ImplicitlyCopyable, TrivialRegisterPassable
+):
+    """Type tag identifying the TOML value stored on the tape."""
 
     var _value: UInt8
 
@@ -23,6 +27,34 @@ struct NodeKind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
     comptime NaN = Self(10)
     comptime Inf = Self(11)
 
+    comptime _enum_case_names = ParameterList.of[
+        "Empty".value,
+        "String".value,
+        "Integer".value,
+        "Float".value,
+        "Boolean".value,
+        "Date".value,
+        "Time".value,
+        "DateTime".value,
+        "Array".value,
+        "Table".value,
+        "NaN".value,
+        "Inf".value,
+    ].values
+    comptime _enum_case_types = TypeList.splat[12, Tuple[]].values
+
+    @always_inline
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self._value)
+
+    @always_inline
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        comptime assert False, "NodeKind has no payload"
+
     @always_inline
     def __eq__(self, other: Self) -> Bool:
         return self._value == other._value
@@ -33,26 +65,33 @@ struct NodeKind(Equatable, ImplicitlyCopyable, TrivialRegisterPassable):
 
 
 struct NodeFlags:
-    """Bitmask attributes describing node lexical or syntactic properties."""
+    """Bitmask attributes describing lexical or structural node properties.
+
+    Note: `CANONICAL` (on numeric scalars) and `ARRAY_OF_TABLES` (on arrays)
+    share bit 7 since they apply to disjoint `NodeKind`s.
+    """
 
     comptime HAS_ESCAPE: UInt8 = 1 << 0
-    comptime CANONICAL: UInt8 = 1 << 7
     comptime LITERAL: UInt8 = 1 << 1
     comptime MULTILINE: UInt8 = 1 << 2
     comptime INLINE: UInt8 = 1 << 3
     comptime IMPLICIT: UInt8 = 1 << 4
     comptime DOTTED: UInt8 = 1 << 5
     comptime DEFINED: UInt8 = 1 << 6
+    comptime CANONICAL: UInt8 = 1 << 7
     comptime ARRAY_OF_TABLES: UInt8 = 1 << 7
 
 
 @fieldwise_init
 struct Node(Copyable, Movable, TrivialRegisterPassable):
-    """Contiguous 32-byte tape node representing a parsed TOML token or container.
+    """Contiguous 32-byte tape node representing a parsed TOML value or container.
 
-    Nodes form an intrusive tree layout over the tape using `first_child`,
-    `last_child`, and `next_sibling` indices, pointing directly into slices of
-    the original document buffer without heap allocations.
+    Nodes form an intrusive tree over the tape via `first_child`, `last_child`,
+    and `next_sibling` indices. In lazy modes (`Strict`, `Trusted`), `start`/`len`
+    and `key_start`/`key_len` reference byte slices of the source document. In
+    `Mode.Eager`, scalar payloads are packed directly into `start`/`len` (or
+    indexed into `_Store.temporals` / `_Store.array_slots`) and strings/keys live
+    in `_Store.arena`.
     """
 
     var kind: NodeKind
@@ -81,20 +120,6 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
         last_child: UInt32 = NO_NODE,
         next_sibling: UInt32 = NO_NODE,
     ):
-        """Initialize a tape node with type, flags, source byte offsets, and link indices.
-
-        Args:
-            kind: The token kind (`NodeKind.Table`, `NodeKind.Array`, `NodeKind.String`, etc.).
-            flags: Value attribute bitmask (`NodeFlags`).
-            key_flags: Key attribute bitmask (`NodeFlags.HAS_ESCAPE`, etc.).
-            start: Start byte offset of the value in the document.
-            len: Length in bytes of the value in the document.
-            key_start: Start byte offset of the key in the document.
-            key_len: Length in bytes of the key in the document.
-            first_child: Tape index of the first child node (`NO_NODE` if none).
-            last_child: Tape index of the last child node (`NO_NODE` if none).
-            next_sibling: Tape index of the next sibling node (`NO_NODE` if none).
-        """
         self.kind = kind
         self.flags = flags
         self.key_flags = key_flags
@@ -109,47 +134,27 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
 
     @always_inline
     def is_table(self) -> Bool:
-        """Check whether this node represents a table."""
         return self.kind == NodeKind.Table
 
     @always_inline
     def is_array(self) -> Bool:
-        """Check whether this node represents an array."""
         return self.kind == NodeKind.Array
 
     @always_inline
     def has_flag(self, flag: UInt8) -> Bool:
-        """Check whether a specific `NodeFlags` bitmask is set on this node.
-
-        Args:
-            flag: Bitmask flag to check.
-
-        Returns:
-            `True` if the flag bit is set, `False` otherwise.
-        """
         return (self.flags & flag) != 0
 
     @always_inline
     def set_flag(mut self, flag: UInt8):
-        """Set a flag bitmask on this node.
-
-        Args:
-            flag: Bitmask flag to set.
-        """
         self.flags |= flag
 
     @always_inline
     def clear_flag(mut self, flag: UInt8):
-        """Clear a flag bitmask on this node.
-
-        Args:
-            flag: Bitmask flag to clear.
-        """
         self.flags &= ~flag
 
 
 struct KeySeg(Copyable, Movable, TrivialRegisterPassable):
-    """A borrowed key segment describing start byte offset, length, precomputed hash, and escape status.
+    """Borrowed key segment with byte offset, length, FNV-1a hash, and escape flag.
     """
 
     var start: UInt32
@@ -165,14 +170,6 @@ struct KeySeg(Copyable, Movable, TrivialRegisterPassable):
         hash: UInt32 = 0,
         has_escape: Bool = False,
     ):
-        """Initialize a key segment pointing to an offset in the document buffer.
-
-        Args:
-            start: Start byte offset in the document buffer.
-            len: Length of the key segment in bytes.
-            hash: Precomputed 32-bit FNV-1a hash of the logical key bytes.
-            has_escape: Whether the segment contains escape sequences.
-        """
         self.start = start
         self.len = len
         self.hash = hash

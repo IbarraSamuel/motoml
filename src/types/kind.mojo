@@ -70,26 +70,27 @@ struct _Kind[id: Int](
         return Self.id != other_id
 
     def write_to(self, mut w: Some[Writer]):
-        comptime if Self.id == 0:
-            w.write("String")
-        elif Self.id == 1:
-            w.write("Integer")
-        elif Self.id == 2:
-            w.write("Float")
-        elif Self.id == 3:
-            w.write("Boolean")
-        elif Self.id == 4:
-            w.write("Date")
-        elif Self.id == 5:
-            w.write("Time")
-        elif Self.id == 6:
-            w.write("DateTime")
-        elif Self.id == 7:
-            w.write("Array")
-        elif Self.id == 8:
-            w.write("Table")
-        else:
-            w.write("Missing")
+        comptime match Self.id:
+            case 0:
+                w.write("String")
+            case 1:
+                w.write("Integer")
+            case 2:
+                w.write("Float")
+            case 3:
+                w.write("Boolean")
+            case 4:
+                w.write("Date")
+            case 5:
+                w.write("Time")
+            case 6:
+                w.write("DateTime")
+            case 7:
+                w.write("Array")
+            case 8:
+                w.write("Table")
+            case _:
+                w.write("Missing")
 
 
 struct Kind:

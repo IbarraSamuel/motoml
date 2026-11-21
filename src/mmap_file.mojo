@@ -21,10 +21,6 @@ struct MappedFile(Movable, Sized):
     var address: Int
     var length: Int
 
-    # def __init__(out self):
-    #     self.address = 0
-    #     self.length = 0
-
     def __init__[PathLike: StdPathLike](out self, path: PathLike) raises:
         self.address = 0
         self.length = 0
@@ -45,7 +41,7 @@ struct MappedFile(Movable, Sized):
             Int64(0),
         )
         if address == -1:
-            raise Error("Failed to memory-map file: " + String(get_errno()))
+            raise Error(t"Failed to memory-map file: {get_errno()}")
         self.address = address
         # Keep the file handle alive until mmap has consumed its descriptor.
         if file._get_raw_fd()._value != fd._value:
@@ -90,7 +86,7 @@ struct MappedFile(Movable, Sized):
             c_size_t(self.length),
         )
         if result < 0:
-            raise Error("Failed to unmap file: " + String(get_errno()))
+            raise Error(t"Failed to unmap file: {get_errno()}")
 
         self.address = 0
         self.length = 0

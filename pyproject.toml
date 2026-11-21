@@ -40,33 +40,21 @@ mojo-compiler = "1.3.*"
 
 [tool.pixi.dependencies]
 mojo = "1.3.*"
-# [tasks]
-# test-reflection = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_reflection.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
-# test-parser = { cmd = "pixi run --manifest-path {{ manifest }} mojo test_parser.mojo", cwd = "tests", args = [{arg = "manifest", default="pixi.toml"}] }
-# tests = [ { task = "test-parser" }, { task = "test-reflection" } ]
 
 [tool.pixi.tasks]
-# run parser live getting data from stdin
+# Run parser reading TOML from stdin
 parser = { cmd = "uv run mojo tests/stdin_parser.mojo" }
 
 # Test tasks
-test-toml-type = { cmd = "uv run mojo test_toml_type.mojo", cwd = "tests", depends-on = [
+test-parsing = { cmd = "uv run mojo test_parsing.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
 ] }
-test-toml-suite = { cmd = "uv run mojo test_toml_suite.mojo", cwd = "tests", depends-on = [
+test-strict-spec = { cmd = "uv run mojo test_strict_spec.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
 ] }
-test-lazy-unit = { cmd = "uv run mojo test_lazy_unit.mojo", cwd = "tests", depends-on = [
-    "package",
-    "move-to-test",
-] }
-test-parser = { cmd = "uv run mojo test_parser.mojo", cwd = "tests", depends-on = [
-    "package",
-    "move-to-test",
-] }
-test-comptime-parser = { cmd = "uv run mojo test_comptime_parser.mojo", cwd = "tests", depends-on = [
+test-views-and-types = { cmd = "uv run mojo test_views_and_types.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
 ] }
@@ -74,6 +62,25 @@ test-reflection = { cmd = "uv run mojo test_reflection.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
+test-comptime = { cmd = "uv run mojo test_comptime.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
+test-toml-suite = { cmd = "uv run mojo test_toml_suite.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
+
+tests = { depends-on = [
+    "test-parsing",
+    "test-strict-spec",
+    "test-views-and-types",
+    "test-reflection",
+    "test-comptime",
+    "test-toml-suite",
+] }
+
+# Benchmarks & fuzzing
 bench-parser = { cmd = "uv run mojo bench_compare.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
@@ -82,22 +89,16 @@ bench-lazy = { cmd = "uv run mojo bench_lazy.mojo", cwd = "tests", depends-on = 
     "package",
     "move-to-test",
 ] }
+bench-generic = { cmd = "uv run mojo bench_lazy_generic.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
 fuzz-lazy = { cmd = "uv run python fuzz_diff.py", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
 ] }
 
-tests = { depends-on = [
-    "test-toml-type",
-    "test-parser",
-    "test-toml-suite",
-    "test-lazy-unit",
-    "test-comptime-parser",
-    "test-reflection",
-] }
-
 # Build tasks
-build_python = "uv run mojo build src/to_python/parser.mojo --emit shared-lib -o motoml.so"
 build = { cmd = "uv run mojo build stdin_parser.mojo -o ../motoml", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
@@ -108,5 +109,3 @@ debug_build = { cmd = "uv run mojo build stdin_parser.mojo -o ../motoml_debug -D
 ] }
 package = "uv run mojo precompile src/ -o motoml.mojoc"
 move-to-test = "mv motoml.mojoc tests/motoml.mojoc"
-
-# TODO: CHECK DOCS

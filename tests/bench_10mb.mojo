@@ -11,7 +11,7 @@ def bench_10mb(name: StringSpan, path_str: String) raises:
 
     # 1. Eager
     var t0 = perf_counter_ns()
-    var res_eager = parse_toml[Mode.Eager](view).take()
+    var res_eager = parse_toml[Mode.Eager](view)
     var t1 = perf_counter_ns()
     _ = len(res_eager)
     var eager_ms = Float64(t1 - t0) / 1_000_000.0
@@ -19,7 +19,7 @@ def bench_10mb(name: StringSpan, path_str: String) raises:
 
     # 2. Lazy Strict
     var t2 = perf_counter_ns()
-    var res_lazy = parse_toml[Mode.Strict](view).take()
+    var res_lazy = parse_toml[Mode.Strict](view)
     var t3 = perf_counter_ns()
     _ = len(res_lazy)
     var strict_ms = Float64(t3 - t2) / 1_000_000.0

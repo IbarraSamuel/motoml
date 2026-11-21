@@ -61,13 +61,13 @@ struct BenchConfig(Movable):
 def bench_parse(name: String, content: String, runs: Int = 15) raises:
     var mb = Float64(content.byte_length()) / 1e6
 
-    var d0 = parse_toml[Mode.Strict](content).take()
+    var d0 = parse_toml[Mode.Strict](content)
     var j0 = String(capacity_bytes=content.byte_length() * 2)
     d0.to_json(j0)
     _ = j0.byte_length()
-    var d1 = parse_toml[Mode.Trusted](content).take()
+    var d1 = parse_toml[Mode.Trusted](content)
     _ = len(d1)
-    var d2 = parse_toml[Mode.Eager](content).take()
+    var d2 = parse_toml[Mode.Eager](content)
     _ = len(d2)
 
     var best_strict = Float64(1e18)
@@ -77,7 +77,7 @@ def bench_parse(name: String, content: String, runs: Int = 15) raises:
 
     for _ in range(runs):
         var t0 = perf_counter_ns()
-        var doc = parse_toml[Mode.Strict](content).take()
+        var doc = parse_toml[Mode.Strict](content)
         var t1 = perf_counter_ns()
         _ = len(doc)
         var ms = Float64(t1 - t0) / 1e6
@@ -86,7 +86,7 @@ def bench_parse(name: String, content: String, runs: Int = 15) raises:
 
     for _ in range(runs):
         var t0 = perf_counter_ns()
-        var doc = parse_toml[Mode.Trusted](content).take()
+        var doc = parse_toml[Mode.Trusted](content)
         var t1 = perf_counter_ns()
         _ = len(doc)
         var ms = Float64(t1 - t0) / 1e6
@@ -95,7 +95,7 @@ def bench_parse(name: String, content: String, runs: Int = 15) raises:
 
     for _ in range(runs):
         var t0 = perf_counter_ns()
-        var doc = parse_toml[Mode.Eager](content).take()
+        var doc = parse_toml[Mode.Eager](content)
         var t1 = perf_counter_ns()
         _ = len(doc)
         var ms = Float64(t1 - t0) / 1e6
@@ -105,7 +105,7 @@ def bench_parse(name: String, content: String, runs: Int = 15) raises:
     for _ in range(runs):
         var out = String(capacity_bytes=content.byte_length() * 2)
         var t0 = perf_counter_ns()
-        var doc = parse_toml[Mode.Strict](content).take()
+        var doc = parse_toml[Mode.Strict](content)
         doc.to_json(out)
         var t1 = perf_counter_ns()
         _ = out.byte_length()
@@ -129,8 +129,8 @@ def bench_parse(name: String, content: String, runs: Int = 15) raises:
 
 def bench_lookup_and_decode() raises:
     var lookup_src = make_lookup_doc(4000)
-    var lazy_doc = parse_toml[Mode.Strict](lookup_src).take()
-    var eager_doc = parse_toml[Mode.Eager](lookup_src).take()
+    var lazy_doc = parse_toml[Mode.Strict](lookup_src)
+    var eager_doc = parse_toml[Mode.Eager](lookup_src)
     var keys = List[String](capacity=4000)
     for i in range(4000):
         keys.append("k_" + String(i))
@@ -188,8 +188,8 @@ def bench_lookup_and_decode() raises:
             best_eager_iter_ns = dt
 
     var arr_src = make_array_doc(2000)
-    var arr_lazy = parse_toml[Mode.Strict](arr_src).take()
-    var arr_eager = parse_toml[Mode.Eager](arr_src).take()
+    var arr_lazy = parse_toml[Mode.Strict](arr_src)
+    var arr_eager = parse_toml[Mode.Eager](arr_src)
     var lazy_arr_v = arr_lazy["arr"]
     var eager_arr_v = arr_eager["arr"]
     var best_eager_arr_ns = Int(1 << 60)
@@ -215,7 +215,7 @@ def bench_lookup_and_decode() raises:
         var t0 = perf_counter_ns()
         var acc = 0
         for _ in range(100):
-            var d = parse_toml[Mode.Strict](cfg_src).take()
+            var d = parse_toml[Mode.Strict](cfg_src)
             var c = d.take[BenchConfig]()
             acc += c.port
         var t1 = perf_counter_ns()
@@ -229,7 +229,7 @@ def bench_lookup_and_decode() raises:
         var t0 = perf_counter_ns()
         var acc = 0
         for _ in range(100):
-            var d = parse_toml[Mode.Eager](cfg_src).take()
+            var d = parse_toml[Mode.Eager](cfg_src)
             var c = d.take[BenchConfig]()
             acc += c.port
         var t1 = perf_counter_ns()

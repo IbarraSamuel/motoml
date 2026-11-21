@@ -1,5 +1,6 @@
 from std.math import isnan
 from std.collections import Dict, List
+from motoml import DateTime, Time
 
 
 struct _JsonNode(Copyable, Movable):
@@ -134,15 +135,11 @@ comptime Comma = Byte(ord(","))
 
 struct JsonParser(Movable):
     var source: String
-    var bytes: List[Byte]
     var position: Int
     var doc: JsonDoc
 
-    def __init__(out self, source: String):
-        self.source = String(source)
-        self.bytes = List[Byte]()
-        for byte in source.bytes():
-            self.bytes.append(byte)
+    def __init__(out self, var source: String):
+        self.source = source^
         self.position = 0
         self.doc = JsonDoc()
 
@@ -366,20 +363,19 @@ struct JsonParser(Movable):
         n.int_val = Int(number)
         return self.doc.add_node(n^)
 
-    def expect_literal(mut self, literal: String) raises:
-        var literal_bytes = List[Byte]()
-        for byte in literal.bytes():
-            literal_bytes.append(byte)
-        for i in range(literal.byte_length()):
+    def expect_literal(mut self, literal: StringSpan) raises:
+        var literal_bytes = literal.as_bytes()
+        for i in range(len(literal_bytes)):
             if (
                 self.position + i >= self.source.byte_length()
                 or self.byte_at(self.position + i) != literal_bytes[i]
             ):
                 raise "Invalid JSON literal."
-        self.position += literal.byte_length()
+        self.position += len(literal_bytes)
 
+    @always_inline
     def byte_at(self, index: Int) -> Byte:
-        return self.bytes[index]
+        return self.source.as_bytes()[index]
 
 
 def parse_json(source: String) raises -> JsonDoc:
@@ -429,6 +425,14 @@ def _translate_node(src: JsonDoc, idx: Int, mut dst: JsonDoc) raises -> Int:
                         var fv = _JsonNode(_JsonNode.TAG_FLOAT)
                         fv.float_val = Float64(text)
                         new_v = dst.add_node(fv^)
+                elif kind == "datetime" or kind == "datetime-local":
+                    var sv = _JsonNode(_JsonNode.TAG_STRING)
+                    sv.str_val = String(DateTime.from_string(text))
+                    new_v = dst.add_node(sv^)
+                elif kind == "time-local":
+                    var sv = _JsonNode(_JsonNode.TAG_STRING)
+                    sv.str_val = String(Time.from_string(text))
+                    new_v = dst.add_node(sv^)
                 else:
                     var sv = _JsonNode(_JsonNode.TAG_STRING)
                     sv.str_val = text

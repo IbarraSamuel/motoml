@@ -1,10 +1,9 @@
-"""Low-level scanner and lexing helpers for lazy TOML parsing.
-"""
+"""Low-level SIMD scanner and lexical classification helpers for TOML 1.1."""
 
-from .node import NodeKind
-from std.memory import pack_bits
 from std.bit import count_trailing_zeros
 from std.collections.string._utf8 import _is_valid_utf8
+from std.memory import pack_bits
+from .node import NodeKind
 
 comptime SquareBracketOpen = Byte(ord("["))
 comptime SquareBracketClose = Byte(ord("]"))
@@ -53,7 +52,7 @@ comptime _CC_TABLE: StaticString = (
 #   3 = '-'
 #   4 = ':'
 #   5 = 'e' or 'E'
-#   6 = ' ' (space: stops scalar unless at date-time offset 10 followed by digit)
+#   6 = ' ' (stops scalar unless at date-time offset 10 followed by digit)
 #   7 = other byte (triggers fallback for true/false/inf/nan/hex/bin/oct or invalid)
 comptime _SCALAR_TABLE: StaticString = (
     "\x07\x07\x07\x07\x07\x07\x07\x07\x07\x01\x01\x07\x07\x01\x07\x07"
@@ -79,10 +78,10 @@ comptime _SCALAR_TABLE: StaticString = (
 def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
     """Fast SIMD ASCII-first UTF-8 validation.
 
-    Scans 64-byte blocks for the high bit (`0x80`). Pure-ASCII blocks are guaranteed
-    valid UTF-8; when non-ASCII bytes are encountered, validates a bounded chunk
-    ending on a UTF-8 codepoint boundary via stdlib SIMD validation and resumes the
-    ASCII scan.
+    Scans 64-byte blocks for the high bit (`0x80`). Pure-ASCII blocks are
+    guaranteed valid UTF-8; when non-ASCII bytes appear, validates a bounded
+    chunk ending on a UTF-8 codepoint boundary via stdlib validation and
+    resumes the ASCII scan.
     """
     var ptr = data.unsafe_ptr()
     var n = len(data)
@@ -123,13 +122,13 @@ def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
 
 @always_inline
 def is_bare_key_byte(b: Byte) -> Bool:
-    """Determine whether a byte is allowed in an unquoted TOML bare key."""
+    """Return True if `b` is allowed in an unquoted TOML bare key."""
     return (_CC_TABLE.unsafe_ptr()[unsafe_offset=Int(b)] & CC_BARE) != 0
 
 
 @always_inline
 def skip_spaces_and_tabs(data: Span[Byte, _], mut idx: Int):
-    """Advance index past horizontal whitespace (ASCII spaces and tabs)."""
+    """Advance `idx` past ASCII spaces and tabs."""
     var ptr = data.unsafe_ptr()
     var n = len(data)
     while idx < n:
@@ -142,7 +141,7 @@ def skip_spaces_and_tabs(data: Span[Byte, _], mut idx: Int):
 
 @always_inline
 def skip_to_newline(data: Span[Byte, _], mut idx: Int):
-    """Advance index until reaching a newline byte (`\\n`) or EOF."""
+    """Advance `idx` until reaching `\\n` or EOF."""
     var ptr = data.unsafe_ptr()
     var n = len(data)
     comptime W = 16
@@ -160,7 +159,7 @@ def skip_to_newline(data: Span[Byte, _], mut idx: Int):
 
 @always_inline
 def skip_comment(data: Span[Byte, _], mut idx: Int) -> Bool:
-    """Advance index to the end of a comment line, checking for illegal characters.
+    """Advance `idx` to end of comment line, rejecting illegal control chars and bare CR.
     """
     var ptr = data.unsafe_ptr()
     var n = len(data)
@@ -207,7 +206,7 @@ def skip_comment(data: Span[Byte, _], mut idx: Int) -> Bool:
 def skip_whitespace_and_comments[
     strict: Bool = True
 ](data: Span[Byte, _], mut idx: Int) -> Bool:
-    """Advance index through arbitrary sequences of whitespace and comments."""
+    """Advance `idx` through whitespace, newlines, and comments."""
     var ptr = data.unsafe_ptr()
     var n = len(data)
     while idx < n:
@@ -253,11 +252,31 @@ def _is_scalar_delim(
     return sp_ptr[unsafe_offset=Int(b)] == 1 or b == Space
 
 
-def _scan_time_from(
-    ptr: Pointer[Byte, _],
-    n: Int,
-    mut pos: Int,
-) -> Bool:
+@always_inline
+def _scan_exponent_end(
+    ptr: Pointer[Byte, _], sp_ptr: Pointer[Byte, _], n: Int, e_pos: Int
+) -> Int:
+    """Scan `[+-]?[0-9]+` after `e`/`E` at `e_pos`; returns end index or `-1`.
+    """
+    var ep = e_pos + 1
+    if ep < n and (
+        ptr[unsafe_offset=ep] == Byte(ord("+"))
+        or ptr[unsafe_offset=ep] == Byte(ord("-"))
+    ):
+        ep += 1
+    var exp_start = ep
+    while ep < n:
+        var ec = ptr[unsafe_offset=ep]
+        if Byte(ord("0")) <= ec <= Byte(ord("9")):
+            ep += 1
+        else:
+            break
+    if ep > exp_start and _is_scalar_delim(ptr, sp_ptr, n, ep):
+        return ep
+    return -1
+
+
+def _scan_time_from(ptr: Pointer[Byte, _], n: Int, mut pos: Int) -> Bool:
     """Validate and advance `pos` across `HH:MM[:SS[.fraction]]`."""
     if pos + 5 > n or ptr[unsafe_offset=pos + 2] != Byte(ord(":")):
         return False
@@ -301,11 +320,7 @@ def _scan_date_or_datetime(
     start: Int,
     mut idx: Int,
 ) -> Tuple[Int, NodeKind, UInt8]:
-    """Single-pass scan and validation for RFC 3339 dates and date-times.
-
-    Returns `(0, NodeKind.Empty, 0)` when the candidate does not match a valid
-    calendar date/time shape, letting the general scanner classify or reject it.
-    """
+    """Single-pass scan and validation for RFC 3339 dates and date-times."""
     if start + 10 > n or ptr[unsafe_offset=start + 7] != Byte(ord("-")):
         return (0, NodeKind.Empty, 0)
     var month = _dec_2digits(ptr, start + 5)
@@ -369,13 +384,12 @@ def _scan_date_or_datetime(
 def scan_and_classify_scalar(
     data: Span[Byte, _], mut idx: Int
 ) -> Tuple[Int, NodeKind, UInt8]:
-    """Scan an unquoted scalar, classify its `NodeKind`, and fast-validate common numbers in one pass.
+    """Scan an unquoted scalar, classify its `NodeKind`, and fast-validate common forms.
 
-    Returns:
-        `(scalar_len, kind, prevalidated_level)` where `prevalidated_level` is:
-        - `0`: requires `validate_scalar` in `Strict`/`Lexical` mode
-        - `1`: lexically pre-validated (`flags = 0`)
-        - `2`: lexically pre-validated and canonical plain decimal (`flags = NodeFlags.CANONICAL`).
+    Returns `(scalar_len, kind, prevalidated_level)`:
+    - `0`: requires `validate_scalar` in `Strict` mode
+    - `1`: lexically pre-validated (`flags = 0`)
+    - `2`: lexically pre-validated canonical plain decimal (`flags = NodeFlags.CANONICAL`)
     """
     var start = idx
     var n = len(data)
@@ -472,18 +486,10 @@ def scan_and_classify_scalar(
                             else:
                                 break
                         total_digits += up - seg_s
-                    if up > p:
-                        if up == n:
-                            idx = up
-                            var pv: UInt8 = 1 if total_digits <= 18 else 0
-                            return (up - start, NodeKind.Integer, pv)
-                        var usp = sp_ptr[
-                            unsafe_offset=Int(ptr[unsafe_offset=up])
-                        ]
-                        if usp == 1 or usp == 6:
-                            idx = up
-                            var pv: UInt8 = 1 if total_digits <= 18 else 0
-                            return (up - start, NodeKind.Integer, pv)
+                    if up > p and _is_scalar_delim(ptr, sp_ptr, n, up):
+                        idx = up
+                        var pv: UInt8 = 1 if total_digits <= 18 else 0
+                        return (up - start, NodeKind.Integer, pv)
                 if next_b == Byte(ord(".")) and no_leading_zero:
                     var fp = p + 1
                     while fp < n:
@@ -493,64 +499,22 @@ def scan_and_classify_scalar(
                         else:
                             break
                     if fp > p + 1:
-                        if fp == n:
+                        if _is_scalar_delim(ptr, sp_ptr, n, fp):
                             idx = fp
                             return (fp - start, NodeKind.Float, 2)
                         var fnext = ptr[unsafe_offset=fp]
-                        var end_sp = sp_ptr[unsafe_offset=Int(fnext)]
-                        if end_sp == 1 or end_sp == 6:
-                            idx = fp
-                            return (fp - start, NodeKind.Float, 2)
                         if fnext == Byte(ord("e")) or fnext == Byte(ord("E")):
-                            var ep = fp + 1
-                            if ep < n and (
-                                ptr[unsafe_offset=ep] == Byte(ord("+"))
-                                or ptr[unsafe_offset=ep] == Byte(ord("-"))
-                            ):
-                                ep += 1
-                            var exp_start = ep
-                            while ep < n:
-                                var ec = ptr[unsafe_offset=ep]
-                                if Byte(ord("0")) <= ec <= Byte(ord("9")):
-                                    ep += 1
-                                else:
-                                    break
-                            if ep > exp_start:
-                                if ep == n:
-                                    idx = ep
-                                    return (ep - start, NodeKind.Float, 1)
-                                var esp = sp_ptr[
-                                    unsafe_offset=Int(ptr[unsafe_offset=ep])
-                                ]
-                                if esp == 1 or esp == 6:
-                                    idx = ep
-                                    return (ep - start, NodeKind.Float, 1)
+                            var ep = _scan_exponent_end(ptr, sp_ptr, n, fp)
+                            if ep > 0:
+                                idx = ep
+                                return (ep - start, NodeKind.Float, 1)
                 elif (
                     next_b == Byte(ord("e")) or next_b == Byte(ord("E"))
                 ) and no_leading_zero:
-                    var ep = p + 1
-                    if ep < n and (
-                        ptr[unsafe_offset=ep] == Byte(ord("+"))
-                        or ptr[unsafe_offset=ep] == Byte(ord("-"))
-                    ):
-                        ep += 1
-                    var exp_start = ep
-                    while ep < n:
-                        var ec = ptr[unsafe_offset=ep]
-                        if Byte(ord("0")) <= ec <= Byte(ord("9")):
-                            ep += 1
-                        else:
-                            break
-                    if ep > exp_start:
-                        if ep == n:
-                            idx = ep
-                            return (ep - start, NodeKind.Float, 1)
-                        var esp = sp_ptr[
-                            unsafe_offset=Int(ptr[unsafe_offset=ep])
-                        ]
-                        if esp == 1 or esp == 6:
-                            idx = ep
-                            return (ep - start, NodeKind.Float, 1)
+                    var ep = _scan_exponent_end(ptr, sp_ptr, n, p)
+                    if ep > 0:
+                        idx = ep
+                        return (ep - start, NodeKind.Float, 1)
                 idx = p
 
     var dashes = 0
@@ -628,7 +592,7 @@ def scan_and_classify_scalar(
 
 
 def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> NodeKind:
-    """Determine the `NodeKind` of an unquoted scalar literal from its bytes."""
+    """Classify an unquoted scalar literal from its raw byte slice."""
     var n = end - start
     if n <= 0:
         return NodeKind.Empty
@@ -666,7 +630,7 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> NodeKind:
     if (
         first != Byte(ord("+"))
         and first != Byte(ord("-"))
-        and not (first >= Byte(ord("0")) and first <= Byte(ord("9")))
+        and not (Byte(ord("0")) <= first <= Byte(ord("9")))
     ):
         return NodeKind.Empty
 
@@ -691,23 +655,10 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> NodeKind:
         if p == Byte(ord("X")) or p == Byte(ord("B")) or p == Byte(ord("O")):
             return NodeKind.Empty
 
-    var is_hex = (
-        n > 2
-        and first == Byte(ord("0"))
-        and ptr[unsafe_offset=1] == Byte(ord("x"))
-    )
-    var is_bin = (
-        n > 2
-        and first == Byte(ord("0"))
-        and ptr[unsafe_offset=1] == Byte(ord("b"))
-    )
-    var is_oct = (
-        n > 2
-        and first == Byte(ord("0"))
-        and ptr[unsafe_offset=1] == Byte(ord("o"))
-    )
-    if is_hex or is_bin or is_oct:
-        return NodeKind.Integer
+    if n > 2 and first == Byte(ord("0")):
+        var p = ptr[unsafe_offset=1]
+        if p == Byte(ord("x")) or p == Byte(ord("b")) or p == Byte(ord("o")):
+            return NodeKind.Integer
 
     var dashes = 0
     var colons = 0
@@ -744,11 +695,8 @@ def classify_scalar(data: Span[Byte, _], start: Int, end: Int) -> NodeKind:
             return NodeKind.DateTime
         if dashes == 2 and n == 10:
             return NodeKind.Date
-
     if colons > 0 and dashes == 0:
         return NodeKind.Time
-
     if dots > 0 or exponent:
         return NodeKind.Float
-
     return NodeKind.Integer
