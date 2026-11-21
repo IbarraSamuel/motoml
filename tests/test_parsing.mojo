@@ -7,7 +7,6 @@ from motoml import (
     KindTag,
     Mode,
     Offset,
-    Result,
     Time,
     TomlDocument,
     _Mode,
@@ -23,7 +22,6 @@ from std.testing import (
     TestSuite,
     assert_equal,
     assert_false,
-    assert_raises,
     assert_true,
 )
 from std.utils.numerics import isinf, isnan

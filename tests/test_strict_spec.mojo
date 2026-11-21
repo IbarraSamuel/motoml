@@ -5,7 +5,6 @@ from std.memory import bitcast
 from std.testing import (
     TestSuite,
     assert_equal,
-    assert_false,
     assert_raises,
     assert_true,
 )
