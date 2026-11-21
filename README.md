@@ -46,73 +46,252 @@ pixi run tests
 ## Quickstart
 
 ```mojo
-from motoml import parse_toml, try_parse_toml, parse_toml_file, Mode, Kind
+from motoml import Kind, parse_toml
 
 def main() raises:
     var src = """
-    title = "motoml"
+    title = "api-gateway"
+
     [server]
     host = "127.0.0.1"
     port = 8080
-    [[users]]
-    name = "alice"
+
+    [[routes]]
+    path = "/health"
+    auth = false
+
+    [[routes]]
+    path = "/v1/users"
+    auth = true
     """
 
-    # 1. Parse with default lazy Mode.Strict (borrows `src`, raises on error)
+    # Parse with default lazy Mode.Strict (borrows `src`, full TOML 1.1 validation)
     var doc = parse_toml(src)
 
-    # 2. Index and extract values
-    var title = doc["title"][Kind.String]           # unchecked fast cast
-    var port = doc["server"]["port"].take[Int]()    # checked, raises on error
+    # Checked extraction (raises on missing key or kind mismatch)
+    var title = doc["title"].take[String]()
+    var port = doc["server"]["port"].take[Int]()
 
-    # 3. Zero-copy unescaped string slice (always succeeds in Mode.Eager)
-    if var host = doc["server"]["host"].string_span():
-        print("Host:", host.value())
+    # Unchecked fast cast (aborts on missing/mismatch)
+    var host = doc["server"]["host"][Kind.String]
+    print(title, host, port)
 
-    # 4. Iterate arrays and tables
-    for user in doc["users"]:
-        print("User:", user["name"][Kind.String])
+    # Safe lookups and missing-chain propagation
+    if "server" in doc and doc["server"].get("port"):
+        print("Server port is configured")
+    if doc["missing"]["nested"][0].is_missing():
+        print("Missing chains safely evaluate to KindTag.Missing")
 
-    for k, v in doc["server"].items():
-        print(k, v.kind())
+    # Iterate arrays and table entries in document order
+    for route in doc["routes"]:
+        print("Route:", route["path"][Kind.String], "auth:", route["auth"][Kind.Boolean])
 
-    # 5. Parse eagerly into an owned document (no lifetime dependency on `src`)
-    var eager_doc = parse_toml[Mode.Eager](src)
-    print(eager_doc["title"][Kind.String])
-
-    # 6. Memory-mapped file parsing
-    var cfg = parse_toml_file("config.toml")
-    print(cfg["title"][Kind.String])
-
-    # 7. Non-raising Result API (also usable at `comptime`)
-    var res = try_parse_toml("a = 1\n")
-    if res.is_ok():
-        var ok_doc = res^.unsafe_take_value()
-        print(ok_doc["a"][Kind.Integer])
-    else:
-        print(res^.unsafe_take_error())
+    for key, val in doc["server"].items():
+        print(key, "->", val.kind())
 ```
 
-### Struct Reflection
+---
+
+## Examples
+
+### Struct & Nested Reflection (`take[T]()`)
+
+Deserialize TOML tables directly into Mojo structs—including nested structs, `List[T]` (and `[[array_of_tables]]`), and `Optional[T]` for absent keys:
 
 ```mojo
+from std.collections import List, Optional
 from motoml import parse_toml
 
-@fieldwise_init
+struct RouteConfig(Movable):
+    var path: String
+    var auth: Bool
+    var timeout_ms: Optional[Int]
+
 struct ServerConfig(Movable):
     var host: String
     var port: Int
-    var enabled: Bool
+    var tls: Optional[Bool]
+
+struct AppConfig(Movable):
+    var title: String
+    var tags: List[String]
+    var server: ServerConfig
+    var routes: List[RouteConfig]
 
 def main() raises:
-    var toml_str = """
-    host = "127.0.0.1"
-    port = 8080
-    enabled = true
+    var src = """
+    title = "api-gateway"
+    tags = ["edge", "prod"]
+
+    [server]
+    host = "0.0.0.0"
+    port = 8443
+
+    [[routes]]
+    path = "/health"
+    auth = false
+
+    [[routes]]
+    path = "/v1/orders"
+    auth = true
+    timeout_ms = 2500
     """
-    var doc = parse_toml(toml_str)
-    var config = doc.take[ServerConfig]()
-    print(config.host, config.port, config.enabled)
+
+    var config = parse_toml(src).take[AppConfig]()
+    print(config.title, config.server.host, config.server.port)
+    print("TLS configured:", Bool(config.server.tls))
+    print("Order timeout (ms):", config.routes[1].timeout_ms.value())
+```
+
+### Unions & Polymorphic Values (`OneOf`, `__union`, `take[*Ts]()`)
+
+Handle heterogeneous TOML fields using `OneOf[...]` inside structs, single-payload `__union` enums, or ad-hoc `val.take[*Ts]()` returning a `Variant`:
+
+```mojo
+from std.collections import List
+from motoml import OneOf, parse_toml
+
+struct TcpTarget(Copyable, Movable):
+    var host: String
+    var port: Int
+
+struct UnixTarget(Copyable, Movable):
+    var socket: String
+
+__union Upstream(Copyable, Movable):
+    case tcp(TcpTarget)
+    case unix(UnixTarget)
+
+struct GatewayConfig(Movable):
+    var listen: OneOf[Int, String]
+    var upstreams: List[Upstream]
+
+def main() raises:
+    var src = """
+    listen = 8080
+    upstreams = [
+        { host = "10.0.0.1", port = 9000 },
+        { socket = "/var/run/backend.sock" },
+    ]
+    """
+
+    var doc = parse_toml(src)
+    var cfg = doc.take[GatewayConfig]()
+
+    if cfg.listen.isa[Int]():
+        print("Listening on port:", cfg.listen[Int])
+
+    for upstream in cfg.upstreams:
+        if case .tcp(t) = upstream:
+            print("TCP upstream:", t.host, t.port)
+        elif case .unix(u) = upstream:
+            print("Unix upstream:", u.socket)
+
+    # Ad-hoc multi-type extraction without defining a wrapper struct
+    var port_or_addr = doc["listen"].take[Int, String]()
+    print("Matched Int:", port_or_addr.isa[Int]())
+```
+
+### Exact Temporals (`Date`, `Time`, `DateTime`)
+
+RFC 3339 / TOML 1.1 dates, times (with nanosecond precision), and offset/local datetimes map to first-class `Date`, `Time`, and `DateTime` structs:
+
+```mojo
+from motoml import Date, DateTime, Time, parse_toml
+
+def main() raises:
+    var src = """
+    release_date = 2026-11-21
+    cutoff_time = 14:30:00.125
+    deployed_at = 2026-11-21T08:30:00-05:00
+    """
+
+    var doc = parse_toml(src)
+    var d = doc["release_date"].take[Date]()
+    var t = doc["cutoff_time"].take[Time]()
+    var dt = doc["deployed_at"].take[DateTime]()
+
+    print("Date:", String(d))
+    print("Time nanoseconds:", t.nanosecond)
+    print("Deployed:", String(dt))
+```
+
+### Parsing Modes & Lifetimes (`Strict`, `Eager`, `Trusted`)
+
+Pick the mode that fits your lifetime and validation requirements:
+
+```mojo
+from motoml import Mode, TomlDocument, parse_toml
+
+def load_owned_config(var raw_toml: String) raises -> TomlDocument[Mode.Eager]:
+    # Strict validation + materialized owned arena; `raw_toml` can be dropped immediately
+    var doc = parse_toml[Mode.Eager](raw_toml)
+    _ = raw_toml^
+    return doc^
+
+def main() raises:
+    # Mode.Eager: document outlives the source buffer and string_span() always succeeds
+    var eager_doc = load_owned_config(String('greeting = "hello\\nworld"\n'))
+    if case .Some(span) = eager_doc["greeting"].string_span():
+        print(span)
+
+    # Mode.Trusted: skips parse-time validation for maximum throughput on trusted inputs
+    var trusted_doc = parse_toml[Mode.Trusted]("workers = 16\n")
+    print("Workers:", trusted_doc["workers"].take[Int]())
+```
+
+### Memory-Mapped Files & Tagged JSON (`parse_toml_file`, `to_json`)
+
+```mojo
+from motoml import Kind, Mode, parse_toml_file
+
+def main() raises:
+    # Zero-copy memory-mapped file (borrows mmap until `cfg` drops)
+    var cfg = parse_toml_file("config.toml")
+    print(cfg["service"][Kind.String])
+
+    # Stream `toml-test` tagged JSON to any Writer
+    var json_out = String()
+    cfg.to_json(json_out)
+    print(json_out)
+
+    # Eager mode materializes into owned storage and unmaps the file immediately
+    var owned = parse_toml_file[Mode.Eager]("config.toml")
+    print(owned["service"][Kind.String])
+```
+
+### Non-Raising `Result` & `comptime` Parsing (`try_parse_toml`)
+
+Use `try_parse_toml` for branch-based error handling with `line:col` diagnostics, fallback defaults, or compile-time (`comptime`) config validation:
+
+```mojo
+from motoml import Kind, Mode, parse_toml, try_parse_toml
+
+comptime EMBEDDED_CONFIG = """
+[app]
+name = "motoml"
+workers = 4
+"""
+
+def main() raises:
+    # 1. Parse and validate TOML at compile time
+    comptime PARSED = try_parse_toml[Mode.Eager](EMBEDDED_CONFIG)
+    var comptime_doc = materialize[PARSED]().take()
+    print("Workers:", comptime_doc["app"]["workers"][Kind.Integer])
+
+    # 2. Non-raising error handling with line:col diagnostics
+    var res = try_parse_toml("port = 8080\nport = 9090\n")
+    if res.is_ok():
+        var doc = res^.unsafe_take_value()
+        print("Port:", doc["port"][Kind.Integer])
+    else:
+        var err = res^.unsafe_take_error()
+        print("Parse error:", err)  # includes `2:1` location
+
+    # 3. Provide a fallback document on parse failure
+    var defaults = parse_toml[Mode.Eager]("workers = 1\n")
+    var cfg = try_parse_toml[Mode.Eager]("workers = [invalid").or_else(defaults^)
+    print("Fallback workers:", cfg["workers"][Kind.Integer])
 ```
 
 ---
