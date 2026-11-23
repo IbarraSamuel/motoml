@@ -1,14 +1,16 @@
 """Unified 32-byte `Toml` view, typed container views, iterators, and reflection."""
 
-from std.builtin._enum import __Union
+from std.builtin._enum import __Enum, __Union
+from std.builtin.enum_like import EnumLike
 from std.builtin.rebind import downcast
 from std.builtin.tuple import __TupleLike
 from std.builtin.variadics import TypeList, _MLIR
-from std.collections import List, Span
+from std.collections import Array, Dict, List, Set, Span
 from std.memory import MaybeUninit, Pointer, bitcast
 from std.os import abort
 from std.utils import Variant
 from ..mode import Mode
+from ..result import Result
 from ..tape.decode import (
     decode_bool,
     decode_bool_unchecked,
@@ -30,12 +32,39 @@ from ..tape.decode import (
 from ..tape.key_index import _bytes_equal
 from ..tape.lexer import is_valid_utf8_fast
 from ..tape.node import NO_NODE, Node, NodeFlags, NodeKind
+from .attr import (
+    _effective_case_name,
+    _effective_field_name,
+    _field_alias_at,
+    _field_alias_count,
+    _field_has_default_init,
+    _field_has_default_value,
+    _field_is_flattened,
+    _field_is_skipped,
+    _struct_deny_unknown,
+    _union_content,
+    _union_tag,
+    _write_field_default,
+)
 from .json import _write_node_as_json
 from .kind import Kind, KindTag, _Kind
 from .reflection import (
-    _IsValidTomlEnum,
+    _DictKeyType,
+    _DictValType,
+    _IsFieldlessEnum,
+    _IsValidTomlUnion,
     _VariantConstructible,
+    _destroy_partial_array,
     _destroy_partial_struct,
+    _destroy_partial_tuple,
+    _format_leaf_error,
+    _init_union_from_case_tuple,
+    _static_len,
+    _struct_claims_key_bytes,
+    _struct_has_flattened_dict,
+    _wrap_field_error,
+    _wrap_index_error,
+    _wrap_key_error,
 )
 from .store import _Store
 from .tempo import Date, DateTime, Time
@@ -502,6 +531,10 @@ struct TomlTable[
     def take[T: Movable & Deinitable](self) raises -> T:
         return self.as_toml().take[T]()
 
+    @always_inline
+    def try_take[T: Movable & Deinitable](self) -> Result[T]:
+        return self.as_toml().try_take[T]()
+
     def to_json[W: Writer](self, mut w: W) raises:
         self.as_toml().to_json(w)
 
@@ -578,6 +611,10 @@ struct TomlArray[
     @always_inline
     def take[T: Movable & Deinitable](self) raises -> T:
         return self.as_toml().take[T]()
+
+    @always_inline
+    def try_take[T: Movable & Deinitable](self) -> Result[T]:
+        return self.as_toml().try_take[T]()
 
     def to_json[W: Writer](self, mut w: W) raises:
         self.as_toml().to_json(w)
@@ -853,7 +890,7 @@ struct Toml[
         if self.node_idx == NO_NODE:
             raise Error("Missing TOML value.")
         if not self._matches_node_kind[id](self._node().kind):
-            raise Error(
+            raise self._leaf_err(
                 String(
                     "TOML kind mismatch: expected ",
                     _Kind[id](),
@@ -1185,13 +1222,247 @@ struct Toml[
 
     # --- Checked extraction & compile-time reflection (`val.take[T]()`) ---
 
+    @inline(.never)
+    def _leaf_err(self, msg: StringSpan) -> Error:
+        return _format_leaf_error[Self.mode](
+            self.doc_ptr, self.nodes_ptr, self.node_idx, msg
+        )
+
     def _take_list[Elem: Movable & Deinitable](self) raises -> List[Elem]:
         if not self.is_kind[Kind.Array]():
-            raise Error("TOML value is not an Array.")
+            raise self._leaf_err("TOML value is not an Array.")
         var out = List[Elem](capacity=len(self))
+        var idx = 0
         for item in self:
-            out.append(item.take[Elem]())
+            try:
+                out.append(item.take[Elem]())
+            except e:
+                raise _wrap_index_error[Self.mode](
+                    idx, e, item.doc_ptr, item.nodes_ptr, item.node_idx
+                )
+            idx += 1
         return out^
+
+    def _take_set[T: Movable & Deinitable](self) raises -> T:
+        if not self.is_kind[Kind.Array]():
+            raise self._leaf_err("TOML value is not an Array.")
+        comptime assert conforms_to(T, Iterable)
+        comptime Elem = T.IteratorType[origin_of()].Element
+        comptime assert conforms_to(Elem, KeyElement & Deinitable)
+        var out = Set[Elem]()
+        var idx = 0
+        for item in self:
+            try:
+                out.add(item.take[Elem]())
+            except e:
+                raise _wrap_index_error[Self.mode](
+                    idx, e, item.doc_ptr, item.nodes_ptr, item.node_idx
+                )
+            idx += 1
+        return rebind_var[T](out^)
+
+    def _take_tuple[T: __TupleLike & Movable & Deinitable](self) raises -> T:
+        if not self.is_kind[Kind.Array]():
+            raise self._leaf_err("TOML value is not an Array.")
+        comptime elts = TypeList[Trait=AnyType, T.__element_types]()
+        comptime N = elts.length
+        if len(self) != N:
+            raise self._leaf_err(
+                String(
+                    "Tuple length mismatch: expected ",
+                    N,
+                    " elements, got ",
+                    len(self),
+                    ".",
+                )
+            )
+        var storage = MaybeUninit[T]()
+        var tup_ptr = storage.unsafe_ptr()
+        var it = self.__iter__()
+        comptime for i in range(N):
+            comptime Elem = elts[i]
+            comptime assert conforms_to(Elem, Movable & Deinitable)
+            try:
+                var item = it.__next__()
+                try:
+                    Pointer(to=tup_ptr[][i]).unsafe_write(item.take[Elem]())
+                except e:
+                    raise _wrap_index_error[Self.mode](
+                        i, e, item.doc_ptr, item.nodes_ptr, item.node_idx
+                    )
+            except e:
+                _destroy_partial_tuple[T](storage, i)
+                storage^.unsafe_forget()
+                raise e^
+        return storage^.unsafe_assume_init()
+
+    def _take_array[T: Movable & Deinitable](self) raises -> T:
+        if not self.is_kind[Kind.Array]():
+            raise self._leaf_err("TOML value is not an Array.")
+        comptime assert conforms_to(T, Iterable)
+        comptime Elem = T.IteratorType[origin_of()].Element
+        comptime assert conforms_to(Elem, Movable & Deinitable)
+        comptime N = _static_len[T]()
+        if len(self) != N:
+            raise self._leaf_err(
+                String(
+                    "Array length mismatch: expected ",
+                    N,
+                    " elements, got ",
+                    len(self),
+                    ".",
+                )
+            )
+        var storage = MaybeUninit[T]()
+        var elem_ptr = storage.unsafe_ptr().unsafe_bitcast[Elem]()
+        var idx = 0
+        for item in self:
+            try:
+                elem_ptr.unsafe_offset(idx).unsafe_write(item.take[Elem]())
+            except e:
+                _destroy_partial_array(elem_ptr, idx)
+                storage^.unsafe_forget()
+                raise _wrap_index_error[Self.mode](
+                    idx, e, item.doc_ptr, item.nodes_ptr, item.node_idx
+                )
+            idx += 1
+        return storage^.unsafe_assume_init()
+
+    @always_inline
+    def _parse_enum_from_bytes[
+        E: __Enum
+    ](self, bytes: Span[Byte, _]) raises -> E:
+        comptime cases = TypeList[Trait=AnyType, E._enum_case_types]()
+        comptime for i in range(cases.length):
+            comptime CNAME = _effective_case_name[E, i]()
+            var cs: StaticString = materialize[CNAME]()
+            if bytes == cs.as_bytes():
+                return E.__enum_init[i]()
+        raise self._leaf_err(
+            String(
+                "Unknown variant '",
+                StringSpan(unsafe_from_utf8=bytes),
+                "' for enum ",
+                reflect[E].name(),
+                ".",
+            )
+        )
+
+    def _take_fieldless_enum[E: __Enum](self) raises -> E:
+        if not self.is_kind[Kind.String]():
+            raise self._leaf_err(
+                String(
+                    "TOML kind mismatch: expected String for enum ",
+                    reflect[E].name(),
+                    ", got ",
+                    self.kind(),
+                    ".",
+                )
+            )
+        if case .Some(sp) = self.string_span():
+            comptime if Self.mode == Mode.Trusted:
+                if not is_valid_utf8_fast(sp.as_bytes()):
+                    raise self._leaf_err("Invalid UTF-8 in TOML string.")
+            return self._parse_enum_from_bytes[E](sp.as_bytes())
+        var decoded = self._take_kind[0]()
+        return self._parse_enum_from_bytes[E](decoded.as_bytes())
+
+    def _decode_dict_key[K: KeyElement & Deinitable](self) raises -> K:
+        comptime if K == String:
+            var ks: String
+            comptime if Self.mode == Mode.Trusted:
+                ref node = self._node()
+                if (node.key_flags & NodeFlags.HAS_ESCAPE) != 0:
+                    ks = decode_string(self.key_bytes(), node.key_flags).take()
+                else:
+                    var kb = self.key_bytes()
+                    if not is_valid_utf8_fast(kb):
+                        raise self._leaf_err("Invalid UTF-8 in TOML table key.")
+                    ks = String(StringSpan(unsafe_from_utf8=kb))
+            else:
+                ks = self._decode_key()
+            return rebind_var[K](ks^)
+        elif K == StringSpan[Self.origin]:
+            comptime if Self.mode == Mode.Eager:
+                return rebind_var[K](self.key_str())
+            else:
+                ref node = self._node()
+                if (node.key_flags & NodeFlags.HAS_ESCAPE) != 0:
+                    raise self._leaf_err(
+                        "Cannot borrow escaped TOML key as StringSpan in lazy"
+                        " mode; use String or Mode.Eager."
+                    )
+                var kb = self.key_bytes()
+                comptime if Self.mode == Mode.Trusted:
+                    if not is_valid_utf8_fast(kb):
+                        raise self._leaf_err("Invalid UTF-8 in TOML table key.")
+                return rebind_var[K](StringSpan(unsafe_from_utf8=kb))
+        elif _IsFieldlessEnum[K]:
+            comptime E = downcast[K, __Enum]
+            if case .Some(ksp) = self.key_span():
+                comptime if Self.mode == Mode.Trusted:
+                    if not is_valid_utf8_fast(ksp.as_bytes()):
+                        raise self._leaf_err("Invalid UTF-8 in TOML table key.")
+                return rebind_var[K](
+                    self._parse_enum_from_bytes[E](ksp.as_bytes())
+                )
+            var ks = self._decode_key()
+            return rebind_var[K](self._parse_enum_from_bytes[E](ks.as_bytes()))
+        else:
+            comptime assert False, String(
+                t"Unsupported Dict key type {reflect[K].name()} for"
+                t" Toml.take[Dict](); expected String, StringSpan, or __enum."
+            )
+
+    def _take_dict_filtered[
+        T: Movable & Deinitable,
+        ParentT: AnyType,
+        filter_known: Bool,
+    ](self, ignore_key: StaticString, mut matched_count: Int) raises -> T:
+        if not self.is_kind[Kind.Table]():
+            raise self._leaf_err("TOML value is not a Table.")
+        comptime assert conforms_to(T, Iterable)
+        comptime K = _DictKeyType[T]
+        comptime V = _DictValType[T]
+        comptime assert conforms_to(K, KeyElement & Deinitable)
+        comptime assert conforms_to(V, Movable & Deinitable)
+
+        var out = Dict[K, V]()
+        for child in self:
+            comptime if filter_known:
+                var skip_child = False
+                if case .Some(ksp) = child.key_span():
+                    var kb = ksp.as_bytes()
+                    if (
+                        ignore_key.byte_length() > 0
+                        and kb == ignore_key.as_bytes()
+                    ) or _struct_claims_key_bytes[ParentT](kb):
+                        skip_child = True
+                else:
+                    var k_check_str = child._decode_key()
+                    var kb = k_check_str.as_bytes()
+                    if (
+                        ignore_key.byte_length() > 0
+                        and kb == ignore_key.as_bytes()
+                    ) or _struct_claims_key_bytes[ParentT](kb):
+                        skip_child = True
+                if skip_child:
+                    continue
+                matched_count += 1
+
+            var key_val = child._decode_dict_key[K]()
+            try:
+                out[key_val^] = child.take[V]()
+            except e:
+                var key_label = child._decode_key()
+                raise _wrap_key_error[Self.mode](
+                    StringSpan(key_label),
+                    e,
+                    child.doc_ptr,
+                    child.nodes_ptr,
+                    child.node_idx,
+                )
+        return rebind_var[T](out^)
 
     @always_inline
     def _get_field[name: StaticString](self, mut hint_idx: UInt32) -> Self:
@@ -1222,14 +1493,56 @@ struct Toml[
             hint_idx = self.nodes_ptr[unsafe_offset=Int(found)].next_sibling
         return Self(self.doc_ptr, self.nodes_ptr, self.store_ptr, found)
 
-    def _take_struct[T: Movable](self) raises -> T:
+    @always_inline
+    def _get_field_with_aliases[
+        T: AnyType, fi: Int
+    ](self, mut hint_idx: UInt32) -> Self:
+        comptime NAME = _effective_field_name[T, fi]()
+        var child = self._get_field[NAME](hint_idx)
+        comptime ALIAS_N = _field_alias_count[T, fi]()
+        comptime if ALIAS_N > 0:
+            comptime for ai in range(ALIAS_N):
+                if child.node_idx == NO_NODE:
+                    comptime ALIAS = _field_alias_at[T, fi, ai]()
+                    child = self._get_field[ALIAS](hint_idx)
+        return child
+
+    @inline(.never)
+    def _raise_unknown_field_error[
+        T: AnyType
+    ](self, ignore_key: StaticString) raises:
+        for child in self:
+            var ks = child._decode_key()
+            var kb = ks.as_bytes()
+            if ignore_key.byte_length() > 0 and kb == ignore_key.as_bytes():
+                continue
+            if not _struct_claims_key_bytes[T](kb):
+                raise child._leaf_err(
+                    String(
+                        "Unknown field '",
+                        ks,
+                        "' in struct ",
+                        reflect[T].name(),
+                        ".",
+                    )
+                )
+        raise self._leaf_err(
+            String(
+                "Duplicate or conflicting keys in table for struct ",
+                reflect[T].name(),
+                ".",
+            )
+        )
+
+    def _take_struct_impl[
+        T: Movable
+    ](self, mut total_matched: Int, ignore_key: StaticString = "") raises -> T:
         if not self.is_kind[Kind.Table]():
-            raise Error("TOML value is not a Table.")
+            raise self._leaf_err("TOML value is not a Table.")
 
         comptime Tr = reflect[T]
         comptime field_types = Tr.field_types()
         comptime field_count = Tr.field_count()
-        comptime field_names = Tr.field_names()
 
         var storage = MaybeUninit[T]()
         var struct_ptr = storage.unsafe_ptr()
@@ -1238,65 +1551,306 @@ struct Toml[
         comptime for fi in range(field_count):
             comptime TYPE = field_types[fi]
             comptime RTYPE = reflect[TYPE]
-            comptime NAME = field_names[fi]
+            comptime NAME = _effective_field_name[T, fi]()
             comptime assert conforms_to(TYPE, Movable & Deinitable), String(
                 t"Each field of struct {Tr.name()} must be Movable and"
                 t" Deinitable. field: {NAME} (idx {fi})"
             )
 
             ref field_ptr = Tr.field_ref[fi](struct_ptr[])
-            var child = self._get_field[NAME](hint_idx)
 
-            comptime if RTYPE.base_name() == "Optional":
-                comptime assert conforms_to(TYPE, Iterable)
-                comptime Inner = TYPE.IteratorType[origin_of()].Element
-                comptime assert conforms_to(Inner, Movable & Deinitable)
-
-                if child.node_idx != NO_NODE:
-                    try:
-                        var inner_val = child.take[Inner]()
-                        Pointer(to=field_ptr).unsafe_write(
-                            rebind_var[TYPE](Optional[Inner](inner_val^))
-                        )
-                    except e:
-                        _destroy_partial_struct[T](storage, fi)
-                        storage^.unsafe_forget()
-                        raise e^
-                else:
-                    Pointer(to=field_ptr).unsafe_write(
-                        rebind_var[TYPE](Optional[Inner](None))
-                    )
-            else:
-                if child.node_idx == NO_NODE:
+            comptime if _field_is_skipped[T, fi]():
+                try:
+                    _write_field_default[T, fi, TYPE](Pointer(to=field_ptr))
+                except e:
                     _destroy_partial_struct[T](storage, fi)
                     storage^.unsafe_forget()
-                    raise Error(t"Struct field '{NAME}' missing in table.")
+                    raise _wrap_field_error[Self.mode](
+                        NAME, e, self.doc_ptr, self.nodes_ptr, self.node_idx
+                    )
+            elif _field_is_flattened[T, fi]():
                 try:
-                    Pointer(to=field_ptr).unsafe_write(child.take[TYPE]())
+                    comptime if RTYPE.base_name() == "Dict":
+                        Pointer(to=field_ptr).unsafe_write(
+                            self._take_dict_filtered[TYPE, T, True](
+                                ignore_key, total_matched
+                            )
+                        )
+                    else:
+                        Pointer(to=field_ptr).unsafe_write(
+                            self._take_struct_impl[TYPE](
+                                total_matched, ignore_key
+                            )
+                        )
                 except e:
                     _destroy_partial_struct[T](storage, fi)
                     storage^.unsafe_forget()
                     raise e^
+            else:
+                var child = self._get_field_with_aliases[T, fi](hint_idx)
+
+                if child.node_idx != NO_NODE:
+                    total_matched += 1
+                    comptime if RTYPE.base_name() == "Optional":
+                        comptime assert conforms_to(TYPE, Iterable)
+                        comptime Inner = TYPE.IteratorType[origin_of()].Element
+                        comptime assert conforms_to(Inner, Movable & Deinitable)
+                        try:
+                            var inner_val = child.take[Inner]()
+                            Pointer(to=field_ptr).unsafe_write(
+                                rebind_var[TYPE](Optional[Inner](inner_val^))
+                            )
+                        except e:
+                            _destroy_partial_struct[T](storage, fi)
+                            storage^.unsafe_forget()
+                            raise _wrap_field_error[Self.mode](
+                                NAME,
+                                e,
+                                child.doc_ptr,
+                                child.nodes_ptr,
+                                child.node_idx,
+                            )
+                    else:
+                        try:
+                            Pointer(to=field_ptr).unsafe_write(
+                                child.take[TYPE]()
+                            )
+                        except e:
+                            _destroy_partial_struct[T](storage, fi)
+                            storage^.unsafe_forget()
+                            raise _wrap_field_error[Self.mode](
+                                NAME,
+                                e,
+                                child.doc_ptr,
+                                child.nodes_ptr,
+                                child.node_idx,
+                            )
+                else:
+                    comptime if _field_has_default_value[
+                        T, fi
+                    ]() or _field_has_default_init[T, fi]():
+                        try:
+                            _write_field_default[T, fi, TYPE](
+                                Pointer(to=field_ptr)
+                            )
+                        except e:
+                            _destroy_partial_struct[T](storage, fi)
+                            storage^.unsafe_forget()
+                            raise _wrap_field_error[Self.mode](
+                                NAME,
+                                e,
+                                self.doc_ptr,
+                                self.nodes_ptr,
+                                self.node_idx,
+                            )
+                    elif RTYPE.base_name() == "Optional":
+                        comptime assert conforms_to(TYPE, Iterable)
+                        comptime Inner = TYPE.IteratorType[origin_of()].Element
+                        comptime assert conforms_to(Inner, Movable & Deinitable)
+                        Pointer(to=field_ptr).unsafe_write(
+                            rebind_var[TYPE](Optional[Inner](None))
+                        )
+                    else:
+                        _destroy_partial_struct[T](storage, fi)
+                        storage^.unsafe_forget()
+                        raise self._leaf_err(
+                            String(t"Struct field '{NAME}' missing in table.")
+                        )
 
         return storage^.unsafe_assume_init()
 
-    def _take_enum[
-        E: __Union & Movable & Deinitable
-    ](self) raises -> E where _IsValidTomlEnum[E]:
-        comptime cases = TypeList[Trait=AnyType, E._enum_case_types]()
-        comptime for i in range(cases.length):
-            comptime CaseTuple = cases[i]
-            comptime elts = TypeList[
-                Trait=AnyType, downcast[CaseTuple, __TupleLike].__element_types
-            ]()
+    def _take_struct_checked[
+        T: Movable & Deinitable
+    ](self, ignore_key: StaticString = "") raises -> T:
+        var matched_count = 0
+        var res = self._take_struct_impl[T](matched_count, ignore_key)
+        comptime if _struct_deny_unknown[
+            T
+        ]() and not _struct_has_flattened_dict[T]():
+            var expected = len(self) - (
+                1 if ignore_key.byte_length() > 0 else 0
+            )
+            if matched_count != expected:
+                self._raise_unknown_field_error[T](ignore_key)
+        return res^
+
+    def _take_struct[T: Movable & Deinitable](self) raises -> T:
+        return self._take_struct_checked[T]()
+
+    def _take_union_case_from_node[
+        E: __Union & Movable & Deinitable,
+        case_idx: Int,
+        ignore_key: StaticString = "",
+    ](self) raises -> E:
+        comptime CaseTuple = TypeList[Trait=AnyType, E._enum_case_types]()[
+            case_idx
+        ]
+        comptime assert conforms_to(
+            CaseTuple, __TupleLike & Movable & Deinitable
+        )
+        comptime elts = TypeList[Trait=AnyType, CaseTuple.__element_types]()
+        comptime if elts.length == 0:
+            return E.__enum_init[case_idx]()
+        elif elts.length == 1:
             comptime Payload = elts[0]
             comptime assert conforms_to(Payload, Movable & Deinitable)
-            try:
+            comptime if ignore_key.byte_length() > 0:
+                comptime assert reflect[Payload].is_struct(), (
+                    "Internally tagged union case payload must be a struct or"
+                    " empty."
+                )
+                var val = self._take_struct_checked[Payload](ignore_key)
+                return E.__enum_init[case_idx](val^)
+            else:
                 var val = self.take[Payload]()
-                return E.__enum_init[i](val^)
-            except:
-                pass
-        raise Error(
+                return E.__enum_init[case_idx](val^)
+        else:
+            var tup = self._take_tuple[CaseTuple]()
+            return _init_union_from_case_tuple[E, case_idx](tup^)
+
+    def _take_union[
+        E: __Union & Movable & Deinitable
+    ](self) raises -> E where _IsValidTomlUnion[E]:
+        comptime cases = TypeList[Trait=AnyType, E._enum_case_types]()
+        comptime tag_opt = _union_tag[E]()
+        comptime content_opt = _union_content[E]()
+
+        # 1. Internally or adjacently tagged union (`@__annotation(toml_attr.tag(...))`)
+        comptime if case .Some(tag_key) = tag_opt:
+            if not self.is_kind[Kind.Table]():
+                raise self._leaf_err(
+                    String(
+                        "Tagged union ",
+                        reflect[E].name(),
+                        " requires a TOML Table, got ",
+                        self.kind(),
+                        ".",
+                    )
+                )
+            var tag_s: StaticString = materialize[tag_key]()
+            var tag_node = self[StringSpan(tag_s)]
+            if tag_node.node_idx == NO_NODE:
+                raise self._leaf_err(
+                    String(
+                        "Missing union tag field '",
+                        tag_s,
+                        "' for ",
+                        reflect[E].name(),
+                        ".",
+                    )
+                )
+            var tag_val = tag_node.take[String]()
+            var tag_bytes = tag_val.as_bytes()
+
+            comptime for i in range(cases.length):
+                comptime CNAME = _effective_case_name[E, i]()
+                var cs: StaticString = materialize[CNAME]()
+                if tag_bytes == cs.as_bytes():
+                    comptime CaseTuple = cases[i]
+                    comptime assert conforms_to(CaseTuple, __TupleLike)
+                    comptime elts = TypeList[
+                        Trait=AnyType, CaseTuple.__element_types
+                    ]()
+                    comptime if case .Some(content_key) = content_opt:
+                        comptime if elts.length == 0:
+                            return E.__enum_init[i]()
+                        else:
+                            var cont_s: StaticString = materialize[
+                                content_key
+                            ]()
+                            var cont_node = self[StringSpan(cont_s)]
+                            if cont_node.node_idx == NO_NODE:
+                                raise self._leaf_err(
+                                    String(
+                                        "Missing union content field '",
+                                        cont_s,
+                                        "' for case '",
+                                        cs,
+                                        "'.",
+                                    )
+                                )
+                            try:
+                                return cont_node._take_union_case_from_node[
+                                    E, i
+                                ]()
+                            except e:
+                                raise _wrap_field_error[Self.mode](
+                                    content_key,
+                                    e,
+                                    cont_node.doc_ptr,
+                                    cont_node.nodes_ptr,
+                                    cont_node.node_idx,
+                                )
+                    else:
+                        return self._take_union_case_from_node[E, i, tag_key]()
+
+            raise tag_node._leaf_err(
+                String(
+                    "Unknown union tag '",
+                    tag_val,
+                    "' for ",
+                    reflect[E].name(),
+                    ".",
+                )
+            )
+
+        # 2. Unit case matched from TOML String (`"none"`)
+        if self.is_kind[Kind.String]():
+            var str_val = self._take_kind[0]()
+            var sb = str_val.as_bytes()
+            comptime for i in range(cases.length):
+                comptime CaseTuple = cases[i]
+                comptime assert conforms_to(CaseTuple, __TupleLike)
+                comptime elts = TypeList[
+                    Trait=AnyType, CaseTuple.__element_types
+                ]()
+                comptime if elts.length == 0:
+                    comptime CNAME = _effective_case_name[E, i]()
+                    var cs: StaticString = materialize[CNAME]()
+                    if sb == cs.as_bytes():
+                        return E.__enum_init[i]()
+
+        # 3. Externally tagged single-key TOML Table (`{ tcp = ... }`)
+        if self.is_kind[Kind.Table]() and len(self) == 1:
+            var sole_idx = self._node().first_child
+            var sole_child = Self(
+                self.doc_ptr, self.nodes_ptr, self.store_ptr, sole_idx
+            )
+            var sole_key = sole_child._decode_key()
+            var kb = sole_key.as_bytes()
+            comptime for i in range(cases.length):
+                comptime CaseTuple = cases[i]
+                comptime assert conforms_to(CaseTuple, __TupleLike)
+                comptime elts = TypeList[
+                    Trait=AnyType, CaseTuple.__element_types
+                ]()
+                comptime if elts.length > 0:
+                    comptime CNAME = _effective_case_name[E, i]()
+                    var cs: StaticString = materialize[CNAME]()
+                    if kb == cs.as_bytes():
+                        try:
+                            return sole_child._take_union_case_from_node[E, i]()
+                        except:
+                            pass
+
+        # 4. Untagged payload matching in declaration order
+        comptime for i in range(cases.length):
+            comptime CaseTuple = cases[i]
+            comptime assert conforms_to(CaseTuple, __TupleLike)
+            comptime elts = TypeList[Trait=AnyType, CaseTuple.__element_types]()
+            comptime if elts.length == 1:
+                try:
+                    return self._take_union_case_from_node[E, i]()
+                except:
+                    pass
+            elif elts.length > 1:
+                if self.is_kind[Kind.Array]():
+                    try:
+                        return self._take_union_case_from_node[E, i]()
+                    except:
+                        pass
+
+        raise self._leaf_err(
             String(
                 "TOML value of kind ",
                 self.kind(),
@@ -1324,7 +1878,7 @@ struct Toml[
                 return Variant[*ts](val^)
             except:
                 pass
-        raise Error(
+        raise self._leaf_err(
             String(
                 "TOML value of kind ",
                 self.kind(),
@@ -1334,7 +1888,8 @@ struct Toml[
 
     def take[T: Movable & Deinitable](self) raises -> T:
         """Checked extraction into `T` (scalar, temporal, `TomlTable`, `TomlArray`,
-        `List`, `Optional`, `__union`, `OneOf`, or struct)."""
+        `List`, `Array`, `Tuple`, `Set`, `Dict`, `Optional`, `__enum`, `__union`,
+        `OneOf`, or struct)."""
         comptime Tr = reflect[T]
 
         comptime if T == Self:
@@ -1358,42 +1913,46 @@ struct Toml[
         elif T == Int32:
             var iv = self._take_kind[1]()
             if iv < -2147483648 or iv > 2147483647:
-                raise Error("TOML integer out of Int32 range.")
+                raise self._leaf_err("TOML integer out of Int32 range.")
             return rebind_var[T](Int32(iv))
         elif T == Int16:
             var iv = self._take_kind[1]()
             if iv < -32768 or iv > 32767:
-                raise Error("TOML integer out of Int16 range.")
+                raise self._leaf_err("TOML integer out of Int16 range.")
             return rebind_var[T](Int16(iv))
         elif T == Int8:
             var iv = self._take_kind[1]()
             if iv < -128 or iv > 127:
-                raise Error("TOML integer out of Int8 range.")
+                raise self._leaf_err("TOML integer out of Int8 range.")
             return rebind_var[T](Int8(iv))
         elif T == UInt:
             var iv = self._take_kind[1]()
             if iv < 0:
-                raise Error("Negative TOML integer cannot convert to UInt.")
+                raise self._leaf_err(
+                    "Negative TOML integer cannot convert to UInt."
+                )
             return rebind_var[T](UInt(iv))
         elif T == UInt64:
             var iv = self._take_kind[1]()
             if iv < 0:
-                raise Error("Negative TOML integer cannot convert to UInt64.")
+                raise self._leaf_err(
+                    "Negative TOML integer cannot convert to UInt64."
+                )
             return rebind_var[T](UInt64(iv))
         elif T == UInt32:
             var iv = self._take_kind[1]()
             if iv < 0 or iv > 4294967295:
-                raise Error("TOML integer out of UInt32 range.")
+                raise self._leaf_err("TOML integer out of UInt32 range.")
             return rebind_var[T](UInt32(iv))
         elif T == UInt16:
             var iv = self._take_kind[1]()
             if iv < 0 or iv > 65535:
-                raise Error("TOML integer out of UInt16 range.")
+                raise self._leaf_err("TOML integer out of UInt16 range.")
             return rebind_var[T](UInt16(iv))
         elif T == UInt8:
             var iv = self._take_kind[1]()
             if iv < 0 or iv > 255:
-                raise Error("TOML integer out of UInt8 range.")
+                raise self._leaf_err("TOML integer out of UInt8 range.")
             return rebind_var[T](UInt8(iv))
         elif T == Float64:
             return rebind_var[T](self._take_kind[2]())
@@ -1421,6 +1980,18 @@ struct Toml[
             comptime assert conforms_to(Elem, Movable & Deinitable)
             var lst = self._take_list[Elem]()
             return rebind_var[T](lst^)
+        elif Tr.base_name() == "Array":
+            return self._take_array[T]()
+        elif Tr.base_name() == "Set":
+            return self._take_set[T]()
+        elif Tr.base_name() == "Dict":
+            var dummy_matched = 0
+            return self._take_dict_filtered[T, NoneType, False](
+                "", dummy_matched
+            )
+        elif conforms_to(T, __TupleLike):
+            comptime Tup = downcast[T, __TupleLike & Movable & Deinitable]
+            return rebind_var[T](self._take_tuple[Tup]())
         elif conforms_to(T, _VariantConstructible):
             comptime V = downcast[T, _VariantConstructible]
             comptime ts = TypeList[Trait=AnyType, V._variant_types]()
@@ -1428,22 +1999,33 @@ struct Toml[
                 ts.length > 0
             ), "Variant wrapper must declare at least one type."
             return rebind_var[T](V._from_variant(self._take_variant[ts]()))
+        elif _IsFieldlessEnum[T]:
+            comptime E = downcast[T, __Enum]
+            return rebind_var[T](self._take_fieldless_enum[E]())
         elif conforms_to(T, __Union):
             comptime E = downcast[T, __Union & Movable & Deinitable]
-            comptime assert _IsValidTomlEnum[E], (
-                "Union type must have at least one case and every case must"
-                " carry exactly one payload."
+            comptime assert _IsValidTomlUnion[E], (
+                "Union type must have at least one case and all case payloads"
+                " must be Movable and Deinitable."
             )
-            return rebind_var[T](self._take_enum[E]())
+            return rebind_var[T](self._take_union[E]())
         elif Tr.base_name() == "Variant":
-            raise Error(
+            raise self._leaf_err(
                 "Direct Variant reflection is not supported; use take[*Ts](),"
                 " take[TypeList](), a __union, or OneOf[*Ts]."
             )
         elif Tr.is_struct():
             return self._take_struct[T]()
         else:
-            raise Error("Unsupported target type for Toml.take[T]().")
+            raise self._leaf_err("Unsupported target type for Toml.take[T]().")
+
+    def try_take[T: Movable & Deinitable](self) -> Result[T]:
+        """Non-raising extraction into `T` returning `Result[T]` (usable at `comptime`).
+        """
+        try:
+            return .Ok(self.take[T]())
+        except e:
+            return .Err(String(e))
 
     def take[
         *Ts: Movable & Deinitable

@@ -6,6 +6,7 @@ from std.memory import Pointer, bitcast, unsafe_memcpy
 from std.utils import Variant
 from std.utils.numerics import nan
 from ..mode import Mode
+from ..result import Result
 from ..tape.decode import (
     decode_bool_unchecked,
     decode_date_unchecked,
@@ -150,6 +151,10 @@ struct TomlDocument[
     @always_inline
     def take[T: Movable & Deinitable](ref self) raises -> T:
         return self.root().take[T]()
+
+    @always_inline
+    def try_take[T: Movable & Deinitable](ref self) -> Result[T]:
+        return self.root().try_take[T]()
 
     @always_inline
     def take[

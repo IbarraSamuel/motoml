@@ -124,6 +124,10 @@ struct TomlFile[mode: Mode = Mode.Strict](Movable, Sized, Writable):
         return self.root().take[T]()
 
     @always_inline
+    def try_take[T: Movable & Deinitable](ref self) -> Result[T]:
+        return self.root().try_take[T]()
+
+    @always_inline
     def take[
         *Ts: Movable & Deinitable
     ](ref self) raises -> Variant[*Ts] where Ts.length > 1:
