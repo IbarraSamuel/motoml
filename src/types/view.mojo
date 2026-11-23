@@ -8,7 +8,7 @@ from std.collections import List, Span
 from std.memory import MaybeUninit, Pointer, bitcast
 from std.os import abort
 from std.utils import Variant
-from ..mode import Mode, _Mode, _is_eager, _is_strict
+from ..mode import Mode
 from ..tape.decode import (
     decode_bool,
     decode_bool_unchecked,
@@ -37,7 +37,7 @@ from .store import _Store
 from .tempo import Date, DateTime, Time
 
 
-comptime KindPayload[id: Int, o: ImmOrigin, m_id: Int] = TypeList.of[
+comptime KindPayload[id: Int, o: ImmOrigin, m: Mode] = TypeList.of[
     String,
     Int,
     Float64,
@@ -45,8 +45,8 @@ comptime KindPayload[id: Int, o: ImmOrigin, m_id: Int] = TypeList.of[
     Date,
     Time,
     DateTime,
-    TomlArray[o, _Mode[m_id]()],
-    TomlTable[o, _Mode[m_id]()],
+    TomlArray[o, m],
+    TomlTable[o, m],
 ]()[id]
 
 
@@ -54,10 +54,8 @@ comptime KindPayload[id: Int, o: ImmOrigin, m_id: Int] = TypeList.of[
 
 
 struct TomlIter[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Copyable,
     ImplicitlyCopyable,
@@ -121,10 +119,8 @@ struct TomlIter[
 
 
 struct TomlItemIter[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Copyable,
     ImplicitlyCopyable,
@@ -167,10 +163,8 @@ struct TomlItemIter[
 
 
 struct TomlKeyIter[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Copyable,
     ImplicitlyCopyable,
@@ -216,10 +210,8 @@ struct TomlKeyIter[
 
 
 struct TomlTable[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Boolable,
     Copyable,
@@ -314,10 +306,8 @@ struct TomlTable[
 
 
 struct TomlArray[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Boolable,
     Copyable,
@@ -396,10 +386,8 @@ struct TomlArray[
 
 
 struct Toml[
-    mode_id: Int,
-    //,
     origin: ImmOrigin,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     Boolable,
     Copyable,
@@ -527,7 +515,7 @@ struct Toml[
         """
         if self.node_idx == NO_NODE:
             return None
-        comptime if _is_eager[Self.mode_id]():
+        comptime if Self.mode == Mode.Eager:
             return StringSpan(unsafe_from_utf8=self.key_bytes())
         else:
             if (self._node().key_flags & NodeFlags.HAS_ESCAPE) == 0:
@@ -538,12 +526,12 @@ struct Toml[
         if self.node_idx == NO_NODE:
             return String()
         ref node = self._node()
-        comptime if _is_eager[Self.mode_id]():
+        comptime if Self.mode == Mode.Eager:
             return String(StringSpan(unsafe_from_utf8=self.key_bytes()))
         else:
             if (node.key_flags & NodeFlags.HAS_ESCAPE) == 0:
                 return String(StringSpan(unsafe_from_utf8=self.key_bytes()))
-            comptime if _is_strict[Self.mode_id]():
+            comptime if Self.mode == Mode.Strict:
                 return decode_string_unchecked(self.key_bytes(), node.key_flags)
             else:
                 var res = decode_string(self.key_bytes(), node.key_flags)
@@ -561,7 +549,7 @@ struct Toml[
         ref node = self._node()
         if node.kind != NodeKind.String:
             return None
-        comptime if _is_eager[Self.mode_id]():
+        comptime if case Mode.Eager = Self.mode:
             return StringSpan(unsafe_from_utf8=self.raw_bytes())
         else:
             if (node.flags & NodeFlags.HAS_ESCAPE) == 0:
@@ -606,12 +594,12 @@ struct Toml[
     @always_inline
     def _decode_kind_trusted_safe[
         id: Int
-    ](self) -> KindPayload[id, Self.origin, Self.mode_id]:
+    ](self) -> KindPayload[id, Self.origin, Self.mode]:
         """Decode a pre-validated (Eager or Strict) node whose kind is already verified.
         """
-        comptime R = KindPayload[id, Self.origin, Self.mode_id]
+        comptime R = KindPayload[id, Self.origin, Self.mode]
         ref node = self._node()
-        comptime if _is_eager[Self.mode_id]():
+        comptime if case .Eager = Self.mode:
             comptime match id:
                 case 0:
                     var s = String(
@@ -709,14 +697,14 @@ struct Toml[
     @always_inline
     def _take_kind[
         id: Int
-    ](self) raises -> KindPayload[id, Self.origin, Self.mode_id]:
+    ](self) raises -> KindPayload[id, Self.origin, Self.mode]:
         """Checked extraction by kind id, raising on missing, mismatch, or invalid Trusted scalar.
         """
         comptime assert id != 9, "Cannot extract Kind.Missing."
-        comptime R = KindPayload[id, Self.origin, Self.mode_id]
+        comptime R = KindPayload[id, Self.origin, Self.mode]
         self._check_kind_or_raise[id]()
 
-        comptime if _is_strict[Self.mode_id]():
+        comptime if case .Strict = Self.mode:
             return self._decode_kind_trusted_safe[id]()
         else:
             ref node = self._node()
@@ -767,7 +755,7 @@ struct Toml[
         ref node = self._node()
         if node.kind != NodeKind.Array or index < 0 or index >= Int(node.len):
             return self._missing()
-        comptime if _is_eager[Self.mode_id]():
+        comptime if case .Eager = Self.mode:
             var child_idx = self.store_ptr[].array_slots.unsafe_ptr()[
                 unsafe_offset=Int(node.start) + index
             ]
@@ -834,7 +822,7 @@ struct Toml[
     @always_inline
     def __getitem_param__[
         id: Int, //, k: _Kind[id]
-    ](self) -> KindPayload[id, Self.origin, Self.mode_id]:
+    ](self) -> KindPayload[id, Self.origin, Self.mode]:
         """Cast this value to `KindPayload[k]`, aborting on missing, mismatch, or invalid scalar.
         """
         comptime assert id != 9, "Cannot cast to Kind.Missing."
@@ -843,10 +831,10 @@ struct Toml[
         if not self._matches_node_kind[id](self._node().kind):
             abort("TOML value Kind does not match requested Kind.")
 
-        comptime if _is_strict[Self.mode_id]():
+        comptime if case .Strict = Self.mode:
             return self._decode_kind_trusted_safe[id]()
         else:
-            comptime R = KindPayload[id, Self.origin, Self.mode_id]
+            comptime R = KindPayload[id, Self.origin, Self.mode]
             ref node = self._node()
             comptime match id:
                 case 0:
@@ -1136,7 +1124,7 @@ struct Toml[
 
     def to_json[W: Writer](self, mut w: W) raises:
         """Stream this value and its subtree as `toml-test` tagged JSON."""
-        _write_node_as_json[Self.mode_id](
+        _write_node_as_json[Self.mode](
             self.doc_ptr, self.nodes_ptr, self.store_ptr, self.node_idx, w
         )
 

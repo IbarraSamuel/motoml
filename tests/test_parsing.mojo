@@ -9,7 +9,6 @@ from motoml import (
     Offset,
     Time,
     TomlDocument,
-    _Mode,
     parse_toml,
     parse_toml_file,
     try_parse_toml,

@@ -11,7 +11,6 @@ from motoml import (
     Toml,
     TomlArray,
     TomlTable,
-    _Mode,
     parse_toml,
 )
 from std.testing import (

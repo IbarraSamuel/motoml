@@ -13,7 +13,7 @@ from std.builtin.variadics import TypeList, _MLIR
 from std.collections import Optional, Span
 from std.utils import Variant
 from .mmap_file import MappedFile
-from .mode import Mode, _Mode, _is_strict
+from .mode import Mode
 from .result import Result
 from .tape.reader import _parse_tape
 from .types.document import TomlDocument, _materialize
@@ -21,9 +21,7 @@ from .types.store import _Store
 from .types.view import Toml, TomlItemIter, TomlIter, TomlKeyIter
 
 
-struct TomlFile[mode_id: Int, //, mode: _Mode[mode_id] = Mode.Strict](
-    Movable, Sized, Writable
-):
+struct TomlFile[mode: Mode = Mode.Strict](Movable, Sized, Writable):
     """Owning handle for a memory-mapped TOML file and its parsed document.
 
     `doc` is declared before `_file` so the document tape always drops before
@@ -114,9 +112,7 @@ struct TomlFile[mode_id: Int, //, mode: _Mode[mode_id] = Mode.Strict](
 
 
 def try_parse_toml[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     data: StringSpan,
 ) -> Result[TomlDocument[mode, data.origin]] where (
@@ -158,9 +154,7 @@ def try_parse_toml[
 
 @always_inline
 def parse_toml[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](
     data: StringSpan,
 ) raises -> TomlDocument[mode, data.origin] where (
@@ -173,9 +167,7 @@ def parse_toml[
 
 @always_inline
 def parse_toml[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id],
+    mode: Mode
 ](
     data: StringSpan,
 ) raises -> TomlDocument[
@@ -187,9 +179,7 @@ def parse_toml[
 
 
 def parse_toml_file[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](path: StringSpan) raises -> TomlFile[mode] where mode_id != 0:
     """Parse a TOML file through a read-only memory mapping (lazy mode)."""
     var mapped_file = MappedFile(path)
@@ -229,13 +219,11 @@ def parse_toml_file[
 
 
 def toml_to_tagged_json[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id] = Mode.Strict,
+    mode: Mode = Mode.Strict,
 ](content: StringSpan) raises -> String:
     """Parse TOML text and serialize it as `toml-test` tagged JSON."""
     var out = String()
-    comptime if mode_id == 0:
+    comptime if case .Eager = mode:
         var doc = parse_toml[Mode.Eager](content)
         doc.to_json(out)
     else:

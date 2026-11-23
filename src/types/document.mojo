@@ -5,7 +5,7 @@ from std.collections import List, Span
 from std.memory import Pointer, bitcast, unsafe_memcpy
 from std.utils import Variant
 from std.utils.numerics import nan
-from ..mode import Mode, _Mode, _is_eager
+from ..mode import Mode
 from ..tape.decode import (
     decode_bool_unchecked,
     decode_date_unchecked,
@@ -24,9 +24,7 @@ from .view import Toml, TomlItemIter, TomlIter, TomlKeyIter
 
 
 struct TomlDocument[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id],
+    mode: Mode,
     origin: ImmOrigin = ImmUntrackedOrigin,
 ](Movable, Sized, Writable):
     """Owning handle for a parsed TOML document.
@@ -57,7 +55,7 @@ struct TomlDocument[
     def root(ref self) -> Toml[ImmOrigin(origin_of(self)), Self.mode]:
         """Return the root `Toml` table view."""
         var doc_p: Pointer[Byte, ImmOrigin(origin_of(self))]
-        comptime if _is_eager[Self.mode_id]():
+        comptime if case .Eager = Self.mode:
             doc_p = (
                 self.store.arena.unsafe_ptr()
                 .unsafe_mut_cast[False]()

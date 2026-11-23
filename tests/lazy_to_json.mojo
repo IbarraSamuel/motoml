@@ -1,11 +1,11 @@
-from motoml import Mode, _Mode, try_parse_toml
+from motoml import Mode, try_parse_toml
 from motoml.mmap_file import MappedFile
 from std.sys import argv
 
 
-def _run_mode[mode_id: Int, //, mode: _Mode[mode_id]](view: StringSpan):
+def _run_mode[mode: Mode](view: StringSpan):
     var out = String()
-    comptime if mode_id == 0:
+    comptime if case .Eager = mode:
         var res = try_parse_toml[Mode.Eager](view)
         if case .Err(_) = res:
             print("PARSE_ERR:", res^.unsafe_take_error())

@@ -1,4 +1,4 @@
-from motoml import Mode, _Mode, toml_to_tagged_json
+from motoml import Mode, toml_to_tagged_json
 from motoml.mmap_file import MappedFile
 from json_parser import JsonDoc, parse_json, translate_json_to_types
 from std.pathlib import Path
@@ -8,9 +8,7 @@ from std.testing.suite import TestReport, TestResult, TestSuiteReport
 from std.time import perf_counter_ns
 
 
-def toml_single_test[
-    mode_id: Int, //, mode: _Mode[mode_id]
-](strpath: String) raises -> None:
+def toml_single_test[mode: Mode](strpath: String) raises -> None:
     var file = Path(strpath)
     if not file.exists():
         raise t"file does not exist: {file}"
@@ -54,7 +52,7 @@ def toml_files() -> Path:
 
 
 def _run_suite[
-    mode_id: Int, //, mode: _Mode[mode_id]
+    mode: Mode
 ](
     label: String,
     toml_dir: Path,
@@ -84,7 +82,7 @@ def main() raises:
 
 
 @fieldwise_init
-struct NamedTestSuite[mode_id: Int, //, mode: _Mode[mode_id]](
+struct NamedTestSuite[mode: Mode](
     not Deinitable else "run tests or abandon them.", Movable
 ):
     var tests: List[Tuple[String, String]]

@@ -1,4 +1,4 @@
-from .mode import Mode, _Mode
+from .mode import Mode
 from .parser import (
     TomlFile,
     parse_toml,

@@ -3,7 +3,7 @@
 from std.bit import count_trailing_zeros
 from std.collections import Span
 from std.memory import Pointer, bitcast, pack_bits
-from ..mode import _is_eager, _is_strict
+from ..mode import Mode
 from ..tape.decode import (
     decode_bool,
     decode_bool_unchecked,
@@ -18,7 +18,7 @@ from ..tape.decode import (
     decode_time,
     decode_time_unchecked,
 )
-from ..tape.node import NO_NODE, Node, NodeFlags, NodeKind
+from ..tape.node import NO_NODE, Node, NodeFlags
 from .store import _Store
 from .tempo import Date
 
@@ -244,9 +244,9 @@ def _write_toml_string_as_json_impl[
 
 @always_inline
 def _write_toml_string_bytes[
-    mode_id: Int, W: Writer
+    mode: Mode, W: Writer
 ](bytes: Span[Byte, _], flags: UInt8, mut w: W) raises:
-    comptime if _is_eager[mode_id]():
+    comptime if case .Eager = mode:
         _write_json_escaped_bytes(bytes, w)
     else:
         if (flags & NodeFlags.LITERAL) != 0 or (
@@ -255,7 +255,7 @@ def _write_toml_string_bytes[
             _write_json_escaped_bytes(bytes, w)
         else:
             var err_msg: StaticString = ""
-            comptime if _is_strict[mode_id]():
+            comptime if case .Strict = mode:
                 _ = _write_toml_string_as_json_impl[False](
                     bytes, flags, w, err_msg
                 )
@@ -288,7 +288,7 @@ def _eager_date(ref node: Node) -> Date:
 
 
 def _write_node_as_json[
-    mode_id: Int, origin: ImmOrigin, W: Writer
+    mode: Mode, origin: ImmOrigin, W: Writer
 ](
     doc_ptr: Pointer[Byte, origin],
     nodes_ptr: Pointer[Node, origin],
@@ -308,10 +308,10 @@ def _write_node_as_json[
                 length=Int(node.len),
             )
             w.write('{"type": "string", "value": "')
-            _write_toml_string_bytes[mode_id](raw, node.flags, w)
+            _write_toml_string_bytes[mode](raw, node.flags, w)
             w.write('"}')
         case .Integer:
-            comptime if _is_eager[mode_id]():
+            comptime if case .Eager = mode:
                 w.write(
                     '{"type": "integer", "value": "', _eager_int(node), '"}'
                 )
@@ -320,7 +320,7 @@ def _write_node_as_json[
                     unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
                     length=Int(node.len),
                 )
-                comptime if _is_strict[mode_id]():
+                comptime if case .Strict = mode:
                     if (node.flags & NodeFlags.CANONICAL) != 0:
                         var first = raw.unsafe_ptr()[unsafe_offset=0]
                         if first != Byte(ord("+")) and not (
@@ -347,7 +347,7 @@ def _write_node_as_json[
                         '"}',
                     )
         case .Float:
-            comptime if _is_eager[mode_id]():
+            comptime if case .Eager = mode:
                 w.write(
                     '{"type": "float", "value": "', _eager_float(node), '"}'
                 )
@@ -356,7 +356,7 @@ def _write_node_as_json[
                     unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
                     length=Int(node.len),
                 )
-                comptime if _is_strict[mode_id]():
+                comptime if case .Strict = mode:
                     w.write(
                         '{"type": "float", "value": "',
                         decode_float_unchecked(raw, node.flags),
@@ -371,7 +371,7 @@ def _write_node_as_json[
         case .NaN:
             w.write('{"type": "float", "value": "nan"}')
         case .Inf:
-            comptime if _is_eager[mode_id]():
+            comptime if case .Eager = mode:
                 if _eager_float(node) < 0.0:
                     w.write('{"type": "float", "value": "-inf"}')
                 else:
@@ -385,27 +385,28 @@ def _write_node_as_json[
                     w.write('{"type": "float", "value": "inf"}')
         case .Boolean:
             var bval: Bool
-            comptime if _is_eager[mode_id]():
-                bval = node.start != 0
-            elif _is_strict[mode_id]():
-                bval = decode_bool_unchecked(
-                    Span[Byte, origin](
-                        unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
-                        length=Int(node.len),
+            comptime match mode:
+                case .Eager:
+                    bval = node.start != 0
+                case .Strict:
+                    bval = decode_bool_unchecked(
+                        Span[Byte, origin](
+                            unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
+                            length=Int(node.len),
+                        )
                     )
-                )
-            else:
-                bval = decode_bool(
-                    Span[Byte, origin](
-                        unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
-                        length=Int(node.len),
-                    )
-                ).take()
+                case .Trusted:
+                    bval = decode_bool(
+                        Span[Byte, origin](
+                            unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
+                            length=Int(node.len),
+                        )
+                    ).take()
             w.write(
                 '{"type": "bool", "value": "true"}' if bval else '{"type": "bool", "value": "false"}'
             )
         case .Date:
-            comptime if _is_eager[mode_id]():
+            comptime if case .Eager = mode:
                 w.write(
                     '{"type": "date-local", "value": "', _eager_date(node), '"}'
                 )
@@ -414,7 +415,9 @@ def _write_node_as_json[
                     unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
                     length=Int(node.len),
                 )
-                comptime if not _is_strict[mode_id]():
+                comptime if case .Strict = mode:
+                    pass
+                else:
                     _ = decode_date(raw).take()
                 w.write(
                     '{"type": "date-local", "value": "',
@@ -422,7 +425,7 @@ def _write_node_as_json[
                     '"}',
                 )
         case .Time:
-            comptime if _is_eager[mode_id]():
+            comptime if case .Eager = mode:
                 w.write(
                     '{"type": "time-local", "value": "',
                     store_ptr[].temporals[Int(node.start)].time,
@@ -433,7 +436,7 @@ def _write_node_as_json[
                     unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
                     length=Int(node.len),
                 )
-                comptime if _is_strict[mode_id]():
+                comptime if case .Strict = mode:
                     w.write(
                         '{"type": "time-local", "value": "',
                         decode_time_unchecked(raw),
@@ -446,21 +449,24 @@ def _write_node_as_json[
                         '"}',
                     )
         case .DateTime:
-            var dt = store_ptr[].temporals[Int(node.start)] if _is_eager[
-                mode_id
-            ]() else (
-                decode_datetime_unchecked(
-                    Span[Byte, origin](
-                        unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
-                        length=Int(node.len),
+            var dt: DateTime
+            match mode:
+                case .Eager:
+                    dt = store_ptr[].temporals[Int(node.start)]
+                case .Strict:
+                    dt = decode_datetime_unchecked(
+                        Span[Byte, origin](
+                            unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
+                            length=Int(node.len),
+                        )
                     )
-                ) if _is_strict[mode_id]() else decode_datetime(
-                    Span[Byte, origin](
-                        unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
-                        length=Int(node.len),
-                    )
-                ).take()
-            )
+                case .Trusted:
+                    dt = decode_datetime(
+                        Span[Byte, origin](
+                            unsafe_ptr=doc_ptr.unsafe_offset(Int(node.start)),
+                            length=Int(node.len),
+                        )
+                    ).take()
             var nm = "datetime-local" if dt.is_local else "datetime"
             w.write('{"type": "', nm, '", "value": "', dt, '"}')
         case .Array:
