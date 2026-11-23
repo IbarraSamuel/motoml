@@ -17,10 +17,11 @@ Fast, spec-compliant TOML 1.1 parser and view API for Mojo.
   - `parse_toml` / `parse_toml_file` raise directly with `line:col` diagnostics.
   - `try_parse_toml` returns a linear `Result` for compile-time parsing (`comptime`) or branch-based error handling.
 - **Single 32-Byte `Toml` View API**:
-  - **Unchecked fast cast**: `val[Kind.Integer]` (aborts on missing/mismatch).
-  - **Checked extraction & compile-time reflection**: `val.take[Int]()`, `val.take[List[T]]()`, `val.take[MyStruct]()`, `val.take[OneOf[...]]()`, `val.take[*Ts]()`, and single-payload `__union` types.
+  - **Unchecked fast cast**: `val[Kind.Integer]`, `val[Kind.String]`, and zero-copy `val[Kind.Str]` (`StringSpan`, aborts on missing/mismatch).
+  - **Checked extraction & compile-time reflection**: `val.take[Int]()`, fixed-width integers (`Int8`..`Int64`, `UInt8`..`UInt64`, `Float32`), zero-copy `val.take[StringSpan[origin]]()`, `val.take[List[T]]()`, `val.take[MyStruct]()`, `val.take[OneOf[...]]()`, `val.take[*Ts]()`, and single-payload `__union` types.
+  - **Zero-allocation iteration & streaming**: `eager_items()`, `items_span()`, `eager_keys()`, `keys_span()`, `write_string_to(w)`, and `write_key_to(w)` alongside `items()` and `keys()`.
   - **Exact temporals**: `Date`, `Time` (with exact integer `nanosecond` precision), `Offset`, and `DateTime`.
-  - **First-class containers**: `TomlTable` and `TomlArray`, alongside direct chaining (`doc["server"]["port"][Kind.Integer]`, `doc["users"][0]["name"][Kind.String]`).
+  - **First-class containers**: `TomlTable` and `TomlArray` with O(1) table lookup and O(1) flat array indexing across all modes (`doc["server"]["port"][Kind.Integer]`, `doc["users"][0]["name"][Kind.Str]`).
 - **Zero-Copy File Parsing (`parse_toml_file`)**: Returns an owning `TomlFile[mode]` backed by `MappedFile` (released immediately after materialization in `Mode.Eager`).
 
 ---
@@ -303,18 +304,22 @@ def main() raises:
 | `val.kind()` | `KindTag` | Dynamic tag (`String`, `Integer`, `Float`, `Boolean`, `Date`, `Time`, `DateTime`, `Array`, `Table`, `Missing`) |
 | `val.is_kind[Kind.X]()` | `Bool` | Compile-time parameterized kind check |
 | `val.is_missing()` / `Bool(val)` | `Bool` | Check whether a key/index lookup succeeded |
-| `val[key]` / `val[index]` | `Toml` | O(1) table lookup or array element lookup (O(1) in Eager, O(i) in lazy) |
+| `val[key]` / `val[index]` | `Toml` | O(1) table lookup or O(1) array element lookup |
 | `val.get(key)` / `val.get(index)` | `Optional[Toml]` | Safe lookup returning `None` if absent |
 | `key in val` | `Bool` | Table key membership check |
 | `len(val)` | `Int` | O(1) child count for tables and arrays |
 | `val[Kind.String]` | `String` | Unchecked decoded string (aborts on missing/mismatch) |
+| `val[Kind.Str]` / `val.as_str()` | `StringSpan[origin]` | Zero-copy borrowed UTF-8 span (`as_str()` in `Mode.Eager`; `Kind.Str` on all `Eager` or unescaped/literal lazy strings) |
 | `val[Kind.Integer]` | `Int` | Unchecked `Int` (aborts on missing/mismatch) |
 | `val[Kind.Float]` | `Float64` | Unchecked IEEE-754 `Float64` including `nan`/`inf`/`-inf` |
 | `val[Kind.Boolean]` | `Bool` | Unchecked `Bool` |
 | `val[Kind.Date]` / `Time` / `DateTime` | `Date` / `Time` / `DateTime` | Unchecked temporal value |
 | `val[Kind.Table]` / `val[Kind.Array]` | `TomlTable` / `TomlArray` | Narrow view to typed table or array wrapper |
-| `val.take[T]()` | `T` | Checked extraction / reflection into scalar, temporal, container, `List`, `Optional`, `OneOf`, `__union`, or struct `T` |
+| `val.take[T]()` | `T` | Checked extraction / reflection into scalar, fixed-width int/float, `StringSpan`, temporal, container, `List`, `Optional`, `OneOf`, `__union`, or struct `T` |
 | `val.string_span()` / `val.key_span()` | `Optional[StringSpan]` | Zero-copy borrowed UTF-8 span if contiguous (always available in `Mode.Eager`) |
+| `val.key()` / `val.key_str()` | `String` / `StringSpan` | Decoded node key (`key_str()` zero-copy in `Mode.Eager`) |
+| `val.write_string_to(w)` / `write_key_to(w)` | `None raises` | Stream decoded string or key directly to `Writer` without heap allocation |
+| `val.items_span()` / `val.eager_items()` | Iterator | Zero-allocation table `(key_span, value)` iterators (`items()` / `keys()` also available) |
 | `val.to_json(writer)` | `None raises` | Stream `toml-test` tagged JSON directly to any `Writer` |
 
 > [!NOTE]
@@ -358,26 +363,28 @@ Measured with Mojo `1.3` on Apple Silicon (macOS):
 
 | Corpus | Set | Strict (MB/s) | Trusted (MB/s) | Eager (MB/s) | Parse + `to_json` (MB/s) |
 |---|---|---:|---:|---:|---:|
-| `strings_plain` | Tuned | **2,577 MB/s** | **3,115 MB/s** | **2,278 MB/s** | **1,362 MB/s** |
-| `array_of_tables` | Tuned | **839 MB/s** | **938 MB/s** | **680 MB/s** | **441 MB/s** |
-| `huge_table` | Tuned | **783 MB/s** | **798 MB/s** | **667 MB/s** | **518 MB/s** |
-| `dates` | Tuned | **765 MB/s** | **802 MB/s** | **636 MB/s** | **469 MB/s** |
-| `strings_escaped` | Tuned | **722 MB/s** | **951 MB/s** | **390 MB/s** | **366 MB/s** |
-| `mixed` | Tuned | **678 MB/s** | **747 MB/s** | **484 MB/s** | **345 MB/s** |
-| `ints_floats` | Tuned | **620 MB/s** | **662 MB/s** | **404 MB/s** | **215 MB/s** |
-| `many_tables` | Tuned | **567 MB/s** | **589 MB/s** | **491 MB/s** | **382 MB/s** |
-| `dotted_keys` | Tuned | **479 MB/s** | **496 MB/s** | **422 MB/s** | **395 MB/s** |
-| `inline_nested` | Tuned | **404 MB/s** | **445 MB/s** | **330 MB/s** | **284 MB/s** |
-| `realworld_lock` | Hold-Out | **1,600 MB/s** | **1,828 MB/s** | **1,264 MB/s** | **873 MB/s** |
-| `realworld_config` | Hold-Out | **899 MB/s** | **1,024 MB/s** | **680 MB/s** | **539 MB/s** |
-| `toml_test_concat` | Hold-Out | **667 MB/s** | **778 MB/s** | **465 MB/s** | **440 MB/s** |
+| `strings_plain` | Tuned | **2,457 MB/s** | **3,049 MB/s** | **2,257 MB/s** | **1,136 MB/s** |
+| `array_of_tables` | Tuned | **833 MB/s** | **1,052 MB/s** | **749 MB/s** | **410 MB/s** |
+| `many_tables` | Tuned | **810 MB/s** | **867 MB/s** | **698 MB/s** | **443 MB/s** |
+| `mixed` | Tuned | **760 MB/s** | **797 MB/s** | **570 MB/s** | **375 MB/s** |
+| `huge_table` | Tuned | **759 MB/s** | **801 MB/s** | **683 MB/s** | **442 MB/s** |
+| `dates` | Tuned | **734 MB/s** | **752 MB/s** | **608 MB/s** | **479 MB/s** |
+| `strings_escaped` | Tuned | **694 MB/s** | **889 MB/s** | **403 MB/s** | **313 MB/s** |
+| `ints_floats` | Tuned | **605 MB/s** | **622 MB/s** | **426 MB/s** | **252 MB/s** |
+| `inline_nested` | Tuned | **556 MB/s** | **614 MB/s** | **467 MB/s** | **289 MB/s** |
+| `dotted_keys` | Tuned | **524 MB/s** | **538 MB/s** | **482 MB/s** | **370 MB/s** |
+| `realworld_lock` | Hold-Out | **1,527 MB/s** | **1,752 MB/s** | **1,342 MB/s** | **768 MB/s** |
+| `realworld_config` | Hold-Out | **1,027 MB/s** | **1,178 MB/s** | **791 MB/s** | **580 MB/s** |
+| `toml_test_concat` | Hold-Out | **867 MB/s** | **1,057 MB/s** | **661 MB/s** | **484 MB/s** |
 
 ### Access, Iteration & Reflection (`pixi run bench-generic`)
 
-- **4k-key lookup + integer read** (`doc[k][Kind.Integer]`): **20.75 ns/entry** (Strict) | **14.5 ns/entry** (Eager)
-- **Child iteration + integer read**: **3.75 ns/entry** (Strict) | **2.0 ns/entry** (Eager)
-- **Array index (`arr[i][Kind.Integer]`)**: **0.5 ns/elem** (Eager)
-- **Struct reflection (`parse_toml` + `take[Struct]()`)**: **260 ns/call** (Strict) | **340 ns/call** (Eager)
+- **4k-key lookup + integer read** (`doc[k][Kind.Integer]`): **12.75 ns/entry** (Strict) | **8.5 ns/entry** (Eager)
+- **Child iteration + integer read**: **2.75 ns/entry** (Strict) | **2.0 ns/entry** (Eager)
+- **Array index (`arr[i][Kind.Integer]`)**: **3.0 ns/elem** (Strict) | **0.5 ns/elem** (Eager)
+- **Struct reflection (`parse_toml` + `take[Struct]()`)**: **140 ns/call** (Strict) | **210 ns/call** (Eager)
+
+See [DESIGN.md](DESIGN.md) for architectural details, memory layouts, invariants, and sanitizer verification.
 
 ---
 
