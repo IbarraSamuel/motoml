@@ -17,11 +17,13 @@ __enum KindTag(Equatable, ImplicitlyCopyable, Writable):
 
     @always_inline
     def __eq__[id: Int](self, other: _Kind[id]) -> Bool:
-        return Int(self._get_enum_discriminant()) == id
+        comptime tag_id = 0 if id == 10 else id
+        return Int(self._get_enum_discriminant()) == tag_id
 
     @always_inline
     def __ne__[id: Int](self, other: _Kind[id]) -> Bool:
-        return Int(self._get_enum_discriminant()) != id
+        comptime tag_id = 0 if id == 10 else id
+        return Int(self._get_enum_discriminant()) != tag_id
 
     def write_to(self, mut w: Some[Writer]):
         match self:
@@ -55,11 +57,13 @@ struct _Kind[id: Int](
 
     @always_inline
     def __eq__(self, other: KindTag) -> Bool:
-        return Self.id == Int(other._get_enum_discriminant())
+        comptime tag_id = 0 if Self.id == 10 else Self.id
+        return tag_id == Int(other._get_enum_discriminant())
 
     @always_inline
     def __ne__(self, other: KindTag) -> Bool:
-        return Self.id != Int(other._get_enum_discriminant())
+        comptime tag_id = 0 if Self.id == 10 else Self.id
+        return tag_id != Int(other._get_enum_discriminant())
 
     @always_inline
     def __eq__[other_id: Int](self, other: _Kind[other_id]) -> Bool:
@@ -89,12 +93,15 @@ struct _Kind[id: Int](
                 w.write("Array")
             case 8:
                 w.write("Table")
+            case 10:
+                w.write("Str")
             case _:
                 w.write("Missing")
 
 
 struct Kind:
-    """Public TOML value kinds (`Kind.String`, `Kind.Integer`, etc.)."""
+    """Public TOML value kinds (`Kind.String`, `Kind.Str`, `Kind.Integer`, etc.).
+    """
 
     comptime String = _Kind[0]()
     comptime Integer = _Kind[1]()
@@ -106,3 +113,4 @@ struct Kind:
     comptime Array = _Kind[7]()
     comptime Table = _Kind[8]()
     comptime Missing = _Kind[9]()
+    comptime Str = _Kind[10]()

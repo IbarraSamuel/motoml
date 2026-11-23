@@ -1,8 +1,8 @@
 """TOML 1.1 scalar and string validators and decoders."""
 
 from std.bit import count_trailing_zeros
-from std.collections import Span
-from std.memory import pack_bits
+from std.collections import Array, Span
+from std.memory import Pointer, bitcast, pack_bits, unsafe_memcpy
 from std.utils.numerics import inf, nan
 from ..result import Result, ScalarResult
 from ..types.tempo import (
@@ -21,47 +21,125 @@ from ..types.tempo import (
 )
 from .node import NodeFlags, NodeKind
 
+# 256-entry hex digit lookup table (values 0..15 for hex digits, 16 for non-hex; all < 0x80).
+comptime _HEX_TABLE: StaticString = (
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x10\x10\x10\x10\x10"
+    "\x10\x0a\x0b\x0c\x0d\x0e\x0f\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x0a\x0b\x0c\x0d\x0e\x0f\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+    "\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+)
+
+# 256-entry simple 1-byte TOML 1.1 escape translation table (`\"`, `\\`, `\b`, `\e`, `\f`, `\n`, `\r`, `\t`).
+# Maps valid 1-byte escapes to their non-zero ASCII byte (< 0x80), and all other bytes to 0.
+comptime _ESC_SIMPLE_TABLE: StaticString = (
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x22\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x5c\x00\x00\x00"
+    "\x00\x00\x08\x00\x00\x1b\x0c\x00\x00\x00\x00\x00\x00\x00\x0a\x00"
+    "\x00\x00\x0d\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+)
+
 
 @always_inline
 def _pow10(e: Int) -> Float64:
     """Compute exact `10.0 ** e` in IEEE-754 `Float64` for `0 <= e <= 22`."""
-    var r: Float64 = 1.0
-    if (e & 1) != 0:
-        r *= 1e1
-    if (e & 2) != 0:
-        r *= 1e2
-    if (e & 4) != 0:
-        r *= 1e4
-    if (e & 8) != 0:
-        r *= 1e8
-    if (e & 16) != 0:
-        r *= 1e16
-    return r
+    comptime LO = SIMD[DType.float64, 8](1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7)
+    if e < 8:
+        return LO[e]
+    var hi: Float64 = 1e8 if e < 16 else 1e16
+    return LO[e & 7] * hi
 
 
 @always_inline
 def decode_hex_n[
     validate: Bool
 ](ptr: Pointer[Byte, _], start: Int, count: Int) -> Int64:
-    """Decode `count` hex digits; returns `-1` on invalid hex when `validate=True`.
+    """Decode `count` (2, 4, or 8) hex digits via table lookup; returns `-1` on invalid hex when `validate=True`.
     """
-    var cp: Int64 = 0
-    for j in range(start, start + count):
-        var hb = ptr[unsafe_offset=j]
-        var d: Int64
-        if Byte(ord("0")) <= hb <= Byte(ord("9")):
-            d = Int64(hb - Byte(ord("0")))
-        elif Byte(ord("a")) <= hb <= Byte(ord("f")):
-            d = 10 + Int64(hb - Byte(ord("a")))
-        elif Byte(ord("A")) <= hb <= Byte(ord("F")):
-            d = 10 + Int64(hb - Byte(ord("A")))
-        else:
-            comptime if validate:
+    var hex_ptr = _HEX_TABLE.unsafe_ptr()
+    if count == 2:
+        var d0 = UInt32(hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start])])
+        var d1 = UInt32(
+            hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start + 1])]
+        )
+        comptime if validate:
+            if (d0 | d1) >= 16:
                 return -1
-            else:
-                d = 0
-        cp = (cp << 4) | d
-    return cp
+        return Int64((d0 << 4) | d1)
+    if count == 4:
+        var d0 = UInt32(hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start])])
+        var d1 = UInt32(
+            hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start + 1])]
+        )
+        var d2 = UInt32(
+            hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start + 2])]
+        )
+        var d3 = UInt32(
+            hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=start + 3])]
+        )
+        comptime if validate:
+            if (d0 | d1 | d2 | d3) >= 16:
+                return -1
+        return Int64((d0 << 12) | (d1 << 8) | (d2 << 4) | d3)
+
+    var cp: UInt64 = 0
+    var bad: UInt32 = 0
+    for j in range(start, start + count):
+        var d = UInt32(hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=j])])
+        bad |= d
+        cp = (cp << 4) | UInt64(d & 0x0F)
+    comptime if validate:
+        if bad >= 16:
+            return -1
+    return Int64(cp)
+
+
+@always_inline
+def _encode_utf8_codepoint(
+    cp: UInt32, dst: MutPointer[Byte, _], pos: Int
+) -> Int:
+    """Encode a validated Unicode scalar value (`0..0x10FFFF`) as UTF-8 into `dst + pos`.
+    """
+    if cp < 0x80:
+        dst[unsafe_offset=pos] = Byte(cp)
+        return pos + 1
+    if cp < 0x800:
+        dst[unsafe_offset=pos] = Byte(0xC0 | (cp >> 6))
+        dst[unsafe_offset=pos + 1] = Byte(0x80 | (cp & 0x3F))
+        return pos + 2
+    if cp < 0x10000:
+        dst[unsafe_offset=pos] = Byte(0xE0 | (cp >> 12))
+        dst[unsafe_offset=pos + 1] = Byte(0x80 | ((cp >> 6) & 0x3F))
+        dst[unsafe_offset=pos + 2] = Byte(0x80 | (cp & 0x3F))
+        return pos + 3
+    dst[unsafe_offset=pos] = Byte(0xF0 | (cp >> 18))
+    dst[unsafe_offset=pos + 1] = Byte(0x80 | ((cp >> 12) & 0x3F))
+    dst[unsafe_offset=pos + 2] = Byte(0x80 | ((cp >> 6) & 0x3F))
+    dst[unsafe_offset=pos + 3] = Byte(0x80 | (cp & 0x3F))
+    return pos + 4
 
 
 @always_inline
@@ -76,16 +154,7 @@ def check_escape_at[
     if idx >= end:
         return False
     var esc = ptr[unsafe_offset=idx]
-    if (
-        esc == Byte(ord("b"))
-        or esc == Byte(ord("t"))
-        or esc == Byte(ord("n"))
-        or esc == Byte(ord("f"))
-        or esc == Byte(ord("r"))
-        or esc == Byte(ord("e"))
-        or esc == Byte(ord('"'))
-        or esc == Byte(ord("\\"))
-    ):
+    if _ESC_SIMPLE_TABLE.unsafe_ptr()[unsafe_offset=Int(esc)] != 0:
         return True
     if esc == Byte(ord("x")):
         if idx + 2 >= end:
@@ -295,6 +364,26 @@ def decode_bool(bytes: Span[Byte, _]) -> ScalarResult[Bool]:
 
 
 @always_inline
+def _parse_4d_swar(ptr: ImmPointer[Byte, _], offset: Int) -> UInt64:
+    var v = (
+        bitcast[DType.uint32, 1](ptr.unsafe_load[width=4](offset)) - 0x30303030
+    )
+    v = ((v & 0x00FF00FF) * 10) + ((v >> 8) & 0x00FF00FF)
+    return UInt64(((v & 0x0000FFFF) * 100) + (v >> 16))
+
+
+@always_inline
+def _parse_8d_swar(ptr: ImmPointer[Byte, _], offset: Int) -> UInt64:
+    var v = (
+        bitcast[DType.uint64, 1](ptr.unsafe_load[width=8](offset))
+        - 0x3030303030303030
+    )
+    v = ((v & 0x00FF00FF00FF00FF) * 10) + ((v >> 8) & 0x00FF00FF00FF00FF)
+    v = ((v & 0x0000FFFF0000FFFF) * 100) + ((v >> 16) & 0x0000FFFF0000FFFF)
+    return ((v & 0xFFFFFFFF) * 10000) + (v >> 32)
+
+
+@always_inline
 def decode_int_unchecked(bytes: Span[Byte, _], flags: UInt8 = 0) -> Int:
     """Decode a pre-validated 64-bit signed integer literal."""
     var n = len(bytes)
@@ -304,9 +393,45 @@ def decode_int_unchecked(bytes: Span[Byte, _], flags: UInt8 = 0) -> Int:
     if (flags & NodeFlags.CANONICAL) != 0:
         var is_neg = first == Byte(ord("-"))
         var start = Int(is_neg or first == Byte(ord("+")))
-        var acc: UInt64 = 0
-        for i in range(start, n):
-            acc = acc * 10 + UInt64(ptr[unsafe_offset=i] - Byte(ord("0")))
+        var dlen = n - start
+        var acc: UInt64
+        if dlen <= 4:
+            if dlen == 1:
+                acc = UInt64(ptr[unsafe_offset=start] - Byte(ord("0")))
+            elif dlen == 2:
+                acc = UInt64(
+                    ptr[unsafe_offset=start] - Byte(ord("0"))
+                ) * 10 + UInt64(ptr[unsafe_offset=start + 1] - Byte(ord("0")))
+            elif dlen == 3:
+                acc = (
+                    UInt64(ptr[unsafe_offset=start] - Byte(ord("0"))) * 100
+                    + UInt64(ptr[unsafe_offset=start + 1] - Byte(ord("0"))) * 10
+                    + UInt64(ptr[unsafe_offset=start + 2] - Byte(ord("0")))
+                )
+            else:
+                acc = _parse_4d_swar(ptr, start)
+        elif dlen <= 8:
+            var rem = dlen - 4
+            var hi: UInt64
+            if rem == 1:
+                hi = UInt64(ptr[unsafe_offset=start] - Byte(ord("0")))
+            elif rem == 2:
+                hi = UInt64(
+                    ptr[unsafe_offset=start] - Byte(ord("0"))
+                ) * 10 + UInt64(ptr[unsafe_offset=start + 1] - Byte(ord("0")))
+            elif rem == 3:
+                hi = (
+                    UInt64(ptr[unsafe_offset=start] - Byte(ord("0"))) * 100
+                    + UInt64(ptr[unsafe_offset=start + 1] - Byte(ord("0"))) * 10
+                    + UInt64(ptr[unsafe_offset=start + 2] - Byte(ord("0")))
+                )
+            else:
+                hi = _parse_4d_swar(ptr, start)
+            acc = hi * 10000 + _parse_4d_swar(ptr, start + rem)
+        else:
+            acc = _parse_8d_swar(ptr, start)
+            for i in range(start + 8, n):
+                acc = acc * 10 + UInt64(ptr[unsafe_offset=i] - Byte(ord("0")))
         return -Int(acc) if is_neg else Int(acc)
 
     var start = 0
@@ -319,22 +444,16 @@ def decode_int_unchecked(bytes: Span[Byte, _], flags: UInt8 = 0) -> Int:
 
     if n - start > 2 and ptr[unsafe_offset=start] == Byte(ord("0")):
         var prefix = ptr[unsafe_offset=start + 1]
-        var base: UInt64 = UInt64(16) if prefix == Byte(ord("x")) else (
-            UInt64(8) if prefix == Byte(ord("o")) else UInt64(2)
+        var hex_ptr = _HEX_TABLE.unsafe_ptr()
+        var shift: UInt64 = UInt64(4) if prefix == Byte(ord("x")) else (
+            UInt64(3) if prefix == Byte(ord("o")) else UInt64(1)
         )
         var acc: UInt64 = 0
         for i in range(start + 2, n):
             var b = ptr[unsafe_offset=i]
             if b == Byte(ord("_")):
                 continue
-            var d: UInt64
-            if Byte(ord("0")) <= b <= Byte(ord("9")):
-                d = UInt64(b - Byte(ord("0")))
-            elif Byte(ord("a")) <= b <= Byte(ord("f")):
-                d = 10 + UInt64(b - Byte(ord("a")))
-            else:
-                d = 10 + UInt64(b - Byte(ord("A")))
-            acc = acc * base + d
+            acc = (acc << shift) | UInt64(hex_ptr[unsafe_offset=Int(b)])
         return Int(acc)
 
     var acc: UInt64 = 0
@@ -414,7 +533,7 @@ def decode_int(bytes: Span[Byte, _]) -> ScalarResult[Int]:
                 return ScalarResult[Int](0, False)
             acc = acc * 10 + d
     else:
-        # Signed non-decimal integers are rejected above (`has_sign`), so limit is I64_MAX.
+        var hex_ptr = _HEX_TABLE.unsafe_ptr()
         var cutoff: UInt64 = UInt64(0x07FFFFFFFFFFFFFF) if base == 16 else (
             UInt64(0x0FFFFFFFFFFFFFFF) if base
             == 8 else UInt64(0x3FFFFFFFFFFFFFFF)
@@ -427,38 +546,16 @@ def decode_int(bytes: Span[Byte, _]) -> ScalarResult[Int]:
             if b == Byte(ord("_")):
                 if i == start or i + 1 >= n:
                     return ScalarResult[Int](0, False)
-                var prev_b = ptr[unsafe_offset=i - 1]
-                var next_b = ptr[unsafe_offset=i + 1]
-                var prev_valid = (
-                    Byte(ord("0")) <= prev_b <= Byte(ord("9"))
-                ) or (
-                    base == 16
-                    and (
-                        (Byte(ord("a")) <= prev_b <= Byte(ord("f")))
-                        or (Byte(ord("A")) <= prev_b <= Byte(ord("F")))
-                    )
+                var prev_d = UInt64(
+                    hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=i - 1])]
                 )
-                var next_valid = (
-                    Byte(ord("0")) <= next_b <= Byte(ord("9"))
-                ) or (
-                    base == 16
-                    and (
-                        (Byte(ord("a")) <= next_b <= Byte(ord("f")))
-                        or (Byte(ord("A")) <= next_b <= Byte(ord("F")))
-                    )
+                var next_d = UInt64(
+                    hex_ptr[unsafe_offset=Int(ptr[unsafe_offset=i + 1])]
                 )
-                if not prev_valid or not next_valid:
+                if prev_d >= base or next_d >= base:
                     return ScalarResult[Int](0, False)
                 continue
-            var d: UInt64
-            if Byte(ord("0")) <= b <= Byte(ord("9")):
-                d = UInt64(b - Byte(ord("0")))
-            elif Byte(ord("a")) <= b <= Byte(ord("f")):
-                d = 10 + UInt64(b - Byte(ord("a")))
-            elif Byte(ord("A")) <= b <= Byte(ord("F")):
-                d = 10 + UInt64(b - Byte(ord("A")))
-            else:
-                return ScalarResult[Int](0, False)
+            var d = UInt64(hex_ptr[unsafe_offset=Int(b)])
             if d >= base:
                 return ScalarResult[Int](0, False)
             if acc > cutoff or (acc == cutoff and d > cutlim):
@@ -518,16 +615,17 @@ def decode_float_unchecked(bytes: Span[Byte, _], flags: UInt8 = 0) -> Float64:
         var start = Int(is_neg or first == Byte(ord("+")))
         if n - start <= 16:
             var acc: UInt64 = 0
-            var frac_len = 0
-            var seen_dot = False
-            for i in range(start, n):
+            var i = start
+            while i < n:
                 var b = ptr[unsafe_offset=i]
                 if b == Byte(ord(".")):
-                    seen_dot = True
-                else:
-                    acc = acc * 10 + UInt64(b - Byte(ord("0")))
-                    if seen_dot:
-                        frac_len += 1
+                    break
+                acc = acc * 10 + UInt64(b - Byte(ord("0")))
+                i += 1
+            var frac_start = i + 1
+            var frac_len = n - frac_start
+            for j in range(frac_start, n):
+                acc = acc * 10 + UInt64(ptr[unsafe_offset=j] - Byte(ord("0")))
             var val = Float64(acc) / _pow10(frac_len)
             return -val if is_neg else val
 
@@ -545,7 +643,6 @@ def decode_float_unchecked(bytes: Span[Byte, _], flags: UInt8 = 0) -> Float64:
     ):
         return _atof_fallback(bytes, False)
 
-    # General Clinger fast path for scientific / underscored floats (<= 15 digits & |exp| <= 22)
     var is_neg = first == Byte(ord("-"))
     var start = Int(is_neg or first == Byte(ord("+")))
     var acc: UInt64 = 0
@@ -617,27 +714,30 @@ def decode_float(bytes: Span[Byte, _]) -> ScalarResult[Float64]:
     return ScalarResult[Float64](decode_float_unchecked(bytes, 0), True)
 
 
-# --- String unescaping (single unified implementation for checked & unchecked) ---
+# --- Direct-buffer & Writer string unescaping ---
 
 
-def _decode_string_to_writer_impl[
-    validate: Bool, W: Writer
+def _decode_string_to_buf_impl[
+    validate: Bool
 ](
     bytes: Span[Byte, _],
     flags: UInt8,
-    mut writer: W,
+    dst: MutPointer[Byte, _],
     mut err_msg: StaticString,
-) -> Bool:
-    """Unescape a TOML 1.1 string literal directly into `writer` using 16-byte SIMD scan.
+) -> Int:
+    """Unescape a TOML 1.1 string directly into `dst` (capacity >= `len(bytes)`), returning written byte length or `-1`.
     """
-    if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
-        writer.write(StringSpan(unsafe_from_utf8=bytes))
-        return True
-
-    var is_multiline = (flags & NodeFlags.MULTILINE) != 0
-    var i = 0
     var n = len(bytes)
     var ptr = bytes.unsafe_ptr()
+    if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
+        if n > 0:
+            unsafe_memcpy(dest=dst, src=ptr, count=n)
+        return n
+
+    var is_multiline = (flags & NodeFlags.MULTILINE) != 0
+    var esc_tbl = _ESC_SIMPLE_TABLE.unsafe_ptr()
+    var i = 0
+    var out_pos = 0
     comptime W_SIMD = 16
 
     while i < n:
@@ -652,8 +752,14 @@ def _decode_string_to_writer_impl[
             break
         while i < n and ptr[unsafe_offset=i] != Byte(ord("\\")):
             i += 1
-        if i > chunk_start:
-            writer.write(StringSpan(unsafe_from_utf8=bytes[chunk_start:i]))
+        var copy_len = i - chunk_start
+        if copy_len > 0:
+            unsafe_memcpy(
+                dest=dst.unsafe_offset(out_pos),
+                src=ptr.unsafe_offset(chunk_start),
+                count=copy_len,
+            )
+            out_pos += copy_len
         if i >= n:
             break
 
@@ -661,63 +767,44 @@ def _decode_string_to_writer_impl[
         comptime if validate:
             if i >= n:
                 err_msg = "Incomplete escape sequence."
-                return False
+                return -1
 
         var esc = ptr[unsafe_offset=i]
-        if esc == Byte(ord("b")):
-            writer.write("\b")
-            i += 1
-        elif esc == Byte(ord("t")):
-            writer.write("\t")
-            i += 1
-        elif esc == Byte(ord("n")):
-            writer.write("\n")
-            i += 1
-        elif esc == Byte(ord("f")):
-            writer.write("\x0c")
-            i += 1
-        elif esc == Byte(ord("r")):
-            writer.write("\r")
-            i += 1
-        elif esc == Byte(ord("e")):
-            writer.write("\x1b")
-            i += 1
-        elif esc == Byte(ord('"')):
-            writer.write('"')
-            i += 1
-        elif esc == Byte(ord("\\")):
-            writer.write("\\")
+        var simple = esc_tbl[unsafe_offset=Int(esc)]
+        if simple != 0:
+            dst[unsafe_offset=out_pos] = simple
+            out_pos += 1
             i += 1
         elif esc == Byte(ord("x")):
             comptime if validate:
                 if i + 2 >= n:
                     err_msg = "Hex escape has too few digits."
-                    return False
+                    return -1
             var cp = decode_hex_n[validate](ptr, i + 1, 2)
             comptime if validate:
                 if cp < 0:
                     err_msg = "Invalid hex digit in hex escape."
-                    return False
+                    return -1
             i += 3
-            writer.write(Codepoint(unsafe_unchecked_codepoint=UInt32(cp)))
+            out_pos = _encode_utf8_codepoint(UInt32(cp), dst, out_pos)
         elif esc == Byte(ord("u")) or esc == Byte(ord("U")):
             var hex_len = 4 if esc == Byte(ord("u")) else 8
             comptime if validate:
                 if i + hex_len >= n:
                     err_msg = "Unicode escape has too few hex digits."
-                    return False
+                    return -1
             var cp = decode_hex_n[validate](ptr, i + 1, hex_len)
             comptime if validate:
                 if cp < 0:
                     err_msg = "Invalid hex digit in unicode escape."
-                    return False
+                    return -1
                 if (cp >= 0xD800 and cp <= 0xDFFF) or cp > 0x10FFFF:
                     err_msg = (
                         "Unicode escape is not a valid Unicode scalar value."
                     )
-                    return False
+                    return -1
             i += 1 + hex_len
-            writer.write(Codepoint(unsafe_unchecked_codepoint=UInt32(cp)))
+            out_pos = _encode_utf8_codepoint(UInt32(cp), dst, out_pos)
         elif is_multiline and (
             esc == Byte(ord("\n"))
             or esc == Byte(ord("\r"))
@@ -731,7 +818,7 @@ def _decode_string_to_writer_impl[
                         ord("\n")
                     ):
                         err_msg = "Bare CR in line-trimming backslash."
-                        return False
+                        return -1
             while i < n:
                 var wb = ptr[unsafe_offset=i]
                 if wb == Byte(ord(" ")) or wb == Byte(ord("\t")):
@@ -742,7 +829,7 @@ def _decode_string_to_writer_impl[
                             ord("\n")
                         ):
                             err_msg = "Bare CR in line-trimming backslash."
-                            return False
+                            return -1
                     has_nl = True
                     i += 2
                 elif wb == Byte(ord("\n")):
@@ -755,32 +842,87 @@ def _decode_string_to_writer_impl[
                     err_msg = (
                         "Line-trimming backslash must be followed by a newline."
                     )
-                    return False
+                    return -1
         else:
             comptime if validate:
                 err_msg = "Unknown escape sequence in string."
-                return False
+                return -1
 
-    return True
+    return out_pos
+
+
+@always_inline
+def decode_string_to_buf_unchecked(
+    bytes: Span[Byte, _], flags: UInt8, dst: MutPointer[Byte, _]
+) -> Int:
+    """Unescape a pre-validated string literal directly into `dst`, returning decoded byte count.
+    """
+    var err_msg: StaticString = ""
+    return _decode_string_to_buf_impl[False](bytes, flags, dst, err_msg)
 
 
 @always_inline
 def decode_string_to_writer_unchecked[
     W: Writer
 ](bytes: Span[Byte, _], flags: UInt8, mut writer: W):
-    """Unescape a pre-validated string literal directly into `writer`."""
-    var err_msg: StaticString = ""
-    _ = _decode_string_to_writer_impl[False](bytes, flags, writer, err_msg)
+    """Unescape a pre-validated string literal into `writer` (stack-buffered for `<= 512` bytes).
+    """
+    if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
+        writer.write(StringSpan(unsafe_from_utf8=bytes))
+        return
+    var n = len(bytes)
+    if n <= 512:
+        var sbuf = Array[Byte, 512](uninitialized=True)
+        var err_msg: StaticString = ""
+        var written = _decode_string_to_buf_impl[False](
+            bytes, flags, sbuf.unsafe_ptr(), err_msg
+        )
+        writer.write(
+            StringSpan(
+                unsafe_from_utf8=Span(
+                    unsafe_ptr=sbuf.unsafe_ptr(), length=written
+                )
+            )
+        )
+        return
+    var s = decode_string_unchecked(bytes, flags)
+    writer.write(s)
 
 
 @always_inline
 def decode_string_to_writer[
     W: Writer
 ](bytes: Span[Byte, _], flags: UInt8, mut writer: W) -> Result[NoneType]:
-    """Validate and unescape a string literal directly into `writer`."""
+    """Validate and unescape a string literal into `writer` (stack-buffered for `<= 512` bytes).
+    """
+    if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
+        writer.write(StringSpan(unsafe_from_utf8=bytes))
+        return .Ok(None)
+    var n = len(bytes)
+    if n <= 512:
+        var sbuf = Array[Byte, 512](uninitialized=True)
+        var err_msg: StaticString = ""
+        var written = _decode_string_to_buf_impl[True](
+            bytes, flags, sbuf.unsafe_ptr(), err_msg
+        )
+        if written < 0:
+            return .Err(Error(err_msg))
+        writer.write(
+            StringSpan(
+                unsafe_from_utf8=Span(
+                    unsafe_ptr=sbuf.unsafe_ptr(), length=written
+                )
+            )
+        )
+        return .Ok(None)
+    var s = String(capacity_bytes=n)
+    var dst = s.unsafe_ptr_mut(n)
     var err_msg: StaticString = ""
-    if not _decode_string_to_writer_impl[True](bytes, flags, writer, err_msg):
+    var written = _decode_string_to_buf_impl[True](bytes, flags, dst, err_msg)
+    if written < 0:
         return .Err(Error(err_msg))
+    s.resize(unsafe_uninit_length=written)
+    writer.write(s)
     return .Ok(None)
 
 
@@ -790,8 +932,12 @@ def decode_string_unchecked(bytes: Span[Byte, _], flags: UInt8) -> String:
     """
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
         return String(StringSpan(unsafe_from_utf8=bytes))
-    var s = String(capacity_bytes=len(bytes))
-    decode_string_to_writer_unchecked(bytes, flags, s)
+    var n = len(bytes)
+    var s = String(capacity_bytes=n)
+    var dst = s.unsafe_ptr_mut(n)
+    var err_msg: StaticString = ""
+    var written = _decode_string_to_buf_impl[False](bytes, flags, dst, err_msg)
+    s.resize(unsafe_uninit_length=written)
     return s^
 
 
@@ -799,8 +945,12 @@ def decode_string(bytes: Span[Byte, _], flags: UInt8) -> Result[String]:
     """Validate and decode a string literal into an owned `String`."""
     if (flags & NodeFlags.LITERAL) != 0 or (flags & NodeFlags.HAS_ESCAPE) == 0:
         return .Ok(String(StringSpan(unsafe_from_utf8=bytes)))
-    var s = String(capacity_bytes=len(bytes))
+    var n = len(bytes)
+    var s = String(capacity_bytes=n)
+    var dst = s.unsafe_ptr_mut(n)
     var err_msg: StaticString = ""
-    if not _decode_string_to_writer_impl[True](bytes, flags, s, err_msg):
+    var written = _decode_string_to_buf_impl[True](bytes, flags, dst, err_msg)
+    if written < 0:
         return .Err(Error(err_msg))
+    s.resize(unsafe_uninit_length=written)
     return .Ok(s^)

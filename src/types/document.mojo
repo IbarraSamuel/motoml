@@ -1,4 +1,4 @@
-"""Owning `TomlDocument` handle and `Mode.Eager` materialization."""
+"""Owning `TomlDocument` handle and single-pass in-place `Mode.Eager` materializer."""
 
 from std.builtin.variadics import TypeList, _MLIR
 from std.collections import List, Span
@@ -12,15 +12,24 @@ from ..tape.decode import (
     decode_datetime_unchecked,
     decode_float_unchecked,
     decode_int_unchecked,
-    decode_string_to_writer_unchecked,
+    decode_string_to_buf_unchecked,
     decode_time_unchecked,
 )
 from ..tape.key_index import KEY_ESCAPE_BIT
 from ..tape.node import NO_NODE, Node, NodeFlags, NodeKind
 from ..tape.reader import _ParsedTape
-from .store import _ArenaWriter, _Store
+from .store import _Store
 from .tempo import Date, DateTime, Offset
-from .view import Toml, TomlItemIter, TomlIter, TomlKeyIter
+from .view import (
+    Toml,
+    TomlItemIter,
+    TomlIter,
+    TomlKeyIter,
+    TomlSpanItemIter,
+    TomlSpanKeyIter,
+    TomlStrItemIter,
+    TomlStrKeyIter,
+)
 
 
 struct TomlDocument[
@@ -67,7 +76,7 @@ struct TomlDocument[
             ]()
         return Toml[ImmOrigin(origin_of(self)), Self.mode](
             doc_p,
-            Pointer(to=self.nodes[0])
+            self.nodes.unsafe_ptr()
             .unsafe_mut_cast[False]()
             .unsafe_origin_cast[ImmOrigin(origin_of(self))](),
             Pointer(to=self.store)
@@ -94,7 +103,9 @@ struct TomlDocument[
 
     @always_inline
     def __len__(self) -> Int:
-        return Int(self.nodes[Int(self.root_idx)].len)
+        return Int(
+            self.nodes.unsafe_ptr()[unsafe_offset=Int(self.root_idx)].len
+        )
 
     @always_inline
     def __iter__(ref self) -> TomlIter[ImmOrigin(origin_of(self)), Self.mode]:
@@ -105,8 +116,36 @@ struct TomlDocument[
         return self.root().items()
 
     @always_inline
+    def items_span(
+        ref self,
+    ) -> TomlSpanItemIter[ImmOrigin(origin_of(self)), Self.mode]:
+        return self.root().items_span()
+
+    @always_inline
+    def eager_items(
+        ref self,
+    ) -> TomlStrItemIter[ImmOrigin(origin_of(self))] where (
+        Self.mode == Mode.Eager
+    ):
+        return self.root().eager_items()
+
+    @always_inline
     def keys(ref self) -> TomlKeyIter[ImmOrigin(origin_of(self)), Self.mode]:
         return self.root().keys()
+
+    @always_inline
+    def keys_span(
+        ref self,
+    ) -> TomlSpanKeyIter[ImmOrigin(origin_of(self)), Self.mode]:
+        return self.root().keys_span()
+
+    @always_inline
+    def eager_keys(
+        ref self,
+    ) -> TomlStrKeyIter[ImmOrigin(origin_of(self))] where (
+        Self.mode == Mode.Eager
+    ):
+        return self.root().eager_keys()
 
     @always_inline
     def take[T: Movable & Deinitable](ref self) raises -> T:
@@ -137,65 +176,46 @@ struct TomlDocument[
 def _materialize(
     data: Span[Byte, _], var tape: _ParsedTape
 ) -> TomlDocument[Mode.Eager, ImmUntrackedOrigin]:
-    """Convert a Strict-validated tape into an owned, pre-decoded `Mode.Eager` document.
+    """Single-pass in-place materializer converting a Strict-validated tape into `Mode.Eager`.
 
     Invariant: every TOML 1.1 escape sequence decodes to strictly fewer UTF-8
-    bytes than its raw representation, so reserving `src_len + sum(escaped_len)`
-    guarantees the arena never reallocates during decoding.
+    bytes than its raw representation, and every node's key/string span is a
+    disjoint slice of `data`, so escaped strings and keys decode directly into
+    their own disjoint spans within `arena[0..src_len]` with zero extra memory
+    and no pre-scan pass.
     """
-    var nodes, key_index = tape^.into_parts()
+    var nodes, key_index, array_slots = tape^.into_parts()
     var n_nodes = len(nodes)
     var n_ptr = nodes.unsafe_ptr()
     var src_len = len(data)
 
-    var extra_bytes = 0
-    var array_slot_count = 0
-    var temporal_count = 0
-    for i in range(n_nodes):
-        ref node = n_ptr[unsafe_offset=i]
-        if (node.key_flags & NodeFlags.HAS_ESCAPE) != 0:
-            extra_bytes += Int(node.key_len)
-        if node.kind == NodeKind.String:
-            if (node.flags & NodeFlags.HAS_ESCAPE) != 0 and (
-                node.flags & NodeFlags.LITERAL
-            ) == 0:
-                extra_bytes += Int(node.len)
-        elif node.kind == NodeKind.Array:
-            array_slot_count += Int(node.len)
-        elif node.kind == NodeKind.Time or node.kind == NodeKind.DateTime:
-            temporal_count += 1
-
-    var total_cap = src_len + extra_bytes
-    var arena = List[Byte](capacity=total_cap)
-    if total_cap > 0:
-        arena.resize(unsafe_uninit_length=total_cap)
+    var arena = List[Byte](capacity=src_len)
     if src_len > 0:
+        arena.resize(unsafe_uninit_length=src_len)
         unsafe_memcpy(
             dest=arena.unsafe_ptr(), src=data.unsafe_ptr(), count=src_len
         )
 
-    var array_slots = List[UInt32](capacity=array_slot_count)
-    var temporals = List[DateTime](capacity=temporal_count)
-
+    var temporals = List[DateTime]()
     var src_ptr = data.unsafe_ptr()
     var arena_ptr = arena.unsafe_ptr()
-    var write_pos = src_len
     var any_escaped_key = False
 
     for i in range(n_nodes):
         ref node = n_ptr[unsafe_offset=i]
 
         if (node.key_flags & NodeFlags.HAS_ESCAPE) != 0:
+            var k_off = Int(node.key_start)
             var k_raw = Span[Byte, data.origin](
-                unsafe_ptr=src_ptr.unsafe_offset(Int(node.key_start)),
+                unsafe_ptr=src_ptr.unsafe_offset(k_off),
                 length=Int(node.key_len),
             )
-            var kw = _ArenaWriter(arena_ptr.unsafe_offset(write_pos))
-            decode_string_to_writer_unchecked(k_raw, node.key_flags, kw)
-            node.key_start = UInt32(write_pos)
-            node.key_len = UInt32(kw.pos)
+            var kw_len = decode_string_to_buf_unchecked(
+                k_raw, node.key_flags, arena_ptr.unsafe_offset(k_off)
+            )
+            node.key_len = UInt32(kw_len)
+            node.key_tag = arena_ptr[unsafe_offset=k_off] if kw_len > 0 else 0
             node.key_flags = 0
-            write_pos += kw.pos
             any_escaped_key = True
 
         match node.kind:
@@ -203,15 +223,15 @@ def _materialize(
                 if (node.flags & NodeFlags.HAS_ESCAPE) != 0 and (
                     node.flags & NodeFlags.LITERAL
                 ) == 0:
+                    var s_off = Int(node.start)
                     var s_raw = Span[Byte, data.origin](
-                        unsafe_ptr=src_ptr.unsafe_offset(Int(node.start)),
+                        unsafe_ptr=src_ptr.unsafe_offset(s_off),
                         length=Int(node.len),
                     )
-                    var sw = _ArenaWriter(arena_ptr.unsafe_offset(write_pos))
-                    decode_string_to_writer_unchecked(s_raw, node.flags, sw)
-                    node.start = UInt32(write_pos)
-                    node.len = UInt32(sw.pos)
-                    write_pos += sw.pos
+                    var sw_len = decode_string_to_buf_unchecked(
+                        s_raw, node.flags, arena_ptr.unsafe_offset(s_off)
+                    )
+                    node.len = UInt32(sw_len)
                 node.flags = 0
             case .Integer:
                 var raw_b = Span[Byte, data.origin](
@@ -238,13 +258,9 @@ def _materialize(
                 node.start = UInt32(u & 0xFFFFFFFF)
                 node.len = UInt32(u >> 32)
             case .Boolean:
-                var raw_b = Span[Byte, data.origin](
-                    unsafe_ptr=src_ptr.unsafe_offset(Int(node.start)),
-                    length=Int(node.len),
-                )
-                node.start = UInt32(1) if decode_bool_unchecked(
-                    raw_b
-                ) else UInt32(0)
+                node.start = UInt32(1) if src_ptr[
+                    unsafe_offset=Int(node.start)
+                ] == Byte(ord("t")) else UInt32(0)
             case .Date:
                 var raw_b = Span[Byte, data.origin](
                     unsafe_ptr=src_ptr.unsafe_offset(Int(node.start)),
@@ -280,17 +296,18 @@ def _materialize(
                 temporals.append(decode_datetime_unchecked(raw_b))
                 node.start = idx
             case .Array:
-                var slot_start = UInt32(len(array_slots))
-                var curr = node.first_child
-                while curr != NO_NODE:
-                    array_slots.append(curr)
-                    curr = n_ptr[unsafe_offset=Int(curr)].next_sibling
-                node.start = slot_start
+                if (node.flags & NodeFlags.CONTIGUOUS) == 0 and (
+                    node.flags & NodeFlags.SLOTTED
+                ) == 0:
+                    var slot_start = UInt32(len(array_slots))
+                    var curr = node.first_child
+                    while curr != NO_NODE:
+                        array_slots.append(curr)
+                        curr = n_ptr[unsafe_offset=Int(curr)].next_sibling
+                    node.start = slot_start
+                    node.flags |= NodeFlags.SLOTTED
             case .Empty | .Table:
                 pass
-
-    if write_pos != total_cap:
-        arena.resize(unsafe_uninit_length=write_pos)
 
     if any_escaped_key:
         var slots_ptr = key_index.slots.unsafe_ptr()

@@ -20,10 +20,14 @@ struct _Store(Movable):
     var temporals: List[DateTime]
 
     @always_inline
-    def __init__(out self, var key_index: KeyIndex):
+    def __init__(
+        out self,
+        var key_index: KeyIndex,
+        var array_slots: List[UInt32] = List[UInt32](),
+    ):
         self.key_index = key_index^
         self.arena = List[Byte]()
-        self.array_slots = List[UInt32]()
+        self.array_slots = array_slots^
         self.temporals = List[DateTime]()
 
     @always_inline

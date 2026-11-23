@@ -18,7 +18,16 @@ from .result import Result
 from .tape.reader import _parse_tape
 from .types.document import TomlDocument, _materialize
 from .types.store import _Store
-from .types.view import Toml, TomlItemIter, TomlIter, TomlKeyIter
+from .types.view import (
+    Toml,
+    TomlItemIter,
+    TomlIter,
+    TomlKeyIter,
+    TomlSpanItemIter,
+    TomlSpanKeyIter,
+    TomlStrItemIter,
+    TomlStrKeyIter,
+)
 
 
 struct TomlFile[mode: Mode = Mode.Strict](Movable, Sized, Writable):
@@ -79,8 +88,36 @@ struct TomlFile[mode: Mode = Mode.Strict](Movable, Sized, Writable):
         return self.root().items()
 
     @always_inline
+    def items_span(
+        ref self,
+    ) -> TomlSpanItemIter[ImmOrigin(origin_of(self)), Self.mode]:
+        return self.root().items_span()
+
+    @always_inline
+    def eager_items(
+        ref self,
+    ) -> TomlStrItemIter[ImmOrigin(origin_of(self))] where (
+        Self.mode == Mode.Eager
+    ):
+        return self.root().eager_items()
+
+    @always_inline
     def keys(ref self) -> TomlKeyIter[ImmOrigin(origin_of(self)), Self.mode]:
         return self.root().keys()
+
+    @always_inline
+    def keys_span(
+        ref self,
+    ) -> TomlSpanKeyIter[ImmOrigin(origin_of(self)), Self.mode]:
+        return self.root().keys_span()
+
+    @always_inline
+    def eager_keys(
+        ref self,
+    ) -> TomlStrKeyIter[ImmOrigin(origin_of(self))] where (
+        Self.mode == Mode.Eager
+    ):
+        return self.root().eager_keys()
 
     @always_inline
     def take[T: Movable & Deinitable](ref self) raises -> T:
@@ -122,9 +159,13 @@ def try_parse_toml[
     var tape_res = _parse_tape[strict](bytes)
     if case .Err(_) = tape_res:
         return .Err(tape_res^.unsafe_take_error())
-    var nodes, key_index = tape_res^.unsafe_take_value().into_parts()
+    var nodes, key_index, array_slots = (
+        tape_res^.unsafe_take_value().into_parts()
+    )
     return .Ok(
-        TomlDocument[mode, data.origin](bytes, nodes^, _Store(key_index^), 0)
+        TomlDocument[mode, data.origin](
+            bytes, nodes^, _Store(key_index^, array_slots^), 0
+        )
     )
 
 
@@ -132,9 +173,9 @@ def try_parse_toml[
     mode: Mode,
 ](
     data: StringSpan,
-) -> Result[TomlDocument[Mode.Eager, ImmUntrackedOrigin]] where (
-    mode == Mode.Eager
-):
+) -> Result[
+    TomlDocument[Mode.Eager, ImmUntrackedOrigin]
+] where (mode == Mode.Eager):
     """Parse TOML text with `Strict` validation and materialize an owned `Mode.Eager` document.
     """
     var bytes = data.as_bytes()
@@ -165,9 +206,9 @@ def parse_toml[
     mode: Mode,
 ](
     data: StringSpan,
-) raises -> TomlDocument[Mode.Eager, ImmUntrackedOrigin] where (
-    mode == Mode.Eager
-):
+) raises -> TomlDocument[
+    Mode.Eager, ImmUntrackedOrigin
+] where (mode == Mode.Eager):
     """Parse TOML text strictly and materialize an owned `Mode.Eager` document, raising on error.
     """
     return try_parse_toml[Mode.Eager](data).take()
@@ -194,7 +235,9 @@ def parse_toml_file[
         var res = _parse_tape[strict](raw_bytes)
         if case .Err(_) = res:
             raise res^.unsafe_take_error()
-        var nodes, key_index = res^.unsafe_take_value().into_parts()
+        var nodes, key_index, array_slots = (
+            res^.unsafe_take_value().into_parts()
+        )
         var untracked_bytes = Span[Byte, ImmUntrackedOrigin](
             unsafe_ptr=raw_bytes.unsafe_ptr()
             .unsafe_mut_cast[False]()
@@ -202,7 +245,7 @@ def parse_toml_file[
             length=len(raw_bytes),
         )
         var doc = TomlDocument[mode, ImmUntrackedOrigin](
-            untracked_bytes, nodes^, _Store(key_index^), 0
+            untracked_bytes, nodes^, _Store(key_index^, array_slots^), 0
         )
         return TomlFile[mode](doc^, Optional(mapped_file^))
 

@@ -1,8 +1,102 @@
 """RFC 3339 / TOML 1.1 temporal types (`Date`, `Time`, `Offset`, `DateTime`)
-and their zero-allocation validators and decoders."""
+and their zero-allocation validators, decoders, and formatters."""
 
-from std.collections import Span
+from std.collections import Array, Span
 from ..result import ScalarResult
+
+comptime _DIGIT_PAIRS: StaticString = (
+    "0001020304050607080910111213141516171819"
+    "2021222324252627282930313233343536373839"
+    "4041424344454647484950515253545556575859"
+    "6061626364656667686970717273747576777879"
+    "8081828384858687888990919293949596979899"
+)
+
+
+@always_inline
+def _put_2d(v: Int, dst: MutPointer[Byte, _], offset: Int):
+    var dp = _DIGIT_PAIRS.unsafe_ptr().unsafe_offset(v * 2)
+    dst[unsafe_offset=offset] = dp[unsafe_offset=0]
+    dst[unsafe_offset=offset + 1] = dp[unsafe_offset=1]
+
+
+@always_inline
+def _put_4d(v: Int, dst: MutPointer[Byte, _], offset: Int):
+    var hi = v // 100
+    var lo = v - hi * 100
+    _put_2d(hi, dst, offset)
+    _put_2d(lo, dst, offset + 2)
+
+
+@always_inline
+def _format_date_buf(d: Date, dst: MutPointer[Byte, _], offset: Int) -> Int:
+    _put_4d(d.year, dst, offset)
+    dst[unsafe_offset=offset + 4] = Byte(ord("-"))
+    _put_2d(d.month, dst, offset + 5)
+    dst[unsafe_offset=offset + 7] = Byte(ord("-"))
+    _put_2d(d.day, dst, offset + 8)
+    return offset + 10
+
+
+@always_inline
+def _format_time_buf(t: Time, dst: MutPointer[Byte, _], offset: Int) -> Int:
+    _put_2d(t.hour, dst, offset)
+    dst[unsafe_offset=offset + 2] = Byte(ord(":"))
+    _put_2d(t.minute, dst, offset + 3)
+    dst[unsafe_offset=offset + 5] = Byte(ord(":"))
+    _put_2d(t.second, dst, offset + 6)
+    var pos = offset + 8
+    if t.nanosecond > 0:
+        dst[unsafe_offset=pos] = Byte(ord("."))
+        pos += 1
+        var ns = t.nanosecond
+        # Write 9 fractional digits then strip trailing '0's
+        var d89 = ns % 100
+        ns //= 100
+        var d67 = ns % 100
+        ns //= 100
+        var d45 = ns % 100
+        ns //= 100
+        var d23 = ns % 100
+        var d1 = ns // 100
+        dst[unsafe_offset=pos] = Byte(ord("0") + d1)
+        _put_2d(d23, dst, pos + 1)
+        _put_2d(d45, dst, pos + 3)
+        _put_2d(d67, dst, pos + 5)
+        _put_2d(d89, dst, pos + 7)
+        var end = pos + 9
+        while end > pos + 1 and dst[unsafe_offset=end - 1] == Byte(ord("0")):
+            end -= 1
+        pos = end
+    return pos
+
+
+@always_inline
+def _format_offset_buf(
+    off: Offset, dst: MutPointer[Byte, _], offset: Int
+) -> Int:
+    if off == Offset.utc:
+        dst[unsafe_offset=offset] = Byte(ord("Z"))
+        return offset + 1
+    dst[unsafe_offset=offset] = Byte(ord("+")) if off.positive else Byte(
+        ord("-")
+    )
+    _put_2d(off.hour, dst, offset + 1)
+    dst[unsafe_offset=offset + 3] = Byte(ord(":"))
+    _put_2d(off.minute, dst, offset + 4)
+    return offset + 6
+
+
+@always_inline
+def _format_datetime_buf(
+    dt: DateTime, dst: MutPointer[Byte, _], offset: Int
+) -> Int:
+    var pos = _format_date_buf(dt.date, dst, offset)
+    dst[unsafe_offset=pos] = Byte(ord("T"))
+    pos = _format_time_buf(dt.time, dst, pos + 1)
+    if not dt.is_local:
+        pos = _format_offset_buf(dt.offset, dst, pos)
+    return pos
 
 
 @always_inline
@@ -52,37 +146,6 @@ def _parse_4digits(ptr: Pointer[Byte, _], offset: Int) -> Int:
         + Int(b2 - Byte(ord("0"))) * 10
         + Int(b3 - Byte(ord("0")))
     )
-
-
-@always_inline
-def _write_2d(v: Int, mut w: Some[Writer]):
-    if v < 10:
-        w.write("0")
-    w.write(v)
-
-
-@always_inline
-def _write_4d(v: Int, mut w: Some[Writer]):
-    if v < 10:
-        w.write("000")
-    elif v < 100:
-        w.write("00")
-    elif v < 1000:
-        w.write("0")
-    w.write(v)
-
-
-@always_inline
-def _write_padded(v: Int, width: Int, mut w: Some[Writer]):
-    """Write non-negative integer `v` zero-padded to exactly `width` decimal digits.
-    """
-    var div = 1
-    for _ in range(1, width):
-        div *= 10
-    while div > 1 and v < div:
-        w.write("0")
-        div //= 10
-    w.write(v)
 
 
 @always_inline
@@ -303,11 +366,13 @@ struct Date(Equatable, TrivialRegisterPassable, Writable):
         return res._val
 
     def write_to(self, mut w: Some[Writer]):
-        _write_4d(self.year, w)
-        w.write("-")
-        _write_2d(self.month, w)
-        w.write("-")
-        _write_2d(self.day, w)
+        var buf = Array[Byte, 16](uninitialized=True)
+        var n = _format_date_buf(self, buf.unsafe_ptr(), 0)
+        w.write_string(
+            StringSpan(
+                unsafe_from_utf8=Span(unsafe_ptr=buf.unsafe_ptr(), length=n)
+            )
+        )
 
 
 struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
@@ -358,13 +423,13 @@ struct Offset(Defaultable, Equatable, TrivialRegisterPassable, Writable):
         return Offset(hour=hour, minute=minute, positive=positive)
 
     def write_to(self, mut w: Some[Writer]):
-        if self == Offset.utc:
-            w.write("Z")
-            return
-        w.write("+" if self.positive else "-")
-        _write_2d(self.hour, w)
-        w.write(":")
-        _write_2d(self.minute, w)
+        var buf = Array[Byte, 8](uninitialized=True)
+        var n = _format_offset_buf(self, buf.unsafe_ptr(), 0)
+        w.write_string(
+            StringSpan(
+                unsafe_from_utf8=Span(unsafe_ptr=buf.unsafe_ptr(), length=n)
+            )
+        )
 
 
 struct Time(Equatable, TrivialRegisterPassable, Writable):
@@ -398,19 +463,13 @@ struct Time(Equatable, TrivialRegisterPassable, Writable):
         return res._val
 
     def write_to(self, mut w: Some[Writer]):
-        _write_2d(self.hour, w)
-        w.write(":")
-        _write_2d(self.minute, w)
-        w.write(":")
-        _write_2d(self.second, w)
-        if self.nanosecond > 0:
-            w.write(".")
-            var frac = self.nanosecond
-            var digits = 9
-            while digits > 1 and frac % 10 == 0:
-                frac //= 10
-                digits -= 1
-            _write_padded(frac, digits, w)
+        var buf = Array[Byte, 24](uninitialized=True)
+        var n = _format_time_buf(self, buf.unsafe_ptr(), 0)
+        w.write_string(
+            StringSpan(
+                unsafe_from_utf8=Span(unsafe_ptr=buf.unsafe_ptr(), length=n)
+            )
+        )
 
 
 @fieldwise_init
@@ -430,6 +489,10 @@ struct DateTime(Equatable, TrivialRegisterPassable, Writable):
         return res._val
 
     def write_to(self, mut w: Some[Writer]):
-        w.write(self.date, "T", self.time)
-        if not self.is_local:
-            w.write(self.offset)
+        var buf = Array[Byte, 40](uninitialized=True)
+        var n = _format_datetime_buf(self, buf.unsafe_ptr(), 0)
+        w.write_string(
+            StringSpan(
+                unsafe_from_utf8=Span(unsafe_ptr=buf.unsafe_ptr(), length=n)
+            )
+        )

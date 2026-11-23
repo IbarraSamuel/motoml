@@ -67,8 +67,10 @@ struct NodeKind(
 struct NodeFlags:
     """Bitmask attributes describing lexical or structural node properties.
 
-    Note: `CANONICAL` (on numeric scalars) and `ARRAY_OF_TABLES` (on arrays)
-    share bit 7 since they apply to disjoint `NodeKind`s.
+    Disjoint `NodeKind`s reuse upper flag bits:
+    - Bit 5: `DOTTED` (`Table`) / `SLOTTED` (`Array`)
+    - Bit 6: `DEFINED` (`Table`) / `CONTIGUOUS` (`Array`)
+    - Bit 7: `CANONICAL` (`Integer`, `Float`) / `ARRAY_OF_TABLES` (`Array`) / `INDEXED` (`Table`)
     """
 
     comptime HAS_ESCAPE: UInt8 = 1 << 0
@@ -77,27 +79,26 @@ struct NodeFlags:
     comptime INLINE: UInt8 = 1 << 3
     comptime IMPLICIT: UInt8 = 1 << 4
     comptime DOTTED: UInt8 = 1 << 5
+    comptime SLOTTED: UInt8 = 1 << 5
     comptime DEFINED: UInt8 = 1 << 6
+    comptime CONTIGUOUS: UInt8 = 1 << 6
     comptime CANONICAL: UInt8 = 1 << 7
     comptime ARRAY_OF_TABLES: UInt8 = 1 << 7
+    comptime INDEXED: UInt8 = 1 << 7
 
 
-@fieldwise_init
 struct Node(Copyable, Movable, TrivialRegisterPassable):
     """Contiguous 32-byte tape node representing a parsed TOML value or container.
 
     Nodes form an intrusive tree over the tape via `first_child`, `last_child`,
-    and `next_sibling` indices. In lazy modes (`Strict`, `Trusted`), `start`/`len`
-    and `key_start`/`key_len` reference byte slices of the source document. In
-    `Mode.Eager`, scalar payloads are packed directly into `start`/`len` (or
-    indexed into `_Store.temporals` / `_Store.array_slots`) and strings/keys live
-    in `_Store.arena`.
+    and `next_sibling` indices. `key_tag` caches the first unescaped key byte
+    for fast inline small-table filtering.
     """
 
     var kind: NodeKind
     var flags: UInt8
     var key_flags: UInt8
-    var _pad: UInt8
+    var key_tag: UInt8
     var start: UInt32
     var len: UInt32
     var key_start: UInt32
@@ -112,6 +113,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
         kind: NodeKind = NodeKind.Empty,
         flags: UInt8 = 0,
         key_flags: UInt8 = 0,
+        key_tag: UInt8 = 0,
         start: UInt32 = 0,
         len: UInt32 = 0,
         key_start: UInt32 = 0,
@@ -123,7 +125,7 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
         self.kind = kind
         self.flags = flags
         self.key_flags = key_flags
-        self._pad = 0
+        self.key_tag = key_tag
         self.start = start
         self.len = len
         self.key_start = key_start
@@ -154,12 +156,12 @@ struct Node(Copyable, Movable, TrivialRegisterPassable):
 
 
 struct KeySeg(Copyable, Movable, TrivialRegisterPassable):
-    """Borrowed key segment with byte offset, length, FNV-1a hash, and escape flag.
+    """Borrowed key segment with byte offset, length, first byte tag, and escape flag.
     """
 
     var start: UInt32
     var len: UInt32
-    var hash: UInt32
+    var first_byte: UInt8
     var has_escape: Bool
 
     @always_inline
@@ -167,10 +169,10 @@ struct KeySeg(Copyable, Movable, TrivialRegisterPassable):
         out self,
         start: UInt32 = 0,
         len: UInt32 = 0,
-        hash: UInt32 = 0,
+        first_byte: UInt8 = 0,
         has_escape: Bool = False,
     ):
         self.start = start
         self.len = len
-        self.hash = hash
+        self.first_byte = first_byte
         self.has_escape = has_escape

@@ -75,13 +75,67 @@ comptime _SCALAR_TABLE: StaticString = (
 
 
 @always_inline
-def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
-    """Fast SIMD ASCII-first UTF-8 validation.
+def _validate_utf8_non_ascii(
+    ptr: ImmPointer[Byte, _], start: Int, n: Int
+) -> Bool:
+    """Fast inline UTF-8 validation resuming into 64-byte ASCII SIMD scan as soon as ASCII returns.
+    """
+    var i = start
+    while i < n:
+        var b0 = ptr[unsafe_offset=i]
+        if b0 < 0x80:
+            i += 1
+            if i + 16 <= n:
+                var v = ptr.unsafe_load[width=16](i)
+                if not any((v & 0x80).ne(0)):
+                    return True
+            continue
+        if b0 < 0xC2:
+            return False
+        if b0 < 0xE0:
+            if i + 1 >= n:
+                return False
+            var b1 = ptr[unsafe_offset=i + 1]
+            if (b1 & 0xC0) != 0x80:
+                return False
+            i += 2
+        elif b0 < 0xF0:
+            if i + 2 >= n:
+                return False
+            var b1 = ptr[unsafe_offset=i + 1]
+            var b2 = ptr[unsafe_offset=i + 2]
+            if (b1 & 0xC0) != 0x80 or (b2 & 0xC0) != 0x80:
+                return False
+            if b0 == 0xE0 and b1 < 0xA0:
+                return False
+            if b0 == 0xED and b1 >= 0xA0:
+                return False
+            i += 3
+        elif b0 < 0xF5:
+            if i + 3 >= n:
+                return False
+            var b1 = ptr[unsafe_offset=i + 1]
+            var b2 = ptr[unsafe_offset=i + 2]
+            var b3 = ptr[unsafe_offset=i + 3]
+            if (
+                (b1 & 0xC0) != 0x80
+                or (b2 & 0xC0) != 0x80
+                or (b3 & 0xC0) != 0x80
+            ):
+                return False
+            if b0 == 0xF0 and b1 < 0x90:
+                return False
+            if b0 == 0xF4 and b1 >= 0x90:
+                return False
+            i += 4
+        else:
+            return False
+    return True
 
-    Scans 64-byte blocks for the high bit (`0x80`). Pure-ASCII blocks are
-    guaranteed valid UTF-8; when non-ASCII bytes appear, validates a bounded
-    chunk ending on a UTF-8 codepoint boundary via stdlib validation and
-    resumes the ASCII scan.
+
+@always_inline
+def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
+    """Fast SIMD ASCII-first UTF-8 validation with fast inline multi-byte decoding.
     """
     var ptr = data.unsafe_ptr()
     var n = len(data)
@@ -103,7 +157,7 @@ def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
                     return False
                 chunk_end += 1
                 cont += 1
-            if not _is_valid_utf8(data[i:chunk_end]):
+            if not _validate_utf8_non_ascii(ptr, i, chunk_end):
                 return False
             i = chunk_end
             continue
@@ -111,11 +165,11 @@ def is_valid_utf8_fast(data: Span[Byte, _]) -> Bool:
     while i + W <= n:
         var v = ptr.unsafe_load[width=W](i)
         if any((v & 0x80).ne(0)):
-            return _is_valid_utf8(data[i:])
+            return _validate_utf8_non_ascii(ptr, i, n)
         i += W
     while i < n:
         if ptr[unsafe_offset=i] >= 0x80:
-            return _is_valid_utf8(data[i:])
+            return _validate_utf8_non_ascii(ptr, i, n)
         i += 1
     return True
 
@@ -167,10 +221,10 @@ def skip_comment(data: Span[Byte, _], mut idx: Int) -> Bool:
     while idx + W <= n:
         var v = ptr.unsafe_load[width=W](idx)
         var stop = v.lt(0x20) | v.eq(0x7F)
-        var mask = pack_bits(stop)
-        if not mask:
+        if not any(stop):
             idx += W
             continue
+        var mask = pack_bits(stop)
         idx += Int(count_trailing_zeros(mask))
         var b = ptr[unsafe_offset=idx]
         if b == NewLine:
@@ -209,6 +263,10 @@ def skip_whitespace_and_comments[
     """Advance `idx` through whitespace, newlines, and comments."""
     var ptr = data.unsafe_ptr()
     var n = len(data)
+    if idx < n:
+        var first = ptr[unsafe_offset=idx]
+        if first > 0x20 and first != Comment:
+            return True
     while idx < n:
         var b = ptr[unsafe_offset=idx]
         if b == Space or b == Tab or b == NewLine:
