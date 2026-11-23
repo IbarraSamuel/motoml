@@ -62,6 +62,10 @@ test-reflection = { cmd = "uv run mojo test_reflection.mojo", cwd = "tests", dep
     "package",
     "move-to-test",
 ] }
+test-reflection-serde = { cmd = "uv run mojo test_reflection_serde.mojo", cwd = "tests", depends-on = [
+    "package",
+    "move-to-test",
+] }
 test-comptime = { cmd = "uv run mojo test_comptime.mojo", cwd = "tests", depends-on = [
     "package",
     "move-to-test",
@@ -76,6 +80,7 @@ tests = { depends-on = [
     "test-strict-spec",
     "test-views-and-types",
     "test-reflection",
+    "test-reflection-serde",
     "test-comptime",
     "test-toml-suite",
 ] }

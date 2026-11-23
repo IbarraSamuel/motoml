@@ -1,7 +1,7 @@
 """Generic (non-bench-corpus) benchmarks: UTF-8, multiline/comments, query & decode."""
 
 from std.time import perf_counter_ns
-from motoml import parse_toml, Mode, Kind
+from motoml import parse_toml, to_toml, toml_attr, Mode, Kind
 
 
 def make_utf8_heavy_doc(n_entries: Int) -> String:
@@ -63,6 +63,17 @@ struct ZeroCopyBenchConfig[origin: ImmOrigin](Movable):
     var port: Int
     var ratio: Float64
     var enabled: Bool
+
+
+@__annotation(toml_attr.kebab_case, toml_attr.deny_unknown_fields)
+@fieldwise_init
+struct AnnotatedBenchConfig(Movable):
+    var bind_host: String
+
+    @__annotation(toml_attr.default(8080))
+    var bind_port: Int
+    var sample_ratio: Float64
+    var tls_enabled: Bool
 
 
 def bench_parse(name: String, content: String, runs: Int = 15) raises:
@@ -299,6 +310,44 @@ def bench_lookup_and_decode() raises:
         if dt < best_zc_refl_ns:
             best_zc_refl_ns = dt
 
+    var ann_src = (
+        'bind-host = "localhost"\nsample-ratio = 0.75\ntls-enabled = true\n'
+    )
+    var best_ann_refl_ns = Int(1 << 60)
+    for _ in range(15):
+        var t0 = perf_counter_ns()
+        var acc = 0
+        for _ in range(100):
+            var d = parse_toml[Mode.Strict](ann_src)
+            var c = d.take[AnnotatedBenchConfig]()
+            acc += c.bind_port
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_ann_refl_ns:
+            best_ann_refl_ns = dt
+
+    var ser_cfg = AnnotatedBenchConfig(
+        bind_host="localhost",
+        bind_port=8080,
+        sample_ratio=0.75,
+        tls_enabled=True,
+    )
+    var best_to_toml_ns = Int(1 << 60)
+    for _ in range(15):
+        var t0 = perf_counter_ns()
+        var acc = 0
+        for _ in range(100):
+            var s = to_toml(ser_cfg)
+            acc += s.byte_length()
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_to_toml_ns:
+            best_to_toml_ns = dt
+
     print(
         "Lazy lookup_4k:",
         Float64(best_lazy_lookup_ns) / 4000.0,
@@ -331,6 +380,13 @@ def bench_lookup_and_decode() raises:
         Float64(best_zc_refl_ns) / 100.0,
         "ns/call | Eager:",
         Float64(best_refl_eager_ns) / 100.0,
+        "ns/call",
+    )
+    print(
+        "Annotated kebab+default+deny_unknown (parse+take):",
+        Float64(best_ann_refl_ns) / 100.0,
+        "ns/call | Struct to_toml():",
+        Float64(best_to_toml_ns) / 100.0,
         "ns/call",
     )
 
