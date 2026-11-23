@@ -53,6 +53,7 @@ struct GpuTomlParser(Movable, not RegisterPassable):
     var has_unified_memory: Bool
 
     var byte_cap: Int
+    var arena_cap: Int
     var block_cap: Int
     var tok_cap: Int
     var node_word_cap: Int
@@ -97,18 +98,20 @@ struct GpuTomlParser(Movable, not RegisterPassable):
         var b_cap = max(
             64 * 1024, align_up(initial_capacity_bytes, GPU_BYTES_PER_BLOCK)
         )
+        var ar_cap = 4096
         var blk_cap = max(16, ceildiv(b_cap, GPU_BYTES_PER_BLOCK))
         var th_cap = blk_cap * GPU_BLOCK_THREADS
-        var t_cap = max(16 * 1024, b_cap // 2)
-        var nw_cap = max(16 * 1024, (b_cap // 12) * 8)
+        var t_cap = max(16 * 1024, b_cap // 8)
+        var nw_cap = 4096
 
         self.byte_cap = b_cap
+        self.arena_cap = ar_cap
         self.block_cap = blk_cap
         self.tok_cap = t_cap
         self.node_word_cap = nw_cap
 
         self.d_input = self.ctx.enqueue_create_buffer[DType.uint8](b_cap)
-        self.d_arena = self.ctx.enqueue_create_buffer[DType.uint8](b_cap)
+        self.d_arena = self.ctx.enqueue_create_buffer[DType.uint8](ar_cap)
         self.d_thread_fst = self.ctx.enqueue_create_buffer[DType.uint64](th_cap)
         self.d_block_lo = self.ctx.enqueue_create_buffer[DType.uint32](blk_cap)
         self.d_block_hi = self.ctx.enqueue_create_buffer[DType.uint32](blk_cap)
@@ -183,11 +186,11 @@ struct GpuTomlParser(Movable, not RegisterPassable):
     def _ensure_input_capacity(mut self, n_bytes: Int) raises:
         var changed = False
         if n_bytes > self.byte_cap:
-            var new_cap = align_up(
-                max(n_bytes, self.byte_cap * 2), GPU_BYTES_PER_BLOCK
+            var grow_b = (
+                self.byte_cap * 2 if n_bytes < 64 * 1024 * 1024 else n_bytes
             )
+            var new_cap = align_up(max(n_bytes, grow_b), GPU_BYTES_PER_BLOCK)
             self.d_input = self.ctx.enqueue_create_buffer[DType.uint8](new_cap)
-            self.d_arena = self.ctx.enqueue_create_buffer[DType.uint8](new_cap)
             if not self.has_unified_memory:
                 self.h_staging_in = self.ctx.enqueue_create_host_buffer[
                     DType.uint8
@@ -197,7 +200,10 @@ struct GpuTomlParser(Movable, not RegisterPassable):
 
         var req_blocks = max(1, ceildiv(n_bytes, GPU_BYTES_PER_BLOCK))
         if req_blocks > self.block_cap:
-            var new_bcap = max(req_blocks, self.block_cap * 2)
+            var grow_blk = (
+                self.block_cap * 2 if req_blocks < 16384 else req_blocks
+            )
+            var new_bcap = max(req_blocks, grow_blk)
             self.d_thread_fst = self.ctx.enqueue_create_buffer[DType.uint64](
                 new_bcap * GPU_BLOCK_THREADS
             )
@@ -230,7 +236,7 @@ struct GpuTomlParser(Movable, not RegisterPassable):
             self.block_cap = new_bcap
             changed = True
 
-        var min_toks = max(16 * 1024, n_bytes // 2)
+        var min_toks = max(16 * 1024, n_bytes // 8)
         if min_toks > self.tok_cap:
             self._grow_token_buffers(min_toks)
             changed = True
@@ -239,7 +245,10 @@ struct GpuTomlParser(Movable, not RegisterPassable):
             self.ctx.synchronize()
 
     def _grow_token_buffers(mut self, req_toks: Int) raises:
-        var new_tcap = max(req_toks, self.tok_cap * 2)
+        var doubled = (
+            self.tok_cap * 2 if req_toks < 32 * 1024 * 1024 else req_toks
+        )
+        var new_tcap = max(req_toks, doubled)
         self.d_tokens = self.ctx.enqueue_create_buffer[DType.uint32](new_tcap)
         if not self.has_unified_memory:
             self.h_staging_toks = self.ctx.enqueue_create_host_buffer[
@@ -367,9 +376,9 @@ struct GpuTomlParser(Movable, not RegisterPassable):
                 var st_ptr = self.d_status.unsafe_host_ptr()
                 if st_ptr[unsafe_offset=STATUS_OVERFLOW] != 0:
                     var needed = (
-                        Int(st_ptr[unsafe_offset=STATUS_TOK_COUNT]) + 1024
+                        Int(st_ptr[unsafe_offset=STATUS_TOK_COUNT]) + 65536
                     )
-                    self._grow_token_buffers(max(needed, n_bytes))
+                    self._grow_token_buffers(needed)
                     self.ctx.synchronize()
                     continue
                 if (
@@ -428,8 +437,8 @@ struct GpuTomlParser(Movable, not RegisterPassable):
                 self.ctx.synchronize()
 
                 if h_st[STATUS_OVERFLOW] != 0:
-                    var needed = Int(h_st[STATUS_TOK_COUNT]) + 1024
-                    self._grow_token_buffers(max(needed, n_bytes))
+                    var needed = Int(h_st[STATUS_TOK_COUNT]) + 65536
+                    self._grow_token_buffers(needed)
                     self.ctx.synchronize()
                     continue
                 if h_st[STATUS_UTF8_ERR] != 0 or h_st[STATUS_LEX_ERR] != 0:
@@ -516,18 +525,30 @@ struct GpuTomlParser(Movable, not RegisterPassable):
 
         var nodes, key_index, array_slots = tape^.into_parts()
         var req_words = n_nodes * 8
+        var mat_changed = False
         if req_words > self.node_word_cap:
             var new_nw = max(req_words, self.node_word_cap * 2)
             self.d_node_words = self.ctx.enqueue_create_buffer[DType.uint32](
                 new_nw
             )
             self.node_word_cap = new_nw
+            mat_changed = True
+
+        if src_len > self.arena_cap:
+            var new_ar = align_up(
+                max(src_len, self.arena_cap * 2), GPU_BYTES_PER_BLOCK
+            )
+            self.d_arena = self.ctx.enqueue_create_buffer[DType.uint8](new_ar)
+            self.arena_cap = new_ar
+            mat_changed = True
+
+        if mat_changed:
             self.ctx.synchronize()
 
         self._ensure_input_capacity(src_len)
 
         var t_src = TileTensor(self.d_input, row_major((self.byte_cap,)))
-        var t_arena = TileTensor(self.d_arena, row_major((self.byte_cap,)))
+        var t_arena = TileTensor(self.d_arena, row_major((self.arena_cap,)))
         var t_nw = TileTensor(
             self.d_node_words, row_major((self.node_word_cap,))
         )
