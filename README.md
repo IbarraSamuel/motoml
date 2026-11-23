@@ -14,11 +14,13 @@ Fast, spec-compliant TOML 1.1 parser and view API for Mojo.
 
 - **Full TOML 1.1 Compliance**: Passes all 712 official `toml-test` 1.1.0 cases in both `Mode.Strict` and `Mode.Eager`, and all 218 valid cases in `Mode.Trusted`.
 - **Idiomatic Error Handling**:
-  - `parse_toml` / `parse_toml_file` raise directly with `line:col` diagnostics.
-  - `try_parse_toml` returns a linear `Result` for compile-time parsing (`comptime`) or branch-based error handling.
-- **Single 32-Byte `Toml` View API**:
+  - `parse_toml` / `parse_toml_file` raise directly with `line:col` diagnostics; `take[T]()` errors include full field/index paths and `line:col` locations.
+  - `try_parse_toml`, `try_take`, and `try_to_toml` return a linear `Result` for compile-time (`comptime`) serde or branch-based error handling.
+- **Single 32-Byte `Toml` View & Full Bidirectional Serde**:
   - **Unchecked fast cast**: `val[Kind.Integer]`, `val[Kind.String]`, and zero-copy `val[Kind.Str]` (`StringSpan`, aborts on missing/mismatch).
-  - **Checked extraction & compile-time reflection**: `val.take[Int]()`, fixed-width integers (`Int8`..`Int64`, `UInt8`..`UInt64`, `Float32`), zero-copy `val.take[StringSpan[origin]]()`, `val.take[List[T]]()`, `val.take[MyStruct]()`, `val.take[OneOf[...]]()`, `val.take[*Ts]()`, and single-payload `__union` types.
+  - **Checked extraction & compile-time reflection (`take[T]()`)**: `Int` / fixed-width integers (`Int8`..`Int64`, `UInt8`..`UInt64`, `Float32`), zero-copy `StringSpan[origin]`, `List[T]`, `Array[T, N]`, `Tuple[*Ts]`, `Set[T]`, `Dict[K, V]`, `Optional[T]`, `OneOf[...]`, `take[*Ts]()`, fieldless `__enum`s, untagged / externally / internally / adjacently tagged `__union`s, and Mojo structs.
+  - **Zero-cost `@__annotation` schema customization (`toml_attr`)**: `kebab_case` / `rename_all(style)`, `rename`, `alias`, `default`, `default_init`, `skip`, `skip_if_empty`, `deny_unknown_fields`, `flatten` (nested structs & catch-all `Dict`), and union `tag` / `content`.
+  - **High-throughput TOML 1.1 serialization (`to_toml` / `write_toml`)**: Two-pass buffered serializer emitting idiomatic TOML keys, `[sections]`, and `[[array_of_tables]]`.
   - **Zero-allocation iteration & streaming**: `eager_items()`, `items_span()`, `eager_keys()`, `keys_span()`, `write_string_to(w)`, and `write_key_to(w)` alongside `items()` and `keys()`.
   - **Exact temporals**: `Date`, `Time` (with exact integer `nanosecond` precision), `Offset`, and `DateTime`.
   - **First-class containers**: `TomlTable` and `TomlArray` with O(1) table lookup and O(1) flat array indexing across all modes (`doc["server"]["port"][Kind.Integer]`, `doc["users"][0]["name"][Kind.Str]`).
@@ -193,6 +195,41 @@ def main() raises:
     print("Matched Int:", port_or_addr.isa[Int]())
 ```
 
+### Schema Annotations (`toml_attr`) & TOML Serialization (`to_toml`, `write_toml`)
+
+Customize struct/enum/union reflection with zero runtime overhead via `@__annotation` and serialize Mojo values back to spec-compliant TOML 1.1:
+
+```mojo
+from std.collections import Dict
+from motoml import parse_toml, to_toml, toml_attr
+
+@__annotation(toml_attr.kebab_case)
+__enum LogLevel(Copyable, Writable):
+    case debug
+    case warn_only
+
+@__annotation(toml_attr.kebab_case, toml_attr.deny_unknown_fields)
+@fieldwise_init
+struct ServerManifest(Movable):
+    var service_name: String
+    @__annotation(toml_attr.default(8080), toml_attr.alias("port"))
+    var bind_port: UInt16
+    @__annotation(toml_attr.default(LogLevel.warn_only))
+    var log_level: LogLevel
+    var feature_flags: Dict[String, Bool]
+
+def main() raises:
+    var raw = """
+    service-name = "edge-proxy"
+    port = 9443
+
+    [feature-flags]
+    http3 = true
+    """
+    var manifest = parse_toml(raw).take[ServerManifest]()
+    print(to_toml(manifest))
+```
+
 ### Exact Temporals (`Date`, `Time`, `DateTime`)
 
 RFC 3339 / TOML 1.1 dates, times (with nanosecond precision), and offset/local datetimes map to first-class `Date`, `Time`, and `DateTime` structs:
@@ -315,7 +352,8 @@ def main() raises:
 | `val[Kind.Boolean]` | `Bool` | Unchecked `Bool` |
 | `val[Kind.Date]` / `Time` / `DateTime` | `Date` / `Time` / `DateTime` | Unchecked temporal value |
 | `val[Kind.Table]` / `val[Kind.Array]` | `TomlTable` / `TomlArray` | Narrow view to typed table or array wrapper |
-| `val.take[T]()` | `T` | Checked extraction / reflection into scalar, fixed-width int/float, `StringSpan`, temporal, container, `List`, `Optional`, `OneOf`, `__union`, or struct `T` |
+| `val.take[T]()` / `val.try_take[T]()` | `T` / `Result[T]` | Checked extraction into scalar, fixed-width int/float, `StringSpan`, temporal, `List`, `Array`, `Tuple`, `Set`, `Dict`, `Optional`, `OneOf`, `__enum`, `__union`, or struct `T` |
+| `to_toml(v)` / `write_toml(v, w)` / `try_to_toml(v)` | `String` / `None` / `Result[String]` | Serialize a struct, `Dict`, or table-valued `__union` to TOML 1.1 |
 | `val.string_span()` / `val.key_span()` | `Optional[StringSpan]` | Zero-copy borrowed UTF-8 span if contiguous (always available in `Mode.Eager`) |
 | `val.key()` / `val.key_str()` | `String` / `StringSpan` | Decoded node key (`key_str()` zero-copy in `Mode.Eager`) |
 | `val.write_string_to(w)` / `write_key_to(w)` | `None raises` | Stream decoded string or key directly to `Writer` without heap allocation |
@@ -343,10 +381,12 @@ src/
 │   ├── decode.mojo      # Unified scalar & string escape validators/decoders
 │   └── reader.mojo      # Stateful flat-tape parser with cold line:col errors
 └── types/               # Public value types, views, ownership, and codecs
+    ├── attr.mojo        # Schema annotations (toml_attr, CaseStyle)
     ├── kind.mojo        # KindTag and compile-time Kind tokens
     ├── tempo.mojo       # Date, Time (nanosecond), Offset, DateTime
     ├── one_of.mojo      # Reflectable Variant wrapper (OneOf)
-    ├── reflection.mojo  # Struct/union/variant reflection helpers
+    ├── reflection.mojo  # Struct/tuple/array/union/dict & error-path helpers
+    ├── ser.mojo         # Buffered two-pass TOML 1.1 serializer (to_toml, write_toml)
     ├── store.mojo       # Backing store and arena writer
     ├── json.mojo        # SIMD JSON escaping and tagged JSON streaming
     ├── view.mojo        # Toml, TomlTable, TomlArray, and iterators

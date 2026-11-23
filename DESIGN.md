@@ -57,8 +57,10 @@ flowchart TD
 | `src/types/tempo.mojo` | RFC 3339 / TOML 1.1 `Date`, nanosecond `Time`, `Offset`, `DateTime`, and 2-digit LUT formatters |
 | `src/types/store.mojo` | Document backing `_Store` (`KeyIndex`, `arena`, `array_slots`, `temporals`) |
 | `src/types/document.mojo` | Owning `TomlDocument[mode, origin]` and single-pass in-place `_materialize` |
-| `src/types/view.mojo` | 32-byte `Toml`, `TomlTable`, `TomlArray`, iterators, and `take[T]()` reflection engine |
-| `src/types/reflection.mojo` | Trait helpers and partial-struct destruction (`_destroy_partial_struct`) |
+| `src/types/view.mojo` | 32-byte `Toml`, `TomlTable`, `TomlArray`, iterators, and `take[T]()` / `try_take[T]()` reflection engine |
+| `src/types/attr.mojo` | `@__annotation` schema metadata (`toml_attr`, `CaseStyle`) and compile-time case/attribute folding |
+| `src/types/reflection.mojo` | Container/union trait helpers, partial destruction, and cold-path `line:col` + path error builders |
+| `src/types/ser.mojo` | 4 KB stack-buffered two-pass TOML 1.1 serializer (`to_toml`, `write_toml`, `try_to_toml`) |
 | `src/types/one_of.mojo` | Reflectable `OneOf[*Ts]` wrapper over `Variant[*Ts]` |
 | `src/types/json.mojo` | 4 KB stack-buffered `_JsonBufWriter` and SIMD JSON escaping |
 
@@ -170,15 +172,25 @@ $$\text{last\_child} - \text{first\_child} == \text{len} - 1 \implies c_i == \te
 
 ---
 
-## 6. Compile-Time Reflection (`take[T]()`)
+## 6. Compile-Time Reflection (`take[T]()`, `toml_attr`, & `to_toml()`)
 
-`Toml.take[T]()` uses Mojo's compile-time `reflect[T]` primitives to deserialize tables, arrays, and scalars directly into typed Mojo values:
+`Toml.take[T]()` and `to_toml()` use Mojo's compile-time `reflect[T]` and `@__annotation` primitives to map bidirectionally between TOML 1.1 and typed Mojo values:
 
+- **Zero-Cost Compile-Time Schema Folding (`src/types/attr.mojo`)**:
+  - `toml_attr.rename(...)` and `toml_attr.rename_all(style)` (`CaseStyle.kebab`, `.camel`, `.pascal`, `.snake`, `.screaming_snake`, `.screaming_kebab`) compute effective `StaticString` key and case names **entirely at compile time** via `get_static_string`, adding **0 ns** of runtime overhead over plain struct reflection.
+  - `toml_attr.deny_unknown_fields` exploits injective field-to-node matching to verify table exhaustiveness in **O(1) (a single integer comparison)** on valid tables across `Strict`, `Eager`, and `Trusted`, scanning keys only on the cold failure path.
+  - Supports `toml_attr.alias(...)`, `toml_attr.default(...)`, `toml_attr.default_init`, `toml_attr.skip`, `toml_attr.skip_if_empty`, `toml_attr.flatten` (both nested structs and catch-all `Dict[K, V]`), and union `toml_attr.tag(...)` / `toml_attr.content(...)`.
 - **Sequential Sibling Cursor Hint (`_get_field[NAME](hint_idx)`)**:
-  - `_take_struct[T]` initializes `var hint_idx = self._node().first_child`.
+  - `_take_struct_impl[T]` initializes `var hint_idx = self._node().first_child`.
   - For each reflected struct field `NAME` (with compile-time `NAME_LEN = NAME.byte_length()`), `_get_field` first inspects `nodes_ptr[hint_idx]`: if unescaped and `key_len == NAME_LEN` and `_bytes_equal(..., NAME_LEN)` (which constant-folds into a single 32-bit/64-bit load+compare for typical field names), it advances `hint_idx = cnode.next_sibling` and returns in **O(1) with zero hashing**.
-  - If an `Optional` field is absent in the TOML table, `find_by_bytes` returns `NO_NODE` *without* clobbering `hint_idx`, so `hint_idx` remains aligned on the very next in-order field! If fields appear out of order, `find_by_bytes` locates the field and re-synchronizes `hint_idx = found.next_sibling`.
-- **Exception-Safe Partial Cleanup**: Struct fields are written into `MaybeUninit[T]`. If field `fi` fails validation or is missing, `_destroy_partial_struct[T](storage, fi)` destroys fields `0 .. fi - 1` in reverse order before propagating the `Error`, preventing memory leaks on partially constructed structs or backtracking `OneOf` / `__union` / `Variant` arms.
+  - If an `Optional` or defaulted field is absent in the TOML table, `find_by_bytes` returns `NO_NODE` *without* clobbering `hint_idx`, so `hint_idx` remains aligned on the very next in-order field! If fields appear out of order, `find_by_bytes` locates the field and re-synchronizes `hint_idx = found.next_sibling`.
+- **Container & Sum-Type Coverage**:
+  - Supports `List[T]`, fixed-size `Array[T, N]`, heterogeneous `Tuple[*Ts]`, `Set[T]`, `Dict[String | StringSpan | __enum, V]`, `Optional[T]`, `OneOf[*Ts]`, fieldless `__enum`s, and unit / single-payload / multi-payload `__union`s (untagged, externally tagged, internally tagged, and adjacently tagged).
+- **Exception-Safe Partial Cleanup & Cold-Path Diagnostics**:
+  - Structs, `Tuple`s, and `Array`s initialize into `MaybeUninit[T]` and run reverse-order `unsafe_deinit_pointee` on `0 .. i - 1` if element/field `i` fails.
+  - Cold-path error handlers (`@inline(.never)`) splice field, dict-key, and `[index]` segments with 1-based source `(line:col)` locations (e.g. `TOML take error at routes[1].port (8:8): ...`) with zero hot-path overhead.
+- **Two-Pass Stack-Buffered Serializer (`src/types/ser.mojo`)**:
+  - `write_toml` / `to_toml` stream through `_JsonBufWriter` (4 KB stack buffer, SIMD escaping including `0x7F` DEL, `_DIGIT_PAIRS` integer/temporal formatting), emitting inline scalars/arrays (and empty `key = []` table arrays) in Pass 1 before `[section]` and `[[array_of_tables]]` headers in Pass 2 (~160 ns/call).
 
 ---
 
