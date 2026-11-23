@@ -454,6 +454,63 @@ pixi run bench-generic
 
 ---
 
+---
+
+## Python Package
+
+`motoml` is also exposed as a root Python package backed by a native Mojo CPython extension (`python/motoml/_motoml.so`), built automatically via Hatchling (`hatch_build.py`).
+
+### Installation
+
+By default, the Python package only depends on **`mojo-compiler`**. Install the optional **`[max]`** (or **`[gpu]`**) extra to enable `GpuTomlParser`:
+
+```bash
+# CPU-only (mojo-compiler only)
+python -m pip install .
+
+# With MAX GPU acceleration (mojo-compiler + max-core)
+python -m pip install ".[max]"
+
+# Or with uv (local development & pytest)
+uv sync --no-install-project --group dev --group test
+uv run --no-build-isolation --reinstall-package motoml --group dev --group test pytest
+
+# With MAX GPU support in uv
+uv sync --no-install-project --extra max --group dev --group test
+uv run --no-build-isolation --reinstall-package motoml --extra max --group dev --group test pytest
+```
+
+### Python Quickstart
+
+```python
+import decimal
+import motoml
+
+# 1. Drop-in `tomllib`-compatible API (accepts str, bytes, bytearray; GIL-released parsing)
+data = motoml.loads('title = "motoml"\nprice = 19.99\n', parse_float=decimal.Decimal)
+cfg = motoml.load_file("config.toml")  # zero-copy mmap in Mojo
+
+# 2. Lazy native document & views (O(1) lookups without materializing the full dict)
+doc = motoml.parse_file("config.toml")
+port = doc["server"]["port"]       # native int
+server_dict = doc["server"].to_dict()
+tagged_json = doc.to_json()
+
+# 3. Spec-compliant TOML 1.1 serialization
+text = motoml.dumps({"server": {"host": "127.0.0.1", "port": 8080}})
+
+# 4. Fast validation & tagged JSON (100% Mojo, GIL released)
+motoml.validate(text)
+json_str = motoml.to_tagged_json(text)
+
+# 5. Optional MAX GPU acceleration (when installed with `motoml[max]`)
+if motoml.has_gpu():
+    gpu = motoml.GpuTomlParser()
+    docs = gpu.parse_batch(['a = 1\n', 'b = 2\n'])
+```
+
+---
+
 ## License
 
 This project is licensed under the Apache 2.0 License.

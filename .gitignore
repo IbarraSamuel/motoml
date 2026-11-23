@@ -2,10 +2,21 @@
 .pixi/*
 !.pixi/config.toml
 kgen.trace*
-stdin_parser
-motoml
-motoml_debug
+/stdin_parser
+/motoml
+/motoml_debug
 tests/motoml.mojoc
 tests/motoml_gpu.mojoc
 .DS_Store
 tests/bench_data/
+
+# Python build & test artifacts
+.venv/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+python/motoml/_motoml.so
