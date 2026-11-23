@@ -58,6 +58,13 @@ struct BenchConfig(Movable):
     var enabled: Bool
 
 
+struct ZeroCopyBenchConfig[origin: ImmOrigin](Movable):
+    var host: StringSpan[Self.origin]
+    var port: Int
+    var ratio: Float64
+    var enabled: Bool
+
+
 def bench_parse(name: String, content: String, runs: Int = 15) raises:
     var mb = Float64(content.byte_length()) / 1e6
 
@@ -204,7 +211,45 @@ def bench_lookup_and_decode() raises:
         var dt = Int(t1 - t0)
         if dt < best_eager_arr_ns:
             best_eager_arr_ns = dt
-    var _ = len(lazy_arr_v)
+
+    var best_lazy_arr_ns = Int(1 << 60)
+    for _ in range(15):
+        var acc = 0
+        var t0 = perf_counter_ns()
+        for i in range(2000):
+            acc += lazy_arr_v[i][Kind.Integer]
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_lazy_arr_ns:
+            best_lazy_arr_ns = dt
+
+    var best_alloc_items_ns = Int(1 << 60)
+    for _ in range(15):
+        var acc = 0
+        var t0 = perf_counter_ns()
+        for k, v in eager_doc.items():
+            acc += k.byte_length() + v[Kind.Integer]
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_alloc_items_ns:
+            best_alloc_items_ns = dt
+
+    var best_eager_items_ns = Int(1 << 60)
+    for _ in range(15):
+        var acc = 0
+        var t0 = perf_counter_ns()
+        for k, v in eager_doc.eager_items():
+            acc += k.byte_length() + v[Kind.Integer]
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_eager_items_ns:
+            best_eager_items_ns = dt
 
     var cfg_src = (
         'host = "localhost"\nport = 8080\nratio = 0.75\nenabled = true\n'
@@ -239,6 +284,21 @@ def bench_lookup_and_decode() raises:
         if dt < best_refl_eager_ns:
             best_refl_eager_ns = dt
 
+    var best_zc_refl_ns = Int(1 << 60)
+    for _ in range(15):
+        var t0 = perf_counter_ns()
+        var acc = 0
+        for _ in range(100):
+            var d = parse_toml[Mode.Strict](cfg_src)
+            var c = d.take[ZeroCopyBenchConfig[ImmOrigin(origin_of(d))]]()
+            acc += c.port + c.host.byte_length()
+        var t1 = perf_counter_ns()
+        if acc == -1:
+            print(acc)
+        var dt = Int(t1 - t0)
+        if dt < best_zc_refl_ns:
+            best_zc_refl_ns = dt
+
     print(
         "Lazy lookup_4k:",
         Float64(best_lazy_lookup_ns) / 4000.0,
@@ -251,13 +311,24 @@ def bench_lookup_and_decode() raises:
         Float64(best_lazy_iter_ns) / 4000.0,
         "ns/entry | Eager iter:",
         Float64(best_eager_iter_ns) / 4000.0,
-        "ns/entry | Eager arr[i]:",
+        "ns/entry | Lazy arr[i]:",
+        Float64(best_lazy_arr_ns) / 2000.0,
+        "ns/elem | Eager arr[i]:",
         Float64(best_eager_arr_ns) / 2000.0,
         "ns/elem",
     )
     print(
+        "Eager items() (String):",
+        Float64(best_alloc_items_ns) / 4000.0,
+        "ns/entry | eager_items() (StringSpan):",
+        Float64(best_eager_items_ns) / 4000.0,
+        "ns/entry",
+    )
+    print(
         "Reflection (100x parse+take[Struct]) Lazy:",
         Float64(best_refl_lazy_ns) / 100.0,
+        "ns/call | Zero-copy Lazy:",
+        Float64(best_zc_refl_ns) / 100.0,
         "ns/call | Eager:",
         Float64(best_refl_eager_ns) / 100.0,
         "ns/call",

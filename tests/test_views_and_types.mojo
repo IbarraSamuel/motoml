@@ -255,10 +255,138 @@ def test_write_to_and_to_json() raises:
     assert_equal(String(lazy_doc["missing"]), "Toml(Missing)")
     assert_equal(String(lazy_doc["n"]), "Toml(42)")
     assert_equal(String(Kind.Integer), "Integer")
+    assert_equal(String(Kind.Str), "Str")
     assert_equal(String(KindTag.Table), "Table")
     assert_equal(String(Mode.Strict), "Strict")
     assert_equal(String(Mode.Eager), "Eager")
     assert_equal(String(Mode.Trusted), "Trusted")
+
+
+def test_zero_copy_str_writers_and_span_iterators() raises:
+    var long_esc = 'big = "' + ("abcde\\n" * 120) + '"\n'
+    var src = (
+        'plain = "zero-copy"\n'
+        + "lit = 'raw\\literal'\n"
+        + 'esc = "line1\\nline2\\t\\u00e9"\n'
+        + '"k\\u005fesc" = 77\n'
+        + long_esc
+    )
+    var sdoc = parse_toml[Mode.Strict](src)
+    var edoc = parse_toml[Mode.Eager](src)
+    var tdoc = parse_toml[Mode.Trusted](src)
+
+    # Kind.Str zero-copy casts & checks
+    assert_true(sdoc["plain"].is_kind[Kind.Str]())
+    assert_true(sdoc["lit"].is_kind[Kind.Str]())
+    assert_false(sdoc["esc"].is_kind[Kind.Str]())
+    assert_true(edoc["esc"].is_kind[Kind.Str]())
+    assert_true(sdoc["plain"].kind() == Kind.Str)
+    assert_true(Kind.Str == sdoc["plain"].kind())
+    assert_false(Kind.Str == Kind.String)
+
+    assert_equal(sdoc["plain"][Kind.Str], "zero-copy")
+    assert_equal(sdoc["lit"][Kind.Str], "raw\\literal")
+    assert_equal(tdoc["plain"][Kind.Str], "zero-copy")
+    assert_equal(edoc["plain"][Kind.Str], "zero-copy")
+    assert_equal(edoc["esc"][Kind.Str], "line1\nline2\t\u00e9")
+    assert_equal(edoc["esc"].as_str(), "line1\nline2\t\u00e9")
+
+    # key(), key_str(), write_string_to(), write_key_to()
+    assert_equal(sdoc["k_esc"].key(), "k_esc")
+    assert_equal(edoc["k_esc"].key_str(), "k_esc")
+
+    var buf = String()
+    sdoc["esc"].write_string_to(buf)
+    assert_equal(buf, "line1\nline2\t\u00e9")
+
+    var kbuf = String()
+    sdoc["k_esc"].write_key_to(kbuf)
+    assert_equal(kbuf, "k_esc")
+
+    var big_buf = String()
+    sdoc["big"].write_string_to(big_buf)
+    assert_equal(big_buf.byte_length(), 6 * 120)
+
+    var bad_trusted = parse_toml[Mode.Trusted]('bad = "oops\\q"\n')
+    var err_buf = String()
+    with assert_raises():
+        bad_trusted["bad"].write_string_to(err_buf)
+
+    # Zero-allocation span iterators (items_span, keys_span, eager_items, eager_keys)
+    var span_hits = 0
+    var span_misses = 0
+    for k_opt, val in sdoc.items_span():
+        assert_true(Bool(val))
+        if k_opt:
+            span_hits += 1
+        else:
+            span_misses += 1
+    assert_equal(span_hits, 4)
+    assert_equal(span_misses, 1)
+
+    var kspan_count = 0
+    for _ in sdoc.keys_span():
+        kspan_count += 1
+    assert_equal(kspan_count, 5)
+
+    var eager_keys_out = List[String]()
+    for ks in edoc.eager_keys():
+        eager_keys_out.append(String(ks))
+    assert_equal(len(eager_keys_out), 5)
+    assert_equal(eager_keys_out[3], "k_esc")
+
+    var eager_idx = 0
+    for ks, val in edoc.eager_items():
+        assert_equal(ks, eager_keys_out[eager_idx])
+        assert_true(Bool(val))
+        eager_idx += 1
+    assert_equal(eager_idx, 5)
+
+
+def test_array_indexing_and_adaptive_key_index() raises:
+    # Flat contiguous array (>8), nested small array (<=8), nested slotted array (>8), and AOT (>8)
+    var s = String("flat = [")
+    for i in range(25):
+        if i > 0:
+            s += ", "
+        s += String(i * 10)
+    s += "]\nsmall_nested = [[1, 2], [3, 4], [5, 6]]\nbig_nested = ["
+    for i in range(14):
+        if i > 0:
+            s += ", "
+        s += "[" + String(i) + ", " + String(i + 100) + "]"
+    s += "]\n"
+    for i in range(12):
+        s += "[[aot]]\nid = " + String(i) + "\n"
+    s += "[big_tbl]\n"
+    for i in range(20):
+        if i == 5:
+            s += '"k\\u005f5" = 500\n'
+        else:
+            s += "k_" + String(i) + " = " + String(i * 100) + "\n"
+
+    var ldoc = parse_toml[Mode.Strict](s)
+    var edoc = parse_toml[Mode.Eager](s)
+
+    for i in range(25):
+        assert_equal(ldoc["flat"][i][Kind.Integer], i * 10)
+        assert_equal(edoc["flat"][i][Kind.Integer], i * 10)
+
+    assert_equal(ldoc["small_nested"][2][1][Kind.Integer], 6)
+    assert_equal(edoc["small_nested"][2][1][Kind.Integer], 6)
+
+    for i in range(14):
+        assert_equal(ldoc["big_nested"][i][1][Kind.Integer], i + 100)
+        assert_equal(edoc["big_nested"][i][1][Kind.Integer], i + 100)
+
+    for i in range(12):
+        assert_equal(ldoc["aot"][i]["id"][Kind.Integer], i)
+        assert_equal(edoc["aot"][i]["id"][Kind.Integer], i)
+
+    for i in range(20):
+        var key = "k_" + String(i)
+        assert_equal(ldoc["big_tbl"][key][Kind.Integer], i * 100)
+        assert_equal(edoc["big_tbl"][key][Kind.Integer], i * 100)
 
 
 def main() raises:

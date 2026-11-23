@@ -433,5 +433,88 @@ def test_toml_file_reflection() raises:
     assert_equal(cfg.second_value, 2.5)
 
 
+struct ZeroCopyConfig[origin: ImmOrigin](Movable):
+    var host: StringSpan[Self.origin]
+    var port: UInt16
+    var workers: Int32
+    var retries: UInt8
+    var delta: Int8
+    var weight: Float32
+    var opt_tag: Optional[StringSpan[Self.origin]]
+
+
+def test_zero_copy_and_fixed_width_reflection() raises:
+    var src = """
+    host = "127.0.0.1"
+    port = 8080
+    workers = 16
+    retries = 3
+    delta = -12
+    weight = 0.5
+    """
+    var sdoc = parse_toml[Mode.Strict](src)
+    var scfg = sdoc.take[ZeroCopyConfig[ImmOrigin(origin_of(sdoc))]]()
+    assert_equal(scfg.host, "127.0.0.1")
+    assert_equal(Int(scfg.port), 8080)
+    assert_equal(Int(scfg.workers), 16)
+    assert_equal(Int(scfg.retries), 3)
+    assert_equal(Int(scfg.delta), -12)
+    assert_equal(Float64(scfg.weight), 0.5)
+    assert_false(Bool(scfg.opt_tag))
+
+    # Escaped strings borrow cleanly in Mode.Eager, and raise in lazy Mode.Strict
+    var esc_src = (
+        'host = "api\\nedge"\nport = 443\nworkers = 4\nretries = 1\ndelta ='
+        ' 0\nweight = 1.0\nopt_tag = "v\\t2"\n'
+    )
+    var edoc = parse_toml[Mode.Eager](esc_src)
+    var ecfg = edoc.take[ZeroCopyConfig[ImmOrigin(origin_of(edoc))]]()
+    assert_equal(ecfg.host, "api\nedge")
+    assert_equal(ecfg.opt_tag.value(), "v\t2")
+
+    var lazy_esc = parse_toml[Mode.Strict](esc_src)
+    with assert_raises():
+        _ = lazy_esc.take[ZeroCopyConfig[ImmOrigin(origin_of(lazy_esc))]]()
+
+    # Fixed-width integer bounds checking
+    var bounds_doc = parse_toml("neg = -1\nhuge = 70000\nbig_i8 = 200\n")
+    with assert_raises():
+        _ = bounds_doc["neg"].take[UInt16]()
+    with assert_raises():
+        _ = bounds_doc["neg"].take[UInt64]()
+    with assert_raises():
+        _ = bounds_doc["huge"].take[UInt16]()
+    with assert_raises():
+        _ = bounds_doc["big_i8"].take[Int8]()
+    assert_equal(Int(bounds_doc["huge"].take[UInt32]()), 70000)
+    assert_equal(Int(bounds_doc["neg"].take[Int64]()), -1)
+
+
+struct CursorOrderStruct(Movable):
+    var a: Int
+    var opt_b: Optional[Int]
+    var c: Int
+    var d: String
+
+
+def test_reflection_out_of_order_and_escaped_keys() raises:
+    # Out-of-order fields, extra unknown keys, absent middle Optional, and escaped key
+    var src = 'extra = 999\n"d" = "hello"\n"\\u0063" = 30\na = 10\n'
+    var sdoc = parse_toml[Mode.Strict](src)
+    var sv = sdoc.take[CursorOrderStruct]()
+    assert_equal(sv.a, 10)
+    assert_false(Bool(sv.opt_b))
+    assert_equal(sv.c, 30)
+    assert_equal(sv.d, "hello")
+
+    # In-order with absent middle Optional (hint_idx stays aligned on `c`!)
+    var in_order_src = 'a = 1\nc = 3\nd = "ok"\n'
+    var sv2 = parse_toml(in_order_src).take[CursorOrderStruct]()
+    assert_equal(sv2.a, 1)
+    assert_false(Bool(sv2.opt_b))
+    assert_equal(sv2.c, 3)
+    assert_equal(sv2.d, "ok")
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
