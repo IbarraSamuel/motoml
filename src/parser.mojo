@@ -108,19 +108,16 @@ struct TomlFile[mode: Mode = Mode.Strict](Movable, Sized, Writable):
         self.root().write_to(w)
 
 
-# --- Non-raising Result API (`try_parse_toml`) ---
-
-
 def try_parse_toml[
     mode: Mode = Mode.Strict,
 ](
     data: StringSpan,
 ) -> Result[TomlDocument[mode, data.origin]] where (
-    mode_id != 0
+    mode != Mode.Eager
 ):
     """Parse TOML text into a lazy `TomlDocument` borrowing `data`, returning `Result`.
     """
-    comptime strict = _is_strict[mode_id]()
+    comptime strict = mode != Mode.Trusted
     var bytes = data.as_bytes()
     var tape_res = _parse_tape[strict](bytes)
     if case .Err(_) = tape_res:
@@ -132,14 +129,12 @@ def try_parse_toml[
 
 
 def try_parse_toml[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id],
+    mode: Mode,
 ](
     data: StringSpan,
-) -> Result[
-    TomlDocument[Mode.Eager, ImmUntrackedOrigin]
-] where (mode_id == 0):
+) -> Result[TomlDocument[Mode.Eager, ImmUntrackedOrigin]] where (
+    mode == Mode.Eager
+):
     """Parse TOML text with `Strict` validation and materialize an owned `Mode.Eager` document.
     """
     var bytes = data.as_bytes()
@@ -158,7 +153,7 @@ def parse_toml[
 ](
     data: StringSpan,
 ) raises -> TomlDocument[mode, data.origin] where (
-    mode_id != 0
+    mode != Mode.Eager
 ):
     """Parse TOML text into a lazy `TomlDocument` borrowing `data`, raising on error.
     """
@@ -167,12 +162,12 @@ def parse_toml[
 
 @always_inline
 def parse_toml[
-    mode: Mode
+    mode: Mode,
 ](
     data: StringSpan,
-) raises -> TomlDocument[
-    Mode.Eager, ImmUntrackedOrigin
-] where (mode_id == 0):
+) raises -> TomlDocument[Mode.Eager, ImmUntrackedOrigin] where (
+    mode == Mode.Eager
+):
     """Parse TOML text strictly and materialize an owned `Mode.Eager` document, raising on error.
     """
     return try_parse_toml[Mode.Eager](data).take()
@@ -180,42 +175,36 @@ def parse_toml[
 
 def parse_toml_file[
     mode: Mode = Mode.Strict,
-](path: StringSpan) raises -> TomlFile[mode] where mode_id != 0:
-    """Parse a TOML file through a read-only memory mapping (lazy mode)."""
+](path: StringSpan) raises -> TomlFile[mode]:
+    """Parse a TOML file through a read-only memory mapping."""
     var mapped_file = MappedFile(path)
     var raw_bytes = mapped_file.bytes()
-    comptime strict = _is_strict[mode_id]()
-    var res = _parse_tape[strict](raw_bytes)
-    if case .Err(_) = res:
-        raise res^.unsafe_take_error()
-    var nodes, key_index = res^.unsafe_take_value().into_parts()
-    var untracked_bytes = Span[Byte, ImmUntrackedOrigin](
-        unsafe_ptr=raw_bytes.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmUntrackedOrigin](),
-        length=len(raw_bytes),
-    )
-    var doc = TomlDocument[mode, ImmUntrackedOrigin](
-        untracked_bytes, nodes^, _Store(key_index^), 0
-    )
-    return TomlFile[mode](doc^, Optional(mapped_file^))
-
-
-def parse_toml_file[
-    mode_id: Int,
-    //,
-    mode: _Mode[mode_id],
-](path: StringSpan) raises -> TomlFile[Mode.Eager] where mode_id == 0:
-    """Parse a TOML file strictly and materialize into an owned `Mode.Eager` document.
-    """
-    var mapped_file = MappedFile(path)
-    var raw_bytes = mapped_file.bytes()
-    var res = _parse_tape[True](raw_bytes)
-    if case .Err(_) = res:
-        raise res^.unsafe_take_error()
-    var doc = _materialize(raw_bytes, res^.unsafe_take_value())
-    _ = mapped_file^
-    return TomlFile[Mode.Eager](doc^, Optional[MappedFile](None))
+    comptime if case .Eager = mode:
+        var res = _parse_tape[True](raw_bytes)
+        if case .Err(_) = res:
+            raise res^.unsafe_take_error()
+        var doc = _materialize(raw_bytes, res^.unsafe_take_value())
+        _ = mapped_file^
+        return TomlFile[mode](
+            rebind_var[TomlDocument[mode, ImmUntrackedOrigin]](doc^),
+            Optional[MappedFile](None),
+        )
+    else:
+        comptime strict = mode != Mode.Trusted
+        var res = _parse_tape[strict](raw_bytes)
+        if case .Err(_) = res:
+            raise res^.unsafe_take_error()
+        var nodes, key_index = res^.unsafe_take_value().into_parts()
+        var untracked_bytes = Span[Byte, ImmUntrackedOrigin](
+            unsafe_ptr=raw_bytes.unsafe_ptr()
+            .unsafe_mut_cast[False]()
+            .unsafe_origin_cast[ImmUntrackedOrigin](),
+            length=len(raw_bytes),
+        )
+        var doc = TomlDocument[mode, ImmUntrackedOrigin](
+            untracked_bytes, nodes^, _Store(key_index^), 0
+        )
+        return TomlFile[mode](doc^, Optional(mapped_file^))
 
 
 def toml_to_tagged_json[
@@ -223,7 +212,7 @@ def toml_to_tagged_json[
 ](content: StringSpan) raises -> String:
     """Parse TOML text and serialize it as `toml-test` tagged JSON."""
     var out = String()
-    comptime if case .Eager = mode:
+    comptime if mode == Mode.Eager:
         var doc = parse_toml[Mode.Eager](content)
         doc.to_json(out)
     else:

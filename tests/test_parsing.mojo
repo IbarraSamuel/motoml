@@ -64,9 +64,7 @@ def test_basic_scalars_all_modes() raises:
     lit_val = 'literal string'
     """
 
-    def check[
-        mode_id: Int, //, mode: _Mode[mode_id]
-    ](doc: TomlDocument[mode, _]) raises:
+    def check[mode: Mode](doc: TomlDocument[mode, _]) raises:
         assert_equal(len(doc), 19)
         assert_equal(doc["int_dec"][Kind.Integer], 42)
         assert_equal(doc["int_neg"][Kind.Integer], -17)

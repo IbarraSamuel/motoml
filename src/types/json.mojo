@@ -20,7 +20,7 @@ from ..tape.decode import (
 )
 from ..tape.node import NO_NODE, Node, NodeFlags
 from .store import _Store
-from .tempo import Date
+from .tempo import Date, DateTime
 
 
 @always_inline
@@ -450,7 +450,7 @@ def _write_node_as_json[
                     )
         case .DateTime:
             var dt: DateTime
-            match mode:
+            comptime match mode:
                 case .Eager:
                     dt = store_ptr[].temporals[Int(node.start)]
                 case .Strict:
@@ -477,7 +477,7 @@ def _write_node_as_json[
                 if not first:
                     w.write(", ")
                 first = False
-                _write_node_as_json[mode_id](
+                _write_node_as_json[mode](
                     doc_ptr, nodes_ptr, store_ptr, curr, w
                 )
                 curr = nodes_ptr[unsafe_offset=Int(curr)].next_sibling
@@ -496,11 +496,11 @@ def _write_node_as_json[
                     unsafe_ptr=doc_ptr.unsafe_offset(Int(child_node.key_start)),
                     length=Int(child_node.key_len),
                 )
-                _write_toml_string_bytes[mode_id](
+                _write_toml_string_bytes[mode](
                     k_span, child_node.key_flags, w
                 )
                 w.write('": ')
-                _write_node_as_json[mode_id](
+                _write_node_as_json[mode](
                     doc_ptr, nodes_ptr, store_ptr, curr, w
                 )
                 curr = child_node.next_sibling

@@ -17,16 +17,28 @@ def _run_mode[mode: Mode](view: StringSpan):
         except e:
             print("DECODE_ERR:", e)
     else:
-        var res = try_parse_toml[mode](view)
-        if case .Err(_) = res:
-            print("PARSE_ERR:", res^.unsafe_take_error())
-            return
-        var doc = res^.unsafe_take_value()
-        try:
-            doc.to_json(out)
-            print(out)
-        except e:
-            print("DECODE_ERR:", e)
+        comptime if case .Strict = mode:
+            var res = try_parse_toml[Mode.Strict](view)
+            if case .Err(_) = res:
+                print("PARSE_ERR:", res^.unsafe_take_error())
+                return
+            var doc = res^.unsafe_take_value()
+            try:
+                doc.to_json(out)
+                print(out)
+            except e:
+                print("DECODE_ERR:", e)
+        else:
+            var res = try_parse_toml[Mode.Trusted](view)
+            if case .Err(_) = res:
+                print("PARSE_ERR:", res^.unsafe_take_error())
+                return
+            var doc = res^.unsafe_take_value()
+            try:
+                doc.to_json(out)
+                print(out)
+            except e:
+                print("DECODE_ERR:", e)
 
 
 def main() raises:

@@ -47,9 +47,7 @@ val = 99
 """
 
 
-def _check_all_views[
-    mode_id: Int, //, mode: _Mode[mode_id]
-](doc: Toml[_, mode]) raises:
+def _check_all_views[mode: Mode](doc: Toml[_, mode]) raises:
     # String
     assert_equal(doc["str"].kind(), KindTag.String)
     assert_true(doc["str"].kind() == Kind.String)

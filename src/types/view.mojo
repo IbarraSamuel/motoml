@@ -704,7 +704,7 @@ struct Toml[
         comptime R = KindPayload[id, Self.origin, Self.mode]
         self._check_kind_or_raise[id]()
 
-        comptime if case .Strict = Self.mode:
+        comptime if Self.mode != Mode.Trusted:
             return self._decode_kind_trusted_safe[id]()
         else:
             ref node = self._node()
@@ -831,7 +831,7 @@ struct Toml[
         if not self._matches_node_kind[id](self._node().kind):
             abort("TOML value Kind does not match requested Kind.")
 
-        comptime if case .Strict = Self.mode:
+        comptime if Self.mode != Mode.Trusted:
             return self._decode_kind_trusted_safe[id]()
         else:
             comptime R = KindPayload[id, Self.origin, Self.mode]
