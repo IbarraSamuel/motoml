@@ -41,6 +41,13 @@ mojo-compiler = "1.3.*"
 [tool.pixi.dependencies]
 mojo = "1.3.*"
 
+[tool.pixi.feature.gpu.dependencies]
+max-core = "*"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+gpu = { features = ["gpu"] }
+
 [tool.pixi.tasks]
 # Run parser reading TOML from stdin
 parser = { cmd = "uv run mojo tests/stdin_parser.mojo" }
@@ -114,3 +121,9 @@ debug_build = { cmd = "uv run mojo build stdin_parser.mojo -o ../motoml_debug -D
 ] }
 package = "uv run mojo precompile src/ -o motoml.mojoc"
 move-to-test = "mv motoml.mojoc tests/motoml.mojoc"
+
+[tool.pixi.feature.gpu.tasks]
+package-gpu-core = "mojo precompile src/ -o tests/motoml.mojoc"
+package-gpu = { cmd = "mojo precompile gpu/ -I tests -o tests/motoml_gpu.mojoc", depends-on = ["package-gpu-core"] }
+test-gpu = { cmd = "mojo test_gpu_parsing.mojo", cwd = "tests", depends-on = ["package-gpu"] }
+bench-gpu = { cmd = "mojo bench_gpu.mojo", cwd = "tests", depends-on = ["package-gpu"] }

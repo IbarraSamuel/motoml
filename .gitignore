@@ -6,5 +6,6 @@ stdin_parser
 motoml
 motoml_debug
 tests/motoml.mojoc
+tests/motoml_gpu.mojoc
 .DS_Store
 tests/bench_data/
